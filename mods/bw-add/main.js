@@ -29,6 +29,8 @@ export default class Add extends View {
   init(_props, cx) {
     /** @type {string | null} null is this Mac */
     this.machine = null;
+    // Why the chosen machine cannot take a path now ("macmini is offline"), or "" when it is ready.
+    this.waiting = "";
     this.error = "";
     this.busy = false;
     this.input = InputState.new({ placeholder: "/path/to/repository" });
@@ -50,7 +52,7 @@ export default class Add extends View {
 
   /** @param {any} cx @param {string} [picked] a folder from the picker, used instead of the typed path */
   add(cx, picked) {
-    if (this.busy) return;
+    if (this.busy || this.waiting) return;
     const machine = this.machine;
     let path = (picked ?? this.input.value()).trim();
     if (!path) return;
@@ -92,13 +94,18 @@ export default class Add extends View {
   render() {
     const t = theme();
     const local = window()?.platform === "macos" ? "This Mac" : "This computer";
-    const ready = machines().filter((m) => m.name !== null && m.layout === "ready").map((m) => /** @type {string} */ (m.name));
-    if (this.machine !== null && !ready.includes(this.machine)) this.machine = null;
-    const choices = [{ name: null, id: "local", label: local, icon: ICONS.monitor }, ...ready.map((n) => ({ name: n, id: n, label: n, icon: ICONS.server }))];
+    const all = machines();
+    // A chosen machine that drops stays chosen: its typed path is never read on another machine.
+    const shown = all.filter((m) => m.name !== null && (m.layout === "ready" || m.name === this.machine)).map((m) => /** @type {string} */ (m.name));
+    if (this.machine !== null && !shown.includes(this.machine)) shown.push(this.machine);
+    const layout = this.machine === null ? "ready" : all.find((m) => m.name === this.machine)?.layout ?? "unavailable";
+    this.waiting = layout === "ready" ? "" : layout === "loading" ? `${this.machine} is connecting…` : `${this.machine} is offline`;
+    const choices = [{ name: null, id: "local", label: local, icon: ICONS.monitor }, ...shown.map((n) => ({ name: n, id: n, label: n, icon: ICONS.server }))];
+    const blocked = this.busy || this.waiting !== "";
 
     const button = (/** @type {string} */ id, /** @type {string} */ label, /** @type {boolean} */ primary, /** @type {(cx: any) => void} */ act) =>
       div().id(id).h(30).px(12).flex().flex_none().items_center().rounded(6).text_size(12).cursor_pointer()
-        .when(primary, (el) => el.bg(this.busy ? t.raised : t.solid).text_color(this.busy ? t.dim : t.solid_foreground))
+        .when(primary, (el) => el.bg(blocked ? t.raised : t.solid).text_color(blocked ? t.dim : t.solid_foreground))
         .when(!primary, (el) => el.border(1).border_color(t.border).text_color(t.foreground).hover((s) => s.bg(t.hover)))
         .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => act(cx))
         .child(label);
@@ -113,6 +120,7 @@ export default class Add extends View {
           .when(!on, (el) => el.hover((s) => s.bg(t.hover)))
           .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => {
             if (this.machine === c.name) return;
+            if (this.waiting) this.input.set_value("");
             this.machine = c.name;
             this.error = "";
             cx.notify();
@@ -123,8 +131,8 @@ export default class Add extends View {
       .child(h_flex().gap(8).items_center()
         .child(Input.new(this.input).flex_1().h(32).px(10).items_center().rounded(6).border(1).border_color(t.input).bg(t.background).text_color(t.foreground))
         .when(this.machine === null, (el) => el.child(button("add-choose", "Choose…", false, (cx) => { if (!this.busy) this.choose(cx); }))))
-      .child(div().text_size(11.5).text_color(this.error ? t.blocked : t.dim)
-        .child(this.error || (this.machine === null ? "A folder in a Git repository on this Mac." : `An absolute path on ${this.machine}.`)))
+      .child(div().text_size(11.5).text_color(this.error || this.waiting ? t.blocked : t.dim)
+        .child(this.error || this.waiting || (this.machine === null ? "A folder in a Git repository on this Mac." : `An absolute path on ${this.machine}.`)))
       .child(h_flex().flex_1())
       .child(h_flex().justify_end().gap(8)
         .child(button("add-cancel", "Cancel", false, () => this.dismiss()))
