@@ -258,7 +258,7 @@ fn effective_value_matches_prompt_input() {
         let cwd = project.join(sub);
         let codex_home = root.join("codex-home");
 
-        let value = codex::effective(&codex_home, &cwd, profile)
+        let value = codex::effective(&codex_home, Some(&cwd), profile)
             .unwrap()
             .unwrap_or_else(|| panic!("{layout}: no value"));
         assert!(value.contains(sentinel), "{layout}: {value:?}");

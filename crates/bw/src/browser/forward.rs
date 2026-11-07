@@ -19,7 +19,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::{cdp, chrome, http, listen};
+use super::{cdp, chrome, http, listen, lock};
 use crate::chat::cache;
 use crate::hc::{self, HcError};
 use crate::machine::RUN_HELPER;
@@ -30,6 +30,8 @@ const CHECK_POLL: Duration = Duration::from_millis(250);
 const ENSURE_WAIT: Duration = Duration::from_secs(12);
 const ENSURE_POLL: Duration = Duration::from_millis(100);
 const PORT_TRIES: usize = 3;
+/// Beyond one ensure's longest wait, for its hc calls.
+const LOCK_SLACK: Duration = Duration::from_secs(5);
 const DEV_ANSWER: Duration = Duration::from_secs(3);
 const DEV_RECHECK: Duration = Duration::from_secs(10);
 const UP_POLL: Duration = Duration::from_millis(500);
@@ -493,7 +495,7 @@ fn reach(machine: &str, target: Option<&str>) -> Result<String, (&'static str, S
     }
 }
 
-enum Remote {
+pub(super) enum Remote {
     /// hc could not reach the machine; a later try may.
     Unreachable(String),
     /// The machine answered, but not with what this helper needs.
@@ -501,7 +503,7 @@ enum Remote {
 }
 
 /// One JSON line from `bw <args>` on `machine`, run by its installed helper.
-fn remote_line(machine: &str, args: &[&str]) -> Result<Value, Remote> {
+pub(super) fn remote_line(machine: &str, args: &[&str]) -> Result<Value, Remote> {
     let mut argv = vec!["sh", "-c", RUN_HELPER, "sh"];
     argv.extend_from_slice(args);
     let out = match hc::hc_exec(machine, &argv) {
@@ -729,6 +731,18 @@ fn wait_settled(path: &Path, started: &Forward) -> Forward {
 
 /// `bw browser forward ensure`: a checked browser forward to `machine`, reused when one is ready.
 pub fn ensure(machine: &str, target: Option<&str>, ssh_config: Option<&Path>) -> Forward {
+    // A second ensure for the machine would remove the first one's new terminal; it waits and reuses it.
+    let lock_path = forwards_dir().join(format!("{}.lock", slug(machine)));
+    let wait = ENSURE_WAIT * PORT_TRIES as u32 + LOCK_SLACK;
+    match lock::exclusive(&lock_path, wait) {
+        Ok(_held) => ensure_held(machine, target, ssh_config),
+        Err(e) => {
+            Forward::new(Kind::Browser, machine, target.unwrap_or(""), None).with("stopped", e)
+        }
+    }
+}
+
+fn ensure_held(machine: &str, target: Option<&str>, ssh_config: Option<&Path>) -> Forward {
     let rec = Forward::new(Kind::Browser, machine, target.unwrap_or(""), None);
     let target = match reach(machine, target) {
         Ok(t) => t,

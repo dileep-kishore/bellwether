@@ -20,7 +20,8 @@
 #   FAKE_HC_MACHINES      a file: what `machine ls` prints, else {"machines":[]}
 #   FAKE_HC_RUN_DIR       `run --bg` starts its program here in a process group of its own, keeping
 #                         <name>.pid, .argv (a JSON array) and .out; `get`, `ls`, `kill` and `rm` see those
-#                         terminals, live while the pid is
+#                         terminals, live while the pid is; `run --on` starts it in FAKE_HC_ROOT with that
+#                         as HOME, and `--rm` is accepted but leaves the files for the test to read
 # Argument shapes are the ones bw sends; anything else exits 2 so a changed call shows up in a test.
 set -u
 log=${FAKE_HC_LOG:-/dev/null}
@@ -64,18 +65,21 @@ case $cmd in
     exit 0
     ;;
   run)
-    name= cwd= bg=0 json=0
+    name= cwd= bg=0 json=0 on=
     while [ $# -gt 0 ]; do
       case $1 in
         --bg) bg=1; shift ;;
         --json) json=1; shift ;;
-        --no-parent|--no-notify) shift ;;
+        --no-parent|--no-notify|--rm) shift ;;
+        --on) on=${2:-}; shift 2 ;;
         --name) name=${2:-}; shift 2 ;;
         --cwd) cwd=${2:-}; shift 2 ;;
         --) shift; break ;;
         *) fail usage "unexpected argument $1" 2 ;;
       esac
     done
+    # With --on, hc's default folder is that machine's home.
+    if [ -n "$on" ] && [ -z "$cwd" ]; then cwd=${FAKE_HC_ROOT:?FAKE_HC_ROOT is not set}; fi
     [ "$bg" = 1 ] && [ "$json" = 1 ] && [ -n "$name" ] && [ -n "$cwd" ] && [ $# -gt 0 ] ||
       fail usage "run takes --bg --json --name --cwd -- <argv>" 2
     echo "run $name $*" >> "$log"
@@ -88,7 +92,11 @@ case $cmd in
     printf '[%s]' "$argv" > "$run_dir/$name.argv"
     # Job control gives the program its own process group, so `kill` ends it and its children together.
     set -m
-    (cd "$cwd" && exec "$@") < /dev/null > "$run_dir/$name.out" 2>&1 &
+    if [ -n "$on" ]; then
+      (cd "$cwd" && HOME=$FAKE_HC_ROOT exec "$@") < /dev/null > "$run_dir/$name.out" 2>&1 &
+    else
+      (cd "$cwd" && exec "$@") < /dev/null > "$run_dir/$name.out" 2>&1 &
+    fi
     echo $! > "$run_dir/$name.pid"
     set +m
     ran "$name"

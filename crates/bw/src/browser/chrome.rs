@@ -16,10 +16,13 @@ use serde_json::{json, Value};
 use super::cdp::{self, Cdp};
 use super::http;
 use super::listen::{self, Listener};
+use super::lock;
 
 pub const DEFAULT_PORT: u16 = 9222;
 const START_WAIT: Duration = Duration::from_secs(15);
 const CLOSE_WAIT: Duration = Duration::from_secs(10);
+/// Beyond one start's wait, for the `open` call and the probes around it.
+const LOCK_SLACK: Duration = Duration::from_secs(5);
 const POLL: Duration = Duration::from_millis(200);
 const HTTP_TIMEOUT: Duration = Duration::from_secs(2);
 const NOT_RUNNING: &str = "the Bellwether Chrome is not running";
@@ -291,8 +294,30 @@ fn find_app() -> Option<PathBuf> {
         .find(|p| p.exists())
 }
 
+/// `<profile>.up.lock` beside the profile: Chrome owns the folder itself.
+fn up_lock(profile: &Path) -> PathBuf {
+    let name = profile.file_name().unwrap_or_default().to_string_lossy();
+    profile.with_file_name(format!("{name}.up.lock"))
+}
+
 /// Reuses a checked Chrome, else starts one on the profile and waits for its port.
 pub fn up(port: u16, profile: &Path, background: bool) -> Chrome {
+    let found = probe(port, profile);
+    if found.state != "stopped" {
+        return found;
+    }
+    // The panel's Start and an agent's agent-args can both find it stopped; only one may run open.
+    let _held = match lock::exclusive(&up_lock(profile), START_WAIT + LOCK_SLACK) {
+        Ok(held) => held,
+        Err(e) => {
+            let mut c = probe(port, profile);
+            if c.state == "stopped" {
+                c.state = "start_failed";
+                c.message = e;
+            }
+            return c;
+        }
+    };
     let found = probe(port, profile);
     if found.state != "stopped" {
         return found;
