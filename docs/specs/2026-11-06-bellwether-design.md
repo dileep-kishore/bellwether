@@ -348,12 +348,14 @@ sends.
   first message with `--expect-session none --expect-path none`, which
   passes only while that kind's agent runs there in a positively fresh
   session: the agent names a session that has no log yet.
-- After Claude's `/clear` or Codex's `/new` the agent writes no log until
-  its first message, so the feed's `no_log` line names the new session.
-  The chat then drops the old rows and sends that session's first message
-  with `--expect-session <id> --expect-path none`, which passes only when a
-  fresh lookup names that session, with no log, for a live agent of that
-  kind.
+- After Codex's `/new` the agent writes no log until its first message, so
+  the feed's `no_log` line names the new session. The chat then drops the
+  old rows and sends that session's first message with `--expect-session
+  <id> --expect-path none`, which passes only when a fresh lookup names that
+  session, with no log, for a live agent of that kind. Claude 2.1.319
+  writes the new conversation's log at `/clear`, so the feed names the new
+  session with its log, the chat drops the old rows, and its next message
+  goes with the new session and that log.
 - A lookup that settles on no single conversation prints the `ambiguous`
   state, which `bw send` refuses for every expectation. This covers no
   candidate, several, or one another terminal claims, and a Codex terminal
@@ -379,8 +381,10 @@ sends.
   this window within 3 s; after keys land the helper reads the screen again
   and marks the card "uncertain" if it changed. States: pending, sending,
   answered, declined, answered in the terminal, declined in the terminal,
-  stale, uncertain. Answered and declined mean Bellwether's key or message
-  went out; a resolved card stays 10 s.
+  settling, stale, uncertain. Answered and declined mean Bellwether's key or
+  message went out; settling means the prompt left the screen and its call
+  has no result in the log yet, for at most 5 s and never answerable; a
+  resolved card stays 10 s.
 
 ## Right sidebar (`bw-right`)
 
@@ -560,10 +564,6 @@ repository.
    Approve and present after; a prompt answered in the terminal first leaves
    a stale card that presses no key; the buttons are disabled within 3 s of
    terminal focus; a Codex async question is answered as one message.
-   Conditional on the phase 3 experiment: if a background Claude
-   sub-agent's prompt never shows on the parent's screen, its card is
-   show-only and this check's background half becomes "shows under its
-   sub-agent; answered in the terminal".
    Command: `test -f` (with `hc exec --on macmini` there), `hc read` before
    and after, `herdr-app shot`.
 4. Changes equal Git, here and on macmini (reference comparison). Staged,

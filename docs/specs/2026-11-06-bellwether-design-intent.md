@@ -611,3 +611,30 @@ for this build; tests that need the Herdr window are deferred, other tests
   runs with Codex on `bwloop`; Claude on another machine is owed to a
   window run, because bwloop's core cannot read the login keychain.
   Evidence: phase 3 plan, Build environment and decision 16.
+- 2026-11-07: done check 3 keeps its background half, and the conditional
+  sentence is removed: every Claude foreground and background sub-agent
+  approval and every Codex child approval showed on the parent's screen and
+  was answered there. Original: "Conditional on the phase 3 experiment: if
+  a background Claude sub-agent's prompt never shows on the parent's
+  screen, its card is show-only and this check's background half becomes
+  "shows under its sub-agent; answered in the terminal"." Evidence:
+  `docs/research/2026-11-06-phase3-requests.md` cases (a), (b) and (e) and
+  "Consequences for the later tasks"; the Task 12 run (commit `289aff4`,
+  `scripts/verify/requests.sh --machine bwloop` 14 PASS, including
+  `claude-fg-child-approval`, `claude-bg-child-approval` and
+  `codex-child-approval`).
+- 2026-11-07: Claude 2.1.319 writes the new conversation's log at
+  `/clear`, so the chat's next message goes with the new session and its
+  log; Codex's `/new` still gives `no_log` naming the new session.
+  Original: "After Claude's `/clear` or Codex's `/new` the agent writes no
+  log until its first message, so the feed's `no_log` line names the new
+  session." Evidence: the Task 12 run (commit `289aff4`,
+  `scripts/verify/sessions.sh --machine bwloop` 39 PASS, including
+  `claude-clear-next-message` and `codex-new-next-message`).
+- 2026-11-07: a request whose prompt left the screen before its call's
+  result reached the log is `settling`, never answerable, for at most 5 s,
+  then `answered_terminal`, `declined_terminal` or `stale`. Original:
+  "States: pending, sending, answered, declined, answered in the terminal,
+  declined in the terminal, stale, uncertain." Evidence: the Task 12 run
+  (a card read `stale` for a prompt answered in the terminal when `bw
+  cards` ran before Claude logged the result); commit `36b66e6`.
