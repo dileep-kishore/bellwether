@@ -103,29 +103,18 @@ pub fn emit(
     let Ok(input) = gather_with(terminal, record, found, tree, now_ms) else {
         return;
     };
-    let mut kept = store::load(terminal);
-    let (cards, requests) = build(&input, &mut kept, now_ms);
-    kept.prune(now_ms);
-    // A store that cannot be written costs the next pass its occurrences: a box still there gets a new id.
-    let _ = store::save(terminal, &kept);
+    // A store that cannot be locked costs the next pass its occurrences: a box still there gets a new id.
+    let (cards, requests) = store::update(terminal, now_ms, |kept| build(&input, kept, now_ms))
+        .unwrap_or_else(|_| build(&input, &mut store::load(terminal), now_ms));
     out.emit_value(cards);
     for r in requests {
         out.emit_value(r);
     }
 }
 
-/// What one pass reads for terminal `t`: one `hc get`, the screen while it may show a prompt, the logs, the tree
-/// and the events.
-#[expect(
-    dead_code,
-    reason = "bw answer (phase 3 Task 9) gathers its own fresh pass"
-)]
-pub fn gather(terminal: &str, now_ms: i64) -> Result<CardsInput, LocateFailure> {
-    let (record, found) = locate::locate_with_record(terminal, now_ms, false);
-    gather_with(terminal, record.as_ref(), &found, None, now_ms)
-}
-
-/// `gather` over a lookup already made. After a `no_log` or `ambiguous` lookup the input holds the screen only.
+/// What one pass reads for terminal `t` after the lookup `found` (one `hc get`): the screen while it may show a
+/// prompt, the logs, the tree and the events. After a `no_log` or `ambiguous` lookup the input holds the screen
+/// only. `bw answer` passes a lookup made without the 30 s memory, which its guard checked first.
 pub fn gather_with(
     terminal: &str,
     record: Option<&Value>,
@@ -298,6 +287,18 @@ impl Pass<'_> {
                 .and_then(|c| c.output.as_deref())
                 .map(rejected),
             _ => None,
+        })
+    }
+
+    /// Whether any log read holds call `id`, waiting or done.
+    fn logged_call(&self, id: &str) -> bool {
+        self.all_items().any(|it| match &it.kind {
+            ItemKind::PermissionRequest(p) => p.tool_use_id == id,
+            ItemKind::ToolChips(chips) => chips
+                .iter()
+                .flat_map(|c| c.calls.iter())
+                .any(|c| c.id == id),
+            _ => false,
         })
     }
 
@@ -697,7 +698,16 @@ fn approval(pass: &Pass, store: &mut Store, p: &ScreenPrompt) -> String {
             .as_deref()
             .is_some_and(|t| pass.result_of(t).is_some())
     };
-    let superseded = |o: &Occurrence| newer_ask(o) || answered_call(o);
+    // A box bound to one logged call whose log now asks a newer call with the same box is the next prompt.
+    let moved_call = |o: &Occurrence| {
+        let Some(was) = o.tool_use_id.as_deref() else {
+            return false;
+        };
+        pass.open_call(o.child.as_deref())
+            .filter(|c| matchers::same_call(&c.tool_name, &c.command, p))
+            .is_some_and(|c| c.tool_use_id != was && pass.logged_call(was))
+    };
+    let superseded = |o: &Occurrence| newer_ask(o) || answered_call(o) || moved_call(o);
     let replaces = pending.is_some_and(superseded);
     let mut bound: Vec<&Ask> = Vec::new();
     if !replaces {

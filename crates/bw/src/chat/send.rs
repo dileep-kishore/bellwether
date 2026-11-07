@@ -21,7 +21,7 @@ use std::time::Duration;
 use serde_json::json;
 
 use super::args;
-use super::locate::{self, LocateFailure};
+use super::locate::{self, LocateFailure, Located};
 use crate::hc::{self, HcError};
 
 const USAGE: &str = "usage: bw send --terminal <t> --expect-kind <claude|codex> \
@@ -35,7 +35,7 @@ const SEND_TIMEOUT_S: u64 = 25;
 
 /// What the terminal shows now, as `bw locate` named it.
 #[derive(Debug, PartialEq)]
-struct Shown {
+pub(crate) struct Shown {
     agent: String,
     session: String,
     path: String,
@@ -43,7 +43,7 @@ struct Shown {
 
 /// Why nothing reached the terminal before `hc send`.
 #[derive(Debug, PartialEq)]
-enum NotShown {
+pub(crate) enum NotShown {
     /// The expected kind's agent runs here and has written no log yet for `session`, when it named one.
     NoLog {
         agent: String,
@@ -77,9 +77,14 @@ fn failure(f: LocateFailure) -> NotShown {
     }
 }
 
-fn shown_here(terminal: &str) -> Result<Shown, NotShown> {
+pub(crate) fn shown_here(terminal: &str) -> Result<Shown, NotShown> {
     let now_ms = chrono::Utc::now().timestamp_millis();
-    let l = locate::locate_fresh(terminal, now_ms).map_err(failure)?;
+    shown(locate::locate_fresh(terminal, now_ms))
+}
+
+/// What lookup `found` names, in the form `check` compares; `found` must not use the 30 s memory.
+pub(crate) fn shown(found: Result<Located, LocateFailure>) -> Result<Shown, NotShown> {
+    let l = found.map_err(failure)?;
     Ok(Shown {
         agent: l.agent,
         session: l.session,
@@ -100,7 +105,7 @@ fn mismatch(shown: &Shown, kind: &str, session: &str, path: &str) -> Option<Stri
 
 /// What the chat read: no conversation at all, a named one with no log yet, or one with its log.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Expect<'a> {
+pub(crate) enum Expect<'a> {
     Fresh,
     NoLog(&'a str),
     Log(&'a str, &'a str),
@@ -108,13 +113,13 @@ enum Expect<'a> {
 
 /// What the guard decided before any text is typed.
 #[derive(Debug, PartialEq)]
-enum Check {
+pub(crate) enum Check {
     Pass,
     Refuse(String),
     Error(&'static str, String),
 }
 
-fn check(shown: Result<Shown, NotShown>, kind: &str, expected: Expect) -> Check {
+pub(crate) fn check(shown: Result<Shown, NotShown>, kind: &str, expected: Expect) -> Check {
     match (shown, expected) {
         (Ok(s), Expect::Log(session, path)) => match mismatch(&s, kind, session, path) {
             Some(why) => Check::Refuse(why),
@@ -135,6 +140,16 @@ fn check(shown: Result<Shown, NotShown>, kind: &str, expected: Expect) -> Check 
         )),
         (Err(NotShown::Unconfirmed(why)), _) => Check::Refuse(why),
         (Err(NotShown::Error { code, message }), _) => Check::Error(code, message),
+    }
+}
+
+/// `--expect-session` and `--expect-path` as one of the three forms; `none` with a log path is a usage error.
+pub(crate) fn expect<'a>(session: &'a str, path: &'a str) -> Result<Expect<'a>, String> {
+    match (session == NO_LOG, path == NO_LOG) {
+        (false, false) => Ok(Expect::Log(session, path)),
+        (false, true) => Ok(Expect::NoLog(session)),
+        (true, true) => Ok(Expect::Fresh),
+        (true, false) => Err("--expect-session none needs --expect-path none".into()),
     }
 }
 
@@ -178,15 +193,9 @@ pub fn run(argv: &[String]) -> ExitCode {
     ) else {
         return crate::usage(USAGE);
     };
-    let expected = match (session == NO_LOG, path == NO_LOG) {
-        (false, false) => Expect::Log(session, path),
-        (false, true) => Expect::NoLog(session),
-        (true, true) => Expect::Fresh,
-        (true, false) => {
-            return crate::usage(&format!(
-                "--expect-session none needs --expect-path none; {USAGE}"
-            ))
-        }
+    let expected = match expect(session, path) {
+        Ok(e) => e,
+        Err(m) => return crate::usage(&format!("{m}; {USAGE}")),
     };
     if text.is_empty() {
         return crate::usage(&format!("--text is empty; {USAGE}"));

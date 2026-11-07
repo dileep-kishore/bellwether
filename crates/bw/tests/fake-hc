@@ -6,12 +6,14 @@
 #   FAKE_HC_OFFLINE       1: every call fails as hc does for a machine it cannot reach
 #   FAKE_HC_LOG           each call is appended here as "<command> <args>"
 #   FAKE_HC_EXEC_OUT      a file: `exec` prints it as the program's stdout instead of running anything
-#   FAKE_HC_GET_DIR       `get <addr>` prints <addr with / as _>.json from here, else fails not_found
+#   FAKE_HC_GET_DIR       `get <addr>` prints <addr with / as _>.json from here, or .after.json beside it once
+#                         FAKE_HC_LOG holds a `read` of that terminal; else fails not_found
 #   FAKE_HC_LS            a file: what `ls` prints, else {"terminals":[]}
 #   FAKE_HC_SEND_SLEEP    seconds `send` waits before answering
 #   FAKE_HC_SEND_FAIL     a kind: `send` fails with it (blocked, finished, not_found, machine_unknown, ...)
-#   FAKE_HC_SCREEN_DIR    `read <addr>` prints <addr with / as _>.txt from here, or .after.txt beside it once
-#                         FAKE_HC_LOG holds a `keys` call to that terminal; else fails not_found
+#   FAKE_HC_SCREEN_DIR    `read <addr>` prints <addr with / as _>.txt from here, .next.txt beside it from the
+#                         second read on, or .after.txt once FAKE_HC_LOG holds a `keys` call to that terminal;
+#                         else fails not_found
 #   FAKE_HC_KEYS_SLEEP    seconds `keys` waits before answering
 #   FAKE_HC_KEYS_FAIL     a kind: `keys` fails with it
 # Argument shapes are the ones bw sends; anything else exits 2 so a changed call shows up in a test.
@@ -61,7 +63,11 @@ case $cmd in
         [ $# -eq 0 ] && [ -n "$rest" ] || fail usage "get takes one terminal" 2
         echo "get $rest" >> "$log"
         offline "$machine"
-        file=${FAKE_HC_GET_DIR:-/nonexistent}/$(printf '%s' "$rest" | tr / _).json
+        base=${FAKE_HC_GET_DIR:-/nonexistent}/$(printf '%s' "$rest" | tr / _)
+        file=$base.json
+        if [ -f "$base.after.json" ] && grep -qxF -- "read $rest" "$log" 2>/dev/null; then
+          file=$base.after.json
+        fi
         [ -f "$file" ] || fail not_found "no terminal $rest" 1
         cat "$file"
         ;;
@@ -85,6 +91,10 @@ case $cmd in
         offline "$machine"
         base=${FAKE_HC_SCREEN_DIR:-/nonexistent}/$(printf '%s' "$rest" | tr / _)
         file=$base.txt
+        reads=$(grep -cxF -- "read $rest" "$log" 2>/dev/null)
+        if [ -f "$base.next.txt" ] && [ "${reads:-0}" -ge 2 ]; then
+          file=$base.next.txt
+        fi
         if [ -f "$base.after.txt" ] && grep -qF -- "keys $rest " "$log" 2>/dev/null; then
           file=$base.after.txt
         fi
