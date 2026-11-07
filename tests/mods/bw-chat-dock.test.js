@@ -115,6 +115,39 @@ describe("dock", () => {
     expect(calls(m, "answer")).toHaveLength(0);
   });
 
+  test("a terminal sub-agent's terminal controls peek at that sub-agent, not the parent", async () => {
+    const T12 = "2b7f0000-0000-4000-8000-000000000012";
+    const T12_PATH = `/home/test/.claude/projects/-r-alpha/${T12}.jsonl`;
+    const perm = { type: "row", k: "perm", id: "perm-12", text: "Wants to run a command", perm: { title: "Wants to run a command", command: "ls", tool: "Bash", toolUseId: "tu12", state: "pending" } };
+    let t12 = [
+      { type: "log", agent: "claude", terminal: "t12", session: T12, path: T12_PATH, start: 0, size: 10, cursor: "2.t12" },
+      { type: "splice", at: 0, count: 2 }, { type: "row", k: "user", id: "u12", text: "Helper's own question", ts: 1 }, perm,
+      { type: "cards", terminal: "t12", agent: "claude", session: T12, path: T12_PATH, status: "blocked", status_kind: "claude", hooks: "ok", screen: "read" },
+      { ...REQUEST, id: "r12", answerable: false, reason: "no_match", who: null },
+    ];
+    const m = await ready(CLAUDE, data({ feed: (/** @type {string[]} */ a) => out(a[1] === "t12" ? t12 : ROOT_LINES) }));
+    await m.click("row-terminal-t12");
+    expect(buttonIds(m, "r12")).toEqual(["terminal"]);
+    const peek = ["terminal.peek", { terminal: "t12" }];
+    await m.click("answer-r12-terminal");
+    await m.click("flip");
+    fire(findAll(m.el, (e) => e.tag === "VirtualList")[0], "on_item_click", "perm-12", m.cx);
+    expect(m.log.run).toEqual([peek, peek, peek]);
+
+    t12 = [{ type: "state", state: "not_agent", agent: null, message: "" }];
+    m.log.run.length = 0;
+    const n = await ready(CLAUDE, data({ feed: (/** @type {string[]} */ a) => out(a[1] === "t12" ? t12 : ROOT_LINES) }));
+    await n.click("row-terminal-t12");
+    await n.click("show-terminal");
+    expect(n.log.run).toEqual([peek]);
+    expect(calls(n, "answer")).toHaveLength(0);
+
+    // Back in the parent's view, the controls flip the chat tab again.
+    await n.click("back");
+    await n.click("flip");
+    expect(n.log.run.at(-1)).toEqual(["bw-tabs.chat-flip"]);
+  });
+
   test("buttons disabled while the terminal had focus", async () => {
     const m = await ready(CLAUDE, data());
     const approve = () => button(m, REQUEST.id, "approve");

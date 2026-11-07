@@ -557,10 +557,18 @@ export default class Chat extends View {
     });
   }
 
+  /** Brings the shown view's terminal in front: a terminal sub-agent's own, else the chat tab's terminal. */
+  showTerminal() {
+    const v = this.view;
+    // A sub-agent has no pane in the chat's tab and terminal.show would replace the chat's pane; peek opens it over the tab.
+    if (isTerminalView(v)) run("terminal.peek", { terminal: v.terminal });
+    else run("bw-tabs.chat-flip");
+  }
+
   /** @param {Card} card @param {string} button @param {any} cx */
   clickCard(card, button, cx) {
     if (button === "terminal") {
-      run("bw-tabs.chat-flip");
+      this.showTerminal();
       return;
     }
     const req = this.requestOf(card.id);
@@ -700,7 +708,7 @@ export default class Chat extends View {
     } else if (row.k === "changed") {
       run("layout.select", { stack: "right-body", child: "changes" });
     } else if (waitsInTerminal(row)) {
-      run("bw-tabs.chat-flip");
+      this.showTerminal();
     }
   }
 
@@ -746,7 +754,7 @@ export default class Chat extends View {
       div().id(id).h(26).px(10).flex_none().flex().items_center().rounded(6).cursor_pointer().border(1).border_color(t.border)
         .text_size(12).text_color(t.foreground).hover((s) => s.bg(t.hover)).on_click(act).child(label);
     return h_flex().gap(8).items_center()
-      .when(Boolean(term), (el) => el.child(button("show-terminal", "Show terminal (⌘J)", () => run("bw-tabs.chat-flip"))))
+      .when(Boolean(term), (el) => el.child(button("show-terminal", "Show terminal (⌘J)", () => this.showTerminal())))
       .when(p.exited && tab !== null, (el) => el.child(button("close-tab", "Close tab", () => run("tab.close", { id: /** @type {string} */ (tab) }))));
   }
 
@@ -766,7 +774,7 @@ export default class Chat extends View {
       })))
       .when(!gone, (el) => el.child(h_flex().id("flip").h(24).px(8).gap(6).flex_none().items_center().rounded(6).cursor_pointer()
         .text_size(12).text_color(t.muted).hover((s) => s.bg(t.hover))
-        .on_click(() => run("bw-tabs.chat-flip"))
+        .on_click(() => this.showTerminal())
         .child("Terminal").child(div().text_color(t.dim).child("⌘J"))));
   }
 
