@@ -1,0 +1,9 @@
+{
+  "Browser": "Chrome/156.0.8078.80",
+  "File-Path-Style": "posix",
+  "Protocol-Version": "1.3",
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "V8-Version": "15.6.75.27",
+  "WebKit-Version": "537.36 (@fb096c0011f9d50f0a264a9376420cdea9c421e3)",
+  "webSocketDebuggerUrl": "ws://127.0.0.1:55691/devtools/browser/71d8450a-71c6-4a85-b012-325fe0e3e1d0"
+}
