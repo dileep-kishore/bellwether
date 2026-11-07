@@ -4,12 +4,12 @@
 # (Apache-2.0; see THIRD_PARTY_NOTICES.md for the source commit and what changed).
 #   stage.sh up      build it in $BW_STAGE (default /private/tmp/bw-stage), sync the layout and mods, open its window
 #   stage.sh do …    run anything inside it: `stage.sh do hc ls --json`, `stage.sh do herdr-app shot x.png`
-#   stage.sh down    close it, end its terminals and core, and delete $BW_STAGE
+#   stage.sh down    close it, end its terminals and core, and delete $BW_STAGE (only a folder up made)
 set -eu
 src=$(cd "$(dirname "$0")/../.." && pwd)
-D=${BW_STAGE:-/private/tmp/bw-stage}
+. "$src/scripts/verify/lib-scratch.sh"
+D=$(scratch_path "${BW_STAGE:-/private/tmp/bw-stage}") || { echo "BW_STAGE must be a folder inside /private/tmp (down deletes it)" >&2; exit 1; }
 A=$D/app
-case $D in /private/tmp/*) ;; *) echo "BW_STAGE must be under /private/tmp (down deletes it)" >&2; exit 1 ;; esac
 APP=/Applications/Herdr.app/Contents/MacOS/Herdr
 
 # Only the stage's variables: a calling agent's shell exports its own core, app home and session markers
@@ -24,6 +24,7 @@ mine() { [ "$(core_id stage)" != "$(core_id env -u HC_SESSION)" ]; }
 
 up() {
   [ -e "$D" ] && { echo "$D exists: stage.sh down first" >&2; exit 1; }
+  scratch_make "$D" || exit 1
   mkdir -p "$D/bin" "$A/mods" "$A/layouts"
   # The repo's bw, when built, ahead of any installed helper.
   for b in "$src/target/release/bw" "$src/target/debug/bw"; do [ -x "$b" ] && { ln -s "$b" "$D/bin/bw"; break; }; done
@@ -55,6 +56,8 @@ app() {
 
 down() {
   [ -d "$D" ] || { echo "nothing at $D"; return; }
+  # Before app.pid is read: a folder up did not make holds no pid of ours.
+  scratch_owned "$D" || exit 1
   [ -f "$D/app.pid" ] && kill "$(cat "$D/app.pid")" 2> /dev/null || true
   if mine; then
     for t in $(stage hc ls --all --json | jq -r '.terminals[]?.address'); do
@@ -62,7 +65,7 @@ down() {
     done
     stage hc server stop > /dev/null 2>&1 || true
   fi
-  sleep 1; rm -rf "$D"; echo "down: $D removed"
+  sleep 1; scratch_rm "$D" || exit 1; echo "down: $D removed"
 }
 
 case ${1-} in

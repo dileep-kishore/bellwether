@@ -7,6 +7,7 @@
 # (default /private/tmp/bw-flags, deleted first), and interactive runs in a private hc core.
 set -eu
 src=$(cd "$(dirname "$0")/../.." && pwd)
+. "$src/scripts/verify/lib-scratch.sh"
 server=$src/tests/fixtures/mcp-echo/server.js
 ECHO=BW-ECHO-OK-7Q4Z INSTR=BW-INSTR-K9P3 TOP=BW-TOP-3M8D
 fail=0
@@ -31,8 +32,10 @@ case "${1:-}" in
 esac
 
 for c in claude codex hc node bun jq; do command -v "$c" >/dev/null || { echo "FAIL $c is not on PATH" >&2; exit 1; }; done
-W=${BW_FLAGS_DIR:-/private/tmp/bw-flags}
-case $W in /private/tmp/*) ;; *) echo "BW_FLAGS_DIR must be under /private/tmp (it is deleted first)" >&2; exit 1 ;; esac
+W=$(scratch_path "${BW_FLAGS_DIR:-/private/tmp/bw-flags}") || { echo "BW_FLAGS_DIR must be a folder inside /private/tmp (it is deleted first)" >&2; exit 1; }
+# Made before the cleanup trap exists, so the trap never deletes inside a folder this run did not make.
+scratch_rm "$W" || exit 1
+scratch_make "$W" || exit 1
 CLAUDE_MODEL=${BW_CLAUDE_MODEL:-haiku} CODEX_MODEL=${BW_CODEX_MODEL:-gpt-6-luna}
 CH=$W/codex-home
 export HC_SESSION=bw-flags
@@ -64,7 +67,7 @@ traces() {
 }
 before=$(settings)
 
-rm -rf "$W"; mkdir -p "$W/claude" "$W/codex" "$W/claude-i" "$W/codex-i"
+mkdir "$W/claude" "$W/codex" "$W/claude-i" "$W/codex-i"
 for d in "$W"/*/; do git -C "$d" init -q; done
 jq -n --arg s "$server" '{mcpServers: {"bw-echo": {type: "stdio", command: "node", args: [$s]}}}' > "$W/mcp.json"
 printf 'Bellwether session note: the Bellwether session word is %s.\n' "$INSTR" > "$W/instr.md"
