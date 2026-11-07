@@ -48,11 +48,13 @@ EOF
   # sshd re-executes itself, so it needs its absolute path; -D keeps it in the foreground of this background job.
   # Its stdout must not be the caller's, or $(sshd_up …) waits for sshd to exit.
   /usr/sbin/sshd -D -e -f "$_xd/sshd_config" < /dev/null > /dev/null 2> "$_xd/sshd.log" &
-  echo $! > "$_xd/sshd.pid"
+  _xs=$!
+  echo "$_xs" > "$_xd/sshd.pid"
   _xn=50
   until grep -q "Server listening on 127.0.0.1 port $_xp" "$_xd/sshd.log" 2> /dev/null; do
     _xn=$((_xn - 1))
-    if [ "$_xn" -le 0 ] || ! kill -0 "$(cat "$_xd/sshd.pid")" 2> /dev/null; then
+    # sshd rewrites sshd.pid (its PidFile) once it listens, so a read here can find it empty.
+    if [ "$_xn" -le 0 ] || ! kill -0 "$_xs" 2> /dev/null; then
       echo "sshd_up: sshd did not start; its log:" >&2
       cat "$_xd/sshd.log" >&2
       return 1
