@@ -5,13 +5,11 @@ use std::process::ExitCode;
 use serde_json::json;
 
 pub mod args;
-// `bw locate` (Task 7) is the first caller of `roots_except`.
-#[allow(dead_code)]
 pub mod cache;
+pub mod dirs;
 pub mod protocol;
 
 mod feed;
-#[allow(dead_code)]
 pub mod locate;
 mod picture;
 mod rows;

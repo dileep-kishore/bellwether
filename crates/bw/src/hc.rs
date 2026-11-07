@@ -195,7 +195,6 @@ pub fn hc_write(machine: &str, path: &str, bytes: &[u8]) -> Result<(), HcError> 
 }
 
 /// `hc get <address> --json`: one terminal, by `t7` or `machine/t7`.
-#[allow(dead_code)]
 pub fn hc_get(address: &str) -> Result<Value, HcError> {
     hc_get_with(&program(), address)
 }
@@ -209,7 +208,6 @@ pub fn hc_get_with(program: &OsStr, address: &str) -> Result<Value, HcError> {
 }
 
 /// `hc ls --json`: this core's live terminals.
-#[allow(dead_code)]
 pub fn hc_ls() -> Result<Value, HcError> {
     hc_ls_with(&program())
 }
