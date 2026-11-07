@@ -10,6 +10,7 @@ use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -38,12 +39,19 @@ fn write_script(path: &Path, body: &str) {
 /// Answers `GET /json/version` with `id`'s WebSocket URL, and `GET /` with 200, on its own threads until the test
 /// ends; its port. It binds port 0 itself, since a port freed for it could go to a parallel test first.
 fn serve_version(id: &'static str) -> u16 {
+    serve_changing(Arc::new(Mutex::new(id)))
+}
+
+/// `serve_version` for an id the test may change, as a Chrome restarted on the same port changes it.
+fn serve_changing(id: Arc<Mutex<&'static str>>) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
+            let id = id.clone();
             thread::spawn(move || {
+                let id = *id.lock().unwrap();
                 let mut buf = [0u8; 2048];
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
                 let n = stream.read(&mut buf).unwrap_or(0);
@@ -73,6 +81,7 @@ fn serve_version(id: &'static str) -> u16 {
 struct Scene {
     dir: tempfile::TempDir,
     chrome_port: u16,
+    chrome_id: Arc<Mutex<&'static str>>,
     env: Vec<(String, String)>,
 }
 
@@ -108,7 +117,8 @@ impl Scene {
             ),
         );
         let profile = d.join("profile");
-        let chrome_port = serve_version(BROWSER_ID);
+        let chrome_id = Arc::new(Mutex::new(BROWSER_ID));
+        let chrome_port = serve_changing(chrome_id.clone());
         // Every pid is the Bellwether Chrome to `ps` and the argv reader: the in-test server is this process.
         let argv = chrome_argv(&profile, chrome_port);
         write_script(&d.join("ps"), &format!("echo '{}'", argv.join(" ")));
@@ -135,6 +145,7 @@ impl Scene {
         Scene {
             dir,
             chrome_port,
+            chrome_id,
             env,
         }
     }
@@ -546,6 +557,41 @@ fn ssh_exit_reconnects_with_checks() {
         .iter()
         .all(|c| c.contains(&format!("--port {port} "))));
     assert!(s.screen("bw-fwd-mac2-a9deae").contains("reconnecting"));
+}
+
+#[test]
+fn a_restarted_chrome_closes_the_forward() {
+    let _serial = serial();
+    let mut s = Scene::new();
+    s.set("BW_FORWARD_RECHECK_MS", "500");
+    let v = s.ensure();
+    assert_eq!(v["state"], "ready", "{v}");
+    let port = port_of(&v);
+    let pid = s.pid("bw-fwd-mac2-a9deae").unwrap();
+    // While the id holds, each recheck passes and the forward stays up.
+    let checks = s.port_checks().len();
+    thread::sleep(Duration::from_millis(1600));
+    assert!(
+        s.port_checks().len() > checks,
+        "no recheck ran: {:?}",
+        s.port_checks()
+    );
+    assert_eq!(s.state("mac2-a9deae.json").unwrap()["state"], "ready");
+
+    *s.chrome_id.lock().unwrap() = OTHER_ID;
+    let st = s.wait_state("mac2-a9deae.json", "refused", Duration::from_secs(5));
+    let reason = st["reason"].as_str().unwrap();
+    assert!(
+        reason.contains(OTHER_ID) && reason.contains(BROWSER_ID),
+        "{reason}"
+    );
+    assert!(
+        wait_dead(pid, Duration::from_secs(5)),
+        "the supervisor exits"
+    );
+    assert!(!listening(port), "its ssh is gone");
+    thread::sleep(Duration::from_millis(2500));
+    assert_eq!(s.ssh_starts().len(), 1, "a refused forward is not retried");
 }
 
 #[test]

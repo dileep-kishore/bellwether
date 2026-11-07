@@ -35,6 +35,8 @@ const PORT_TRIES: usize = 3;
 const LOCK_SLACK: Duration = Duration::from_secs(5);
 const DEV_ANSWER: Duration = Duration::from_secs(3);
 const DEV_RECHECK: Duration = Duration::from_secs(10);
+/// How often a browser forward that stays up checks again that it reaches the Chrome it was checked against.
+const BROWSER_RECHECK: Duration = Duration::from_secs(60);
 const UP_POLL: Duration = Duration::from_millis(500);
 /// Seconds between reconnects: 2, 4, 8, 16, 30, then every 60.
 const BACKOFF_S: [u64; 5] = [2, 4, 8, 16, 30];
@@ -630,6 +632,7 @@ fn keep_env() -> Vec<String> {
         "BW_CHROME_PROFILE",
         "BW_PS",
         "BW_PROC_ARGV",
+        "BW_FORWARD_RECHECK_MS",
     ] {
         if let Some(v) = std::env::var_os(key).filter(|v| !v.is_empty()) {
             env.push(format!("{key}={}", v.to_string_lossy()));
@@ -1127,6 +1130,34 @@ fn report(path: &Path, rec: &Forward) {
     );
 }
 
+/// `BROWSER_RECHECK`, or `BW_FORWARD_RECHECK_MS` for tests.
+fn browser_recheck() -> Duration {
+    std::env::var("BW_FORWARD_RECHECK_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|ms| *ms > 0)
+        .map_or(BROWSER_RECHECK, Duration::from_millis)
+}
+
+/// None while the forward still reaches the Chrome with `id`; else why it must close. Agents hold that id, so a
+/// restarted Chrome makes this forward useless to them, and anything else on the port must never be reached.
+fn recheck_browser(machine: &str, port: u16, id: &str) -> Option<String> {
+    let c = chrome::probe(chrome::port(), &chrome::profile_dir());
+    match (c.state, c.browser_id.as_deref()) {
+        ("running", Some(now)) if now == id => {}
+        ("running", Some(now)) => {
+            return Some(format!(
+                "the Bellwether Chrome is now browser {now}, not {id}, which this forward was checked against"
+            ))
+        }
+        _ => return Some(c.message),
+    }
+    match remote_check(machine, port, id) {
+        Check::Wrong(reason) => Some(reason),
+        Check::Pass | Check::NotYet(_) => None,
+    }
+}
+
 fn backoff(failures: usize) -> Duration {
     Duration::from_secs(BACKOFF_S.get(failures).copied().unwrap_or(BACKOFF_MAX_S))
 }
@@ -1187,6 +1218,7 @@ fn keep(kind: Kind, machine: &str, target: &str, port: u16, ssh_config: Option<&
                 failures = 0;
                 ssh.forget_lines();
                 let mut last = Instant::now();
+                let every = browser_recheck();
                 while ssh.running() {
                     thread::sleep(UP_POLL);
                     if kind == Kind::Dev && last.elapsed() >= DEV_RECHECK {
@@ -1196,6 +1228,17 @@ fn keep(kind: Kind, machine: &str, target: &str, port: u16, ssh_config: Option<&
                             report(&path, &rec);
                         }
                         last = Instant::now();
+                    }
+                    if let (Kind::Browser, Some(id)) = (kind, &id) {
+                        if last.elapsed() >= every {
+                            if let Some(reason) = recheck_browser(machine, port, id) {
+                                ssh.finish();
+                                return give_up(rec, "refused", reason);
+                            }
+                            rec.checked_at_ms = now_ms();
+                            write(&path, &rec);
+                            last = Instant::now();
+                        }
                     }
                 }
             }

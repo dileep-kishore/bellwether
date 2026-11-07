@@ -1,5 +1,5 @@
 #!/bin/sh
-# Bellwether's browser MCP launcher: runs Chrome DevTools MCP 1.12.0 against this window's Chrome port.
+# Bellwether's browser MCP launcher: runs Chrome DevTools MCP 1.12.0 against this window's Chrome.
 #   sh browser-mcp <window>     serve MCP on stdio for the window's Chrome
 #   sh browser-mcp --version    fetch the pinned package into the npx cache and print its version
 set -eu
@@ -20,10 +20,13 @@ if [ "$w" != --version ]; then
   [ "${#w}" -le 32 ] || fail "window name must be 1-32 of a-z, 0-9 and -, got '$w'"
   port_file=$agent_dir/ports/$w
   [ -f "$port_file" ] || fail "no port file $port_file: start the agent from Bellwether's + menu"
-  port=
-  IFS= read -r port <"$port_file" || true
+  port= id=
+  { IFS= read -r port && IFS= read -r id; } <"$port_file" || true
   case $port in
     "" | *[!0-9]*) fail "port file $port_file does not hold a port number" ;;
+  esac
+  case $id in
+    "" | *[!A-Za-z0-9-]*) fail "port file $port_file holds no browser id: start the agent from Bellwether's + menu" ;;
   esac
 fi
 
@@ -46,5 +49,7 @@ export PATH
 if [ "$w" = --version ]; then
   exec "$npx" -y "$pkg" --version
 fi
-exec "$npx" -y "$pkg" --browserUrl "http://127.0.0.1:$port" \
+# The browser's own endpoint: Chrome refuses another browser's id, so a reconnect never reaches a program that
+# took the port after this Chrome quit.
+exec "$npx" -y "$pkg" --wsEndpoint "ws://127.0.0.1:$port/devtools/browser/$id" \
   --no-usage-statistics --no-performance-crux --screenshotFormat jpeg --screenshotMaxWidth 1280

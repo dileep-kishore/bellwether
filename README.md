@@ -273,9 +273,13 @@ this Chrome's browser id. A failed check closes the forward and writes
 supervisor writes `reconnecting` and retries after 2, 4, 8, 16 and 30 s, then
 every 60 s, on the same port with the same checks. When another program takes
 the port in the meantime, it writes `port_taken`, and the next `ensure` picks
-a new port. The state files live in
+a new port. While ssh stays up, the supervisor checks every 60 s that the
+local Chrome still has the browser id the forward was checked against and
+runs `port-check` again; a changed id or a wrong listener closes the forward
+as `refused`. The state files live in
 `~/.local/share/bellwether/browser/forwards/<core>/`. Agents on that machine
-find the forward's port in `~/.local/share/bellwether/agent/ports/<window>`.
+find the forward's port and the Chrome's browser id in
+`~/.local/share/bellwether/agent/ports/<window>`.
 
 ### Agent files
 
@@ -286,10 +290,14 @@ on each machine where an agent starts:
   instructions.
 - `browser-mcp` is a 0755 `sh` launcher. It reads `ports/<window>`, finds
   `npx` on PATH or in `/opt/homebrew/bin` or `/usr/local/bin`, and runs Chrome
-  DevTools MCP 1.12.0 against `http://127.0.0.1:<port>`.
+  DevTools MCP 1.12.0 with
+  `--wsEndpoint ws://127.0.0.1:<port>/devtools/browser/<browser id>`. Chrome
+  answers 404 to an upgrade for another browser id, so a session never
+  reconnects to a different browser that later takes the port.
 - `claude-mcp-<window>.json` is Claude's `--mcp-config` file.
-- `ports/<window>` holds the port this window's Chrome answers on there: 9222
-  on the window machine, the forward's port elsewhere.
+- `ports/<window>` holds two lines: the port this window's Chrome answers on
+  there (9222 on the window machine, the forward's port elsewhere), then that
+  Chrome's browser id. `bw browser agent-args` rewrites it on every call.
 
 `<window>` is the window machine's `hostname -s`, lower-cased, reduced to
 a-z, 0-9 and -, and at most 32 characters long. `ensure` rewrites a file only
@@ -358,6 +366,8 @@ that folder removes its history and sign-ins.
   without a permission prompt, as Codex's `approve` does. The instructions
   forbid passwords, one-time codes, payment details and purchases.
 - Arrange works on macOS only.
+- After the Bellwether Chrome restarts, a running agent's browser tools stop
+  working until its next session.
 - The checks in a Herdr window are still owed: the panel, Arrange beside a
   real Herdr window, a screenshot inline in a chat, and a real SSH machine.
 

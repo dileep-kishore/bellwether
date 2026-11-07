@@ -618,8 +618,49 @@ fn ensure_writes_once_then_changes_nothing() {
         vec!["agent", "ensure"],
         vec!["agent", "ensure", "--window", "../x"],
         vec!["agent", "ensure", "--window", "W1"],
-        vec!["agent", "ensure", "--window", "w1", "--port", "0"],
-        vec!["agent", "ensure", "--window", "w1", "--port", "70000"],
+        vec![
+            "agent",
+            "ensure",
+            "--window",
+            "w1",
+            "--port",
+            "0",
+            "--browser-id",
+            "b1",
+        ],
+        vec![
+            "agent",
+            "ensure",
+            "--window",
+            "w1",
+            "--port",
+            "70000",
+            "--browser-id",
+            "b1",
+        ],
+        // The port and the browser it reached go together.
+        vec!["agent", "ensure", "--window", "w1", "--port", "52817"],
+        vec!["agent", "ensure", "--window", "w1", "--browser-id", "b1"],
+        vec![
+            "agent",
+            "ensure",
+            "--window",
+            "w1",
+            "--port",
+            "52817",
+            "--browser-id",
+            "../x",
+        ],
+        vec![
+            "agent",
+            "ensure",
+            "--window",
+            "w1",
+            "--port",
+            "52817",
+            "--browser-id",
+            "",
+        ],
         vec!["agent", "nope"],
     ] {
         assert_eq!(h.bw(&bad, &[]).0, 2, "{bad:?}");
@@ -645,21 +686,26 @@ fn warm_failure_is_retried() {
 #[test]
 fn ensure_writes_the_port_per_window() {
     let h = Home::new();
-    let line = h.ensure(&["--window", "w1", "--port", "52817"]);
+    let line = h.ensure(&["--window", "w1", "--port", "52817", "--browser-id", "id-1"]);
     assert!(changed(&line).contains(&"ports/w1".to_string()), "{line}");
-    let line = h.ensure(&["--window", "w2", "--port", "52818"]);
+    let line = h.ensure(&["--window", "w2", "--port", "52818", "--browser-id", "id-2"]);
     assert_eq!(changed(&line), vec!["claude-mcp-w2.json", "ports/w2"]);
     let dir = h.agent();
     assert_eq!(
         std::fs::read_to_string(dir.join("ports/w1")).unwrap(),
-        "52817\n"
+        "52817\nid-1\n"
     );
     assert_eq!(
         std::fs::read_to_string(dir.join("ports/w2")).unwrap(),
-        "52818\n"
+        "52818\nid-2\n"
+    );
+    // A Chrome that restarted on the same port has a new id, so the file changes for the next session.
+    assert_eq!(
+        changed(&h.ensure(&["--window", "w1", "--port", "52817", "--browser-id", "id-3"])),
+        vec!["ports/w1"]
     );
     assert_eq!(
-        changed(&h.ensure(&["--window", "w1", "--port", "52819"])),
+        changed(&h.ensure(&["--window", "w1", "--port", "52819", "--browser-id", "id-3"])),
         vec!["ports/w1"]
     );
 
@@ -678,7 +724,7 @@ fn ensure_writes_the_port_per_window() {
     );
     assert!(
         h.npx_log()
-            .contains("-y chrome-devtools-mcp@1.12.0 --browserUrl http://127.0.0.1:52819 "),
+            .contains("-y chrome-devtools-mcp@1.12.0 --wsEndpoint ws://127.0.0.1:52819/devtools/browser/id-3 "),
         "{}",
         h.npx_log()
     );
@@ -687,12 +733,12 @@ fn ensure_writes_the_port_per_window() {
 #[test]
 fn ensure_without_port_leaves_the_port_file() {
     let h = Home::new();
-    h.ensure(&["--window", "w1", "--port", "52817"]);
+    h.ensure(&["--window", "w1", "--port", "52817", "--browser-id", "id-1"]);
     let line = h.ensure(&["--window", "w1"]);
     assert_eq!(changed(&line), Vec::<String>::new());
     assert_eq!(
         std::fs::read_to_string(h.agent().join("ports/w1")).unwrap(),
-        "52817\n"
+        "52817\nid-1\n"
     );
     let fresh = Home::new();
     fresh.ensure(&["--window", "w3"]);
