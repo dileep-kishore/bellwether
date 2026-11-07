@@ -21,14 +21,14 @@ const hint = (id, opts) => { const r = row(id, opts); return [r.enabled, r.hint]
 
 describe("entries", () => {
   test("rows in three sections, New chat first", () => {
-    expect(menuEntries({ agents: [], failed: false, ctx: LOCAL }).map((r) => [r.section, r.id, r.label])).toEqual([
-      ["New chat", "chat-claude", "Claude"],
-      ["New chat", "chat-codex", "Codex"],
-      ["New terminal", "shell", "Shell"],
-      ["New terminal", "claude", "Claude"],
-      ["New terminal", "codex", "Codex"],
-      ["Worktree", "worktree-new", "New worktree…"],
-      ["Worktree", "worktree-open", "Open worktree…"],
+    expect(menuEntries({ agents: [], failed: false, ctx: LOCAL }).map((r) => [r.section, r.id, r.label, r.kind])).toEqual([
+      ["New chat", "chat-claude", "Claude", "claude"],
+      ["New chat", "chat-codex", "Codex", "codex"],
+      ["New terminal", "shell", "Shell", null],
+      ["New terminal", "claude", "Claude", "claude"],
+      ["New terminal", "codex", "Codex", "codex"],
+      ["Worktree", "worktree-new", "New worktree…", null],
+      ["Worktree", "worktree-open", "Open worktree…", null],
     ]);
   });
 
@@ -144,6 +144,7 @@ describe("bw-new", () => {
     await m.click("row-chat-codex");
     await m.click("row-worktree-new");
     expect(m.log.run).toEqual([]);
+    expect(m.log.exec).toEqual([]);
     expect(m.log.shared.filter(([k]) => k === "bw.chat-tabs")).toEqual([]);
     expect(m.log.overlays).toEqual([]);
     expect(m.log.closed).toEqual([]);
@@ -237,6 +238,7 @@ describe("bw-new", () => {
     await m.click("row-chat-claude");
     expect(m.log.closed).toEqual([]);
     expect(m.log.run).toEqual([]);
+    expect(m.log.exec).toEqual([]);
     expect(m.log.shared.filter(([k]) => k === "bw.chat-tabs")).toEqual([]);
   });
 
