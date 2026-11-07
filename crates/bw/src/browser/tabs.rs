@@ -1,28 +1,25 @@
 //! `bw browser tabs|focus|close|new`: the Chrome's pages and their favicons.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use serde_json::{json, Value};
 
-use super::{cdp, http};
+use super::pages::{self, is_target_id};
+use super::{chrome, http};
 use crate::chat::args;
+use crate::chat::cache::app_home;
 
 /// Where favicons go, relative to the app home; `image()` takes paths relative to it.
 const FAVICONS: &str = "data/bellwether/favicons";
-const DEFAULT_PORT: u16 = 9222;
 const HTTP_TIMEOUT: Duration = Duration::from_secs(2);
-/// Per CDP call; a page held by a JavaScript dialog never answers `Runtime.evaluate`.
-const CDP_TIMEOUT: Duration = Duration::from_secs(1);
-/// All focus reads together, so a few stuck pages cannot stall the panel's poll.
-const FOCUS_BUDGET: Duration = Duration::from_secs(3);
 /// New favicon fetches per call.
 pub const FETCH_BUDGET: usize = 4;
 const MAX_ICON: usize = 65536;
@@ -53,7 +50,7 @@ impl Tab {
 }
 
 pub fn run(cmd: &str, argv: &[String]) -> ExitCode {
-    let port = match chrome_port() {
+    let port = match chrome::port_setting() {
         Ok(port) => port,
         Err(message) => return crate::usage(&message),
     };
@@ -113,35 +110,6 @@ fn action(action: &str, id: &str, ok: bool, message: &str) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// `BW_CHROME_PORT`, else 9222.
-fn chrome_port() -> Result<u16, String> {
-    match std::env::var("BW_CHROME_PORT") {
-        Ok(v) if !v.is_empty() => v
-            .parse::<u16>()
-            .ok()
-            .filter(|p| *p != 0)
-            .ok_or_else(|| format!("BW_CHROME_PORT {v:?} is not a port")),
-        _ => Ok(DEFAULT_PORT),
-    }
-}
-
-/// `$HERDR_APP_HOME`, else `~/.config/herdr-app`.
-pub(crate) fn app_home() -> PathBuf {
-    if let Some(d) = std::env::var_os("HERDR_APP_HOME").filter(|d| !d.is_empty()) {
-        return d.into();
-    }
-    PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".config/herdr-app")
-}
-
-/// Chrome's ids are hex; anything else could change the endpoint path it is pasted into.
-fn is_target_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 128
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-}
-
 fn endpoint(port: u16, path: &str) -> Result<(bool, String), String> {
     let reply = http::get(port, path, HTTP_TIMEOUT)
         .map_err(|e| format!("GET http://127.0.0.1:{port}{path}: {e}"))?;
@@ -193,16 +161,9 @@ fn encode_query(url: &str) -> String {
 
 /// The Chrome's pages in `/json/list` order, which is newest first, with favicons and the active tabs.
 pub fn list(port: u16, app_home: &Path, fetch_budget: usize) -> Result<Vec<Tab>, String> {
-    let reply = http::get(port, "/json/list", HTTP_TIMEOUT)
-        .map_err(|e| format!("GET http://127.0.0.1:{port}/json/list: {e}"))?;
-    if reply.status != 200 {
-        return Err(format!("GET /json/list answered {}", reply.status));
-    }
-    let targets: Vec<Value> = serde_json::from_slice(&reply.body)
-        .map_err(|e| format!("/json/list is not a JSON list: {e}"))?;
-    let pages: Vec<&Value> = targets.iter().filter(|t| is_page(t)).collect();
+    let pages = pages::list(port)?;
     let ids: Vec<&str> = pages.iter().filter_map(|t| t["id"].as_str()).collect();
-    let focused = focused(port, &ids);
+    let focused = pages::focused(port, &ids);
     let icon_urls: Vec<Option<&str>> = pages.iter().map(|t| t["faviconUrl"].as_str()).collect();
     let icons = match Favicons::open(app_home) {
         Some(mut f) => f.resolve(&icon_urls, fetch_budget),
@@ -222,52 +183,6 @@ pub fn list(port: u16, app_home: &Path, fetch_budget: usize) -> Result<Vec<Tab>,
             }
         })
         .collect())
-}
-
-/// A tab the user sees: DevTools windows and extension pages are pages to Chrome too.
-fn is_page(t: &Value) -> bool {
-    let url = t["url"].as_str().unwrap_or_default();
-    t["type"] == "page"
-        && t["id"].as_str().is_some_and(is_target_id)
-        && !url.starts_with("devtools://")
-        && !url.starts_with("chrome-extension://")
-}
-
-/// The pages where `document.hasFocus()` is true: each window's active tab, none for a blank one.
-/// `/json/list` order says nothing about activation (phase 4 probe, answer b).
-fn focused(port: u16, ids: &[&str]) -> HashSet<String> {
-    let mut out = HashSet::new();
-    let Ok((url, _)) = cdp::browser_ws(port) else {
-        return out;
-    };
-    let Ok(mut c) = cdp::Cdp::connect(&url, CDP_TIMEOUT) else {
-        return out;
-    };
-    let deadline = Instant::now() + FOCUS_BUDGET;
-    for id in ids {
-        if Instant::now() >= deadline {
-            break;
-        }
-        let Ok(attached) = c.call(
-            "Target.attachToTarget",
-            json!({"targetId": id, "flatten": true}),
-        ) else {
-            continue;
-        };
-        let Some(session) = attached["sessionId"].as_str() else {
-            continue;
-        };
-        let has_focus = c.call_session(
-            session,
-            "Runtime.evaluate",
-            json!({"expression": "document.hasFocus()", "returnByValue": true}),
-        );
-        if has_focus.is_ok_and(|r| r["result"]["value"] == true) {
-            out.insert(id.to_string());
-        }
-        let _ = c.call("Target.detachFromTarget", json!({"sessionId": session}));
-    }
-    out
 }
 
 /// The cached favicon for `url`, relative to the app home.

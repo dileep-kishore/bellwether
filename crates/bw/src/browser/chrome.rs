@@ -94,7 +94,7 @@ pub fn run(cmd: &str, args: &[String]) -> ExitCode {
 }
 
 /// `BW_CHROME_PORT` when set (tests), else 9222; a set value that is not a port is an error.
-fn port_setting() -> Result<u16, String> {
+pub fn port_setting() -> Result<u16, String> {
     match std::env::var("BW_CHROME_PORT") {
         Err(_) => Ok(DEFAULT_PORT),
         Ok(v) => v
