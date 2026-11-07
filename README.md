@@ -6,23 +6,23 @@ view of each agent built from its session log, a Git diff viewer against
 `origin/main` or a chosen ref, and Linear issues that can be attached to the
 current chat. Rust helpers do the heavy work; the mods draw the window.
 
-Status: template. Nothing is built yet. The plan comes first.
+Status: phase 0 (foundation) is in progress: the `bw` helper crate and the
+`bellwether` layout exist; no mods yet.
 
 ## Layout of this repository
 
 The folders mirror `~/.config/herdr-app`, so a sync is a plain copy:
 
 ```text
-layouts/bellwether.json   the window (to be cloned from Herdr's main layout)
+layouts/bellwether.json   the window, cloned from Herdr's main layout
 mods/bw-*/                one folder per mod, named bw-* so none clashes with Herdr's
 shared/                   JavaScript used by several mods; scripts/sync.sh copies it in
 scripts/sync.sh           copy layouts and bw-* mods into ~/.config/herdr-app
 scripts/check.sh          herdr-app check on every mod, and shared copies match
+crates/                   Rust helpers; crates/bw is the bw binary the mods run
 docs/brief/               the requests this work answers, verbatim
 docs/research/            what the reference projects do, with evidence
 ```
-
-Rust helper crates will get their own folder once the plan names them.
 
 ## Install on a machine
 
