@@ -325,7 +325,10 @@ export default class Chat extends View {
         onWheel: (e, cx) => this.wheel(e, cx),
         onRange: (range) => {
           this.topSeen = range.start === 0;
-          if (range.end >= rows.length) this.follow = true;
+          // Herdr also lays out one representative row ({0, 1}) each frame to measure it; that is not the view.
+          if (range.start === 0 && range.end === 1 && rows.length > 1) return;
+          // A scrollbar drag moves the list with no wheel event, so the range alone says whether the end is in view.
+          this.follow = range.end >= rows.length;
         },
       }));
       if (problem) {

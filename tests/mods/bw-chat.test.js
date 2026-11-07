@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { live, mount, repo } from "../harness/mount.js";
 import { fake } from "../harness/herdr-stub.js";
-import { byId, emit, findAll, fire, inspect, textOf } from "../harness/kit-stub.js";
+import { byId, emit, findAll, fire, inspect, layOut, textOf } from "../harness/kit-stub.js";
 import { HELPER_SCRIPT, HELPER_VERSION, PROTOCOL } from "../../shared/helper.js";
 import { columnWidth, sizes } from "../../mods/bw-chat/estimate.js";
 import { pollMs, sendText, targetOf, waitingText } from "../../mods/bw-chat/target.js";
@@ -468,6 +468,34 @@ describe("bw-chat", () => {
     await fire(byId(m.el, "timeline"), "on_scroll_wheel", { delta: { x: 0, y: 40 } }, m.cx);
     await m.cx.flush();
     expect(calls(m, "feed").filter(([, a]) => a.includes("--before"))).toHaveLength(1);
+  });
+
+  test("a scroll the chat never hears of (scrollbar drag) stops following; back at the end follows again", async () => {
+    let lines = golden("claude-approval", "t8", CLAUDE_PATH);
+    const data = live("chat-tab");
+    data.exec = bw({ feed: () => out(lines) });
+    const m = await mount("bw-chat", { props: CLAUDE, live: data });
+    const scrolls = inspect(m.view.scroll).calls;
+    /** The agent writes one more row; the next poll reads it. @param {string} id */
+    let count = 4;
+    const grow = async (id) => {
+      lines = [lines[0], { type: "splice", at: count++, count: 1 }, { type: "row", k: "assistant", id, text: id }];
+      await nextPoll(m);
+      lines = [lines[0], { type: "unchanged" }];
+    };
+    const n = list(m).attrs.count;
+    expect(n).toBe(4);
+
+    layOut(list(m), { start: 0, end: 2 });
+    const before = scrolls.length;
+    await grow("more-1");
+    expect(scrolls.slice(before)).toEqual([]);
+
+    // Herdr also lays out one representative row each frame; that is not where the view is.
+    layOut(list(m), { start: 3, end: 5 });
+    layOut(list(m), { start: 0, end: 1 });
+    await grow("more-2");
+    expect(scrolls.slice(before)).toEqual([["item", 5, "top"]]);
   });
 
   test("no props renders a named state and runs nothing", async () => {
