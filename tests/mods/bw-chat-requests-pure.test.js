@@ -207,6 +207,13 @@ describe("dock model", () => {
     expect(dockCards([req({ resolved_ms: 0 })], opts({ now: 1e9 }))).toHaveLength(1);
   });
 
+  test("a settling card offers nothing until bw cards settles it", () => {
+    const [card] = dockCards([req({ state: "settling", answerable: false, resolved_ms: null })], opts({ now: 1e9 }));
+    expect(card.state).toBe("settling");
+    expect(card.note).toBe("Left the screen; checking who answered");
+    expect(card.buttons).toEqual([]);
+  });
+
   test("show-only card has only Answer in terminal and its note", () => {
     const cases = [
       ["codex_child", "Codex sub-agent approvals are answered in the terminal for now"],
@@ -283,6 +290,7 @@ describe("dock model", () => {
     expect(stateNote("pending")).toBeNull();
     expect(answerNote({ type: "answer", result: "answered", state: "answered", message: "" }, "approval", "Claude")).toBe("Approved");
     expect(answerNote({ type: "answer", result: "stale", state: "stale", message: "" }, "approval", "Claude")).toBe("Changed on screen; nothing was pressed");
+    expect(answerNote({ type: "answer", result: "stale", state: "settling", message: "" }, "approval", "Claude")).toBe("Changed on screen; nothing was pressed");
     expect(answerNote({ type: "answer", result: "refused-conversation", state: "pending", message: "" }, "approval", "Claude"))
       .toBe("Claude moved to another conversation; nothing was pressed");
     expect(answerNote({ type: "answer", result: "failed", state: "pending", message: "hc timed out" }, "approval", "Claude")).toBe("Not sent (hc timed out)");

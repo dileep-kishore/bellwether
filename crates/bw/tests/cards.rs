@@ -538,16 +538,82 @@ fn box_gone_with_rejection_is_declined_terminal() {
 }
 
 #[test]
-fn box_gone_without_result_is_stale() {
-    let x = Scratch::new();
-    case_a(&x, None);
-    let first = one(&x.cards("t1"), "request")["id"].clone();
-    let mut x = x;
+fn box_gone_before_its_result_settles_then_answered_terminal() {
+    // The live Task 12 run: a pass right after the box left, before Claude logged the call's result.
+    let mut x = Scratch::new();
+    let root = claude_approval(&x);
+    let first = one(&x.cards("t1"), "request").clone();
+    assert_eq!(first["state"], "pending");
     x.now += 2000;
     x.status("t1", &working());
     let r = one(&x.cards("t1"), "request").clone();
+    assert_eq!(r["id"], first["id"]);
+    assert_eq!(r["state"], "settling", "{r}");
+    assert_eq!(r["answerable"], false);
+    assert_eq!(r["reason"], Value::Null);
+    assert_eq!(r["resolved_ms"], Value::Null);
+    x.now += 2000;
+    let text =
+        read(&sessions("claude-approval").join("e186f156-fd30-4aab-a0b6-d3922b281731.jsonl"));
+    std::fs::write(
+        &root,
+        upto(
+            &text,
+            r#""type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01SGHovZaso4tVTRPTHPkAEF""#,
+        ),
+    )
+    .unwrap();
+    let r = one(&x.cards("t1"), "request").clone();
+    assert_eq!(r["id"], first["id"]);
+    assert_eq!(r["state"], "answered_terminal", "{r}");
+    assert_eq!(r["resolved_ms"], NOW_MS + 4000);
+}
+
+#[test]
+fn box_gone_without_result_for_5_s_is_stale() {
+    let mut x = Scratch::new();
+    case_a(&x, None);
+    let first = one(&x.cards("t1"), "request")["id"].clone();
+    x.now += 2000;
+    x.status("t1", &working());
+    assert_eq!(one(&x.cards("t1"), "request")["state"], "settling");
+    x.now = NOW_MS + 2000 + 4999;
+    assert_eq!(one(&x.cards("t1"), "request")["state"], "settling");
+    x.now = NOW_MS + 2000 + 5000;
+    let r = one(&x.cards("t1"), "request").clone();
     assert_eq!(r["id"], first);
     assert_eq!(r["state"], "stale", "{r}");
+    assert_eq!(r["resolved_ms"], NOW_MS + 7000);
+}
+
+#[test]
+fn settling_box_is_never_answerable_again() {
+    // The same box back on screen while the old one settles is a new occurrence; the old one stays shut.
+    let mut x = Scratch::new();
+    claude_approval(&x);
+    let first = one(&x.cards("t1"), "request").clone();
+    let blocked = json_file(&x.dir().join("gets/t1.json"))["status"].clone();
+    x.now += 2000;
+    x.status("t1", &working());
+    assert_eq!(one(&x.cards("t1"), "request")["state"], "settling");
+    x.now += 1000;
+    x.status("t1", &blocked);
+    let lines = x.cards("t1");
+    let reqs = lines_of(&lines, "request");
+    assert_eq!(reqs.len(), 2, "{lines:#?}");
+    let old = reqs.iter().find(|r| r["id"] == first["id"]).unwrap();
+    assert_eq!(old["state"], "settling", "{old}");
+    assert_eq!(old["answerable"], false);
+    let again = reqs.iter().find(|r| r["id"] != first["id"]).unwrap();
+    assert_eq!(again["state"], "pending");
+    assert_eq!(again["answerable"], true);
+    x.now += 5000;
+    let lines = x.cards("t1");
+    let old = lines_of(&lines, "request")
+        .into_iter()
+        .find(|r| r["id"] == first["id"])
+        .unwrap();
+    assert_eq!(old["state"], "stale", "{old}");
 }
 
 #[test]
@@ -580,7 +646,7 @@ fn same_box_at_two_reads_is_one_occurrence() {
     x.status("t1", &working());
     let gone = one(&x.cards("t1"), "request").clone();
     assert_eq!(gone["id"], a["id"]);
-    assert_eq!(gone["state"], "stale");
+    assert_eq!(gone["state"], "settling");
     x.now += 2000;
     x.status("t1", &blocked);
     let lines = x.cards("t1");
@@ -937,10 +1003,12 @@ fn resolved_requests_drop_after_10_s() {
     x.cards("t1");
     x.now += 1000;
     x.status("t1", &working());
+    assert_eq!(one(&x.cards("t1"), "request")["state"], "settling");
+    x.now = NOW_MS + 6000;
     assert_eq!(one(&x.cards("t1"), "request")["state"], "stale");
-    x.now = NOW_MS + 1000 + 9999;
+    x.now = NOW_MS + 6000 + 9999;
     assert_eq!(lines_of(&x.cards("t1"), "request").len(), 1);
-    x.now = NOW_MS + 1000 + 10_000;
+    x.now = NOW_MS + 6000 + 10_000;
     assert!(lines_of(&x.cards("t1"), "request").is_empty());
 }
 
@@ -1070,6 +1138,8 @@ fn cards_goldens_are_current() {
     x.cards("t1");
     x.now += 2000;
     x.status("t1", &working());
+    x.cards("t1");
+    x.now += 5000;
     cases.push(("claude-child-stale", golden_text(&x, &x.cards("t1"))));
     let s = "codex-child-approval";
     let x = Scratch::new();

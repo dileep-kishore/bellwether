@@ -262,7 +262,7 @@ async function claudeStale(t, dir) {
     first = c;
     await t.keys("1");
     if (!(await appears(() => existsSync(file)))) return fail("claude-stale-after-terminal-answer", "stale.txt missing after 1 in the terminal");
-    // bw cards settles a box that left on its first pass after: before the call's result is logged that is stale.
+    // A box that left reads settling until its call's result is logged (at most 5 s), so wait for the result.
     if (!(await appears(() => logged(c.cards.path, c.req.tool_use_id)))) return fail("claude-stale-after-terminal-answer", `the log never got the result of ${c.req.tool_use_id}`);
     await t.wait();
     const cards = await t.bw(["cards", "--terminal", t.local]);

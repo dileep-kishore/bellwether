@@ -101,6 +101,7 @@ export function stateNote(state, kind = "approval") {
     case "declined": return "Denied";
     case "answered_terminal": return "Answered in the terminal";
     case "declined_terminal": return "Denied in the terminal";
+    case "settling": return "Left the screen; checking who answered";
     case "stale": return "Changed on screen; nothing was pressed";
     case "uncertain": return "Sent, but the screen did not change. Check the terminal (⌘J).";
     case "sending": return "Sending…";
@@ -133,7 +134,9 @@ export function reasonNote(reason, agentName) {
 export function answerNote(line, kind, agentName) {
   switch (line.result) {
     case "answered": case "declined": case "uncertain": case "stale":
-      return /** @type {string} */ (stateNote(line.state && line.state !== "pending" ? line.state : line.result, kind));
+      // A settling request is one whose box just left: what `bw answer` did is the note.
+      return /** @type {string} */ (stateNote(line.state && line.state !== "pending" && line.state !== "settling"
+        ? line.state : line.result, kind));
     case "sent": return /** @type {string} */ (stateNote("answered", kind));
     case "refused-conversation": return `${agentName} moved to another conversation; nothing was pressed`;
     case "refused-agent": return "This terminal runs another program now; nothing was pressed";

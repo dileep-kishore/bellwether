@@ -17,6 +17,9 @@ use crate::chat::cache;
 use crate::chat::protocol::fnv1a;
 
 pub const VERSION: u32 = 1;
+/// How long a box that left waits for its call's result in the log before it reads `stale`: Claude and Codex log
+/// the result a moment after the box goes.
+pub const SETTLE_MS: i64 = 5000;
 /// Files under `requests/` older than this go on each save; so do occurrences last seen longer ago.
 pub const MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 /// Resolved occurrences kept per store, newest first, so a reused event or call id is still known as used.
@@ -39,18 +42,30 @@ pub struct Occurrence {
     pub child: Option<String>,
     pub first_seen_ms: i64,
     pub last_seen_ms: i64,
-    /// `pending`, `answered`, `declined`, `answered_terminal`, `declined_terminal`, `stale` or `uncertain`.
+    /// `pending`, `settling`, `answered`, `declined`, `answered_terminal`, `declined_terminal`, `stale` or
+    /// `uncertain`. `settling`: the box left with no Bellwether key and its call has no result in the log yet;
+    /// never answerable, it becomes `answered_terminal`, `declined_terminal` or, after `SETTLE_MS`, `stale`.
     pub state: String,
     /// The action `bw answer` sent for it (`approve`, `deny`, `option-1`, `answers`); None when Bellwether sent
     /// nothing.
     pub by: Option<String>,
     pub resolved_ms: Option<i64>,
+    /// When a pass first saw its box gone while it was `settling`.
+    #[serde(default)]
+    pub left_ms: Option<i64>,
     /// Every hook event bound to it, so none binds a second occurrence.
     #[serde(default)]
     pub events: Vec<String>,
     /// The request line as last printed while pending, so a resolved card keeps its text.
     #[serde(default)]
     pub shown: Option<Value>,
+}
+
+impl Occurrence {
+    /// Not resolved yet: a later pass may still change its state.
+    pub fn open(&self) -> bool {
+        matches!(self.state.as_str(), "pending" | "uncertain" | "settling")
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -77,7 +92,7 @@ impl Store {
         let mut resolved: Vec<(i64, String)> = self
             .occurrences
             .iter()
-            .filter(|o| o.state != "pending" && o.state != "uncertain")
+            .filter(|o| !o.open())
             .map(|o| (o.resolved_ms.unwrap_or(o.last_seen_ms), o.id.clone()))
             .collect();
         if resolved.len() > MAX_RESOLVED {
@@ -227,6 +242,7 @@ mod tests {
             state: state.into(),
             by: None,
             resolved_ms: (state != "pending").then_some(seen),
+            left_ms: None,
             events: vec![],
             shown: None,
         }

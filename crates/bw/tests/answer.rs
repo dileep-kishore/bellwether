@@ -468,6 +468,24 @@ fn other_screen_before_key_is_stale_and_presses_nothing() {
     assert_eq!(x.typed(), ["keys t1 1"]);
 }
 
+#[test]
+fn box_gone_before_its_result_presses_nothing() {
+    // The box left before Claude logged the call's result: the card settles, and is never answered again.
+    let x = Scratch::new();
+    let (_claude, log, r) = claude_approval(&x, None);
+    x.screen("t1", "txt", CALM);
+    let line = x.answer(
+        "t1",
+        &r,
+        ("claude", CLAUDE_SID, &log),
+        &["--action", "approve"],
+    );
+    assert_eq!(result(&line), "stale", "{line}");
+    assert_eq!(line["state"], "settling");
+    assert!(x.typed().is_empty(), "{:?}", x.log());
+    assert_eq!(occurrence(&x.store("t1"), CLAUDE_CALL)["state"], "settling");
+}
+
 /// The assistant line of the claude-approval call, as a second call `id` with the same command.
 fn same_command_again(id: &str) -> String {
     let line = claude_log()

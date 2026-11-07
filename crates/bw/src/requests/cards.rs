@@ -8,7 +8,8 @@
 //!
 //! Each box seen is an occurrence in the terminal's store. A box seen at two reads in a row is the same
 //! occurrence; once a read shows it gone, the same box again is a new one. When it leaves, its state says who
-//! answered: Bellwether (`by`), the terminal (the call has a result), or nobody yet (`stale`).
+//! answered: Bellwether (`by`), the terminal (the call has a result), or nobody yet (`stale`). Until the call's
+//! result is logged, or for at most 5 s, it is `settling`, which no pass offers for answering.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -475,12 +476,12 @@ pub fn build(input: &CardsInput, store: &mut Store, now_ms: i64) -> (Value, Vec<
     live.extend(async_questions(&pass, store));
 
     for o in store.occurrences.iter_mut() {
-        if live.contains(&o.id) || !(o.state == "pending" || o.state == "uncertain") {
+        if live.contains(&o.id) || !o.open() {
             continue;
         }
         if o.kind == "question_async" {
             resolve_async(&pass, o);
-        } else if known {
+        } else if known || o.state == "settling" {
             resolve(&pass, o);
         }
     }
@@ -599,6 +600,7 @@ fn on_screen_with(
                 state: "pending".into(),
                 by: None,
                 resolved_ms: None,
+                left_ms: None,
                 events: Vec::new(),
                 shown: None,
             });
@@ -907,6 +909,7 @@ fn async_questions(pass: &Pass, store: &mut Store) -> Vec<String> {
                 state: "pending".into(),
                 by: None,
                 resolved_ms: None,
+                left_ms: None,
                 events: Vec::new(),
                 shown: None,
             });
@@ -965,7 +968,8 @@ fn resolve_async(pass: &Pass, o: &mut Occurrence) {
 }
 
 /// A box that left the screen: Bellwether's key went out (`by`), else its call's result says the terminal
-/// answered or denied it, else nothing answered it yet (`stale`).
+/// answered or denied it. With no result yet it is `settling` for up to `SETTLE_MS`, since the agent logs the
+/// result a moment after the box goes, then `stale`. A call with no id has no result to wait for.
 fn resolve(pass: &Pass, o: &mut Occurrence) {
     let state = match o.by.as_deref() {
         Some("deny") => "declined",
@@ -985,6 +989,13 @@ fn resolve(pass: &Pass, o: &mut Occurrence) {
             None => "stale",
         },
     };
+    if state == "stale" && (o.kind == "question" || o.tool_use_id.is_some()) {
+        let left = *o.left_ms.get_or_insert(pass.now_ms);
+        if pass.now_ms - left < store::SETTLE_MS {
+            o.state = "settling".into();
+            return;
+        }
+    }
     o.state = state.into();
     o.resolved_ms = Some(pass.now_ms);
 }
