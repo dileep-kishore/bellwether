@@ -506,9 +506,11 @@ export default class Chat extends View {
     const a = activeQuestion(this.requests);
     const d = a ? this.draftOf(a) : null;
     const key = a && d ? `${a.id}:${d.step}` : null;
-    if (key === this.otherKey) return;
+    const want = d ? d.other[d.step] ?? "" : "";
+    // A pick on the same step clears the draft's Other text, which the field must show too.
+    if (key === this.otherKey && this.other.value() === want) return;
     this.otherKey = key;
-    this.other.set_value(d ? d.other[d.step] ?? "" : "");
+    this.other.set_value(want);
   }
 
   /** @param {string} id */

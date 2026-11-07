@@ -281,6 +281,29 @@ describe("dock", () => {
       "--expect-path", ROOT_PATH, "--answers", '[{"picks":[1]},{"picks":[0,2],"other":"kiwi"}]']);
   });
 
+  test("picking an option after typing Other clears the shown field, by click or digit", async () => {
+    const question = { toolUseId: "toolu_q", agent: "claude", delivery: "picker", state: "pending", questions: [
+      { id: "Color?", header: "Color", text: "Which color?", multi: false, options: [{ label: "Red" }, { label: "Blue" }] }] };
+    const req = { ...REQUEST, id: "r3.q", kind: "question", who: null, tool: "AskUserQuestion", command: "", actions: [], question, unread: 1 };
+    const m = await ready(CLAUDE, data({ feed: () => out(rootWith([req])) }));
+    const card = () => byId(m.el, "card-r3.q");
+    const field = () => findAll(card(), (e) => e.tag === "Input")[0].attrs.state;
+    const typeOther = async (/** @type {string} */ v) => {
+      field().set_value(v);
+      await field().handlers.change({}, m.cx);
+      m.render();
+    };
+    await typeOther("Green");
+    await m.click("qopt-r3.q-0-1");
+    expect(field().value()).toBe("");
+    await typeOther("Teal");
+    await fire(byId(m.el, "qkeys-r3.q"), "on_key_down", { key: "1", keystroke: "1", modifiers: NO_MODS }, m.cx);
+    m.render();
+    expect(field().value()).toBe("");
+    await m.click("answer-r3.q-submit");
+    expect(calls(m, "answer")[0][1].at(-1)).toBe('[{"picks":[0]}]');
+  });
+
   test("async question Submit sends one answer call", async () => {
     const question = { toolUseId: "call_q", agent: "codex", delivery: "message", state: "pending",
       questions: [{ id: "size", header: "Size", text: "Which size?", multi: false, options: [{ label: "small" }, { label: "large" }] }] };
