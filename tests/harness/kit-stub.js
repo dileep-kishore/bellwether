@@ -313,7 +313,27 @@ export function v_virtual_list(id, count, sizes, getKey, render) {
   if (!Array.isArray(items) || items.length !== count) refuse(`v_virtual_list ${id}: render returned ${items?.length} elements for ${count} items`);
   const el = make("VirtualList", { id, count, sizes, keys });
   for (const c of /** @type {unknown[]} */ (items)) addChild(el[NODE], c);
+  renderers.set(el[NODE], render);
   return el;
+}
+
+/** @type {WeakMap<object, (range: { start: number, end: number }, cx: unknown) => unknown[]>} */
+const renderers = new WeakMap();
+
+/**
+ * Lays a virtual list out again with another range, as Herdr does on a scroll the mod never sees
+ * (a scrollbar drag) or when it measures one representative row. Returns how many elements came back.
+ * @param {El} list @param {{ start: number, end: number }} range
+ */
+export function layOut(list, range) {
+  const render = renderers.get(list?.[NODE]);
+  if (!render) throw new Error("layOut: not a virtual list");
+  layoutDepth++;
+  try {
+    return /** @type {unknown[]} */ (render(range, layoutCx)).length;
+  } finally {
+    layoutDepth--;
+  }
 }
 
 /** @param {string} name */

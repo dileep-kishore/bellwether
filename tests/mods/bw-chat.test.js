@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { live, mount, repo } from "../harness/mount.js";
 import { fake } from "../harness/herdr-stub.js";
-import { byId, emit, findAll, fire, inspect, textOf } from "../harness/kit-stub.js";
+import { byId, emit, findAll, fire, inspect, layOut, textOf } from "../harness/kit-stub.js";
 import { HELPER_SCRIPT, HELPER_VERSION, PROTOCOL } from "../../shared/helper.js";
 import { columnWidth, sizes } from "../../mods/bw-chat/estimate.js";
 import { pollMs, sendText, targetOf, waitingText } from "../../mods/bw-chat/target.js";
@@ -101,6 +101,106 @@ describe("target", () => {
     expect(withoutEnter("a\nb", "ab")).toBe("ab");
     expect(withoutEnter("a\n\nb", "a\nb")).toBe("a\nb");
     expect(withoutEnter("same", "same")).toBe("same");
+  });
+});
+
+/** chat-tab.json as a Herdr window on macmini sees it: macmini's space is local, this Mac's is `macbook/`. */
+function fromMacmini() {
+  const data = live("chat-tab");
+  const book = (/** @type {string | null} */ id) => (id === null ? null : `macbook/${id}`);
+  const mini = (/** @type {string | null} */ id) => (id === null ? null : id.replace(/^macmini\//, ""));
+  data.spaces = data.spaces.map((sp) => sp.machine === "macmini"
+    ? { ...sp, id: mini(sp.id), machine: null, tabs: sp.tabs.map((t) => ({ ...t, id: mini(t.id) })) }
+    : { ...sp, id: book(sp.id), machine: "macbook", tabs: sp.tabs.map((t) => ({ ...t, id: book(t.id) })) });
+  data.panes = data.panes.map((p) => p.pane.startsWith("macmini/")
+    ? { ...p, pane: mini(p.pane), tab: mini(p.tab), terminal: mini(p.terminal) }
+    : { ...p, pane: book(p.pane), tab: book(p.tab), terminal: book(p.terminal) });
+  data.shared = { "bw.window-id": "w-mini" };
+  return data;
+}
+
+/** A second Codex chat tab on this Mac whose terminal has macmini's chat's address, t5. @param {Record<string, any>} data */
+function withLocalT5Chat(data) {
+  const codex = data.panes.find((/** @type {any} */ p) => p.terminal === "macmini/t5");
+  data.spaces[0].tabs.push({ ...data.spaces[0].tabs[0], id: "tb40", name: "Codex", active: false });
+  data.panes.push({ ...codex, pane: "p40", tab: "tb40", terminal: "t5" }, { pane: "p41", terminal: null, mod: "bw-chat", tab: "tb40", title: "bw-chat", focused: false, zoomed: false });
+  return data;
+}
+
+/** @param {Record<string, any>} data */
+const recording = (data) => {
+  data.exec = bw({ feed: () => out([{ type: "state", state: "no_log", agent: null, message: "" }]), send: () => out([{ type: "send", result: "sent", message: "" }]) });
+  return data;
+};
+/** Where the chat read its feed: [on, --terminal]. @param {any} m */
+const fedFrom = (m) => calls(m, "feed").map(([, a, o]) => [o.on, a[5]]);
+
+describe("chat target", () => {
+  const BOOK = "w-book";
+  test("the window that made the chat: its props name the terminal, even when machines reuse the address", async () => {
+    const data = recording(withLocalT5Chat(live("chat-tab")));
+    data.shared["bw.window-id"] = BOOK;
+    const local = await mount("bw-chat", { props: { terminal: "t5", machine: null, kind: "codex", window: BOOK }, live: data });
+    expect(fedFrom(local)).toEqual([[null, "t5"]]);
+    await typeAndSend(local, "hi");
+    expect(calls(local, "send").map(([, a, o]) => [o.on, a[5]])).toEqual([[null, "t5"]]);
+  });
+
+  test("a remote space in the window that made it reads on that machine, beside a local t5 chat", async () => {
+    const data = recording(withLocalT5Chat(live("chat-tab")));
+    data.shared["bw.window-id"] = BOOK;
+    const m = await mount("bw-chat", { props: { ...CODEX_REMOTE, window: BOOK }, live: data });
+    expect(fedFrom(m)).toEqual([["macmini", "t5"]]);
+    expect(textOf(byId(m.el, "chat-header"))).toContain("macmini");
+  });
+
+  test("a second window on the other machine finds the chat's own tab: machine prefixes swapped", async () => {
+    const codex = await mount("bw-chat", { props: { ...CODEX_REMOTE, window: BOOK }, live: recording(fromMacmini()) });
+    expect(fedFrom(codex)).toEqual([[null, "t5"]]);
+    expect(textOf(byId(codex.el, "chat-header"))).not.toContain("macmini");
+    await typeAndSend(codex, "hi");
+    expect(calls(codex, "send").map(([, a, o]) => [o.on, a[5]])).toEqual([[null, "t5"]]);
+
+    const claude = await mount("bw-chat", { props: { ...CLAUDE, window: BOOK }, live: recording(fromMacmini()) });
+    expect(fedFrom(claude)).toEqual([["macbook", "t8"]]);
+    expect(textOf(byId(claude.el, "chat-header"))).toContain("macbook");
+  });
+
+  test("an unrelated terminal with the same address is never the target", async () => {
+    // macmini made this Codex chat in its own space; this Mac sees it as macmini/t5 and has its own t5.
+    const data = recording(live("chat-remote"));
+    data.spaces[0].tabs.push({ ...data.spaces[0].tabs[0], id: "tb40", active: false });
+    data.panes.push({ ...data.panes.find((/** @type {any} */ p) => p.terminal === "macmini/t5"), pane: "p40", tab: "tb40", terminal: "t5" });
+    const m = await mount("bw-chat", { props: { terminal: "t5", machine: null, kind: "codex", window: "w-mini" }, live: data });
+    expect(fedFrom(m)).toEqual([["macmini", "t5"]]);
+
+    const unrelated = fromMacmini();
+    unrelated.spaces[0].tabs.push({ ...unrelated.spaces[0].tabs[0], id: "tb40", active: false });
+    unrelated.panes.push({ ...unrelated.panes.find((/** @type {any} */ p) => p.terminal === "macbook/t8"), pane: "p40", tab: "tb40", terminal: "t8" });
+    const n = await mount("bw-chat", { props: { ...CLAUDE, window: BOOK }, live: recording(unrelated) });
+    expect(fedFrom(n)).toEqual([["macbook", "t8"]]);
+  });
+
+  test("two chat tabs that could be it: named, nothing read or sent", async () => {
+    // Seen from macmini, this Mac's Codex chat on t5 and macmini's own on t5 both match.
+    const data = fromMacmini();
+    data.spaces[0].tabs.push({ ...data.spaces[0].tabs[0], id: "macbook/tb40", active: false });
+    data.panes.push({ ...data.panes.find((/** @type {any} */ p) => p.terminal === "t5"), pane: "macbook/p40", tab: "macbook/tb40", terminal: "macbook/t5" },
+      { pane: "macbook/p41", terminal: null, mod: "bw-chat", tab: "macbook/tb40", title: "bw-chat", focused: false, zoomed: false });
+    const m = await mount("bw-chat", { props: { terminal: "t5", machine: null, kind: "codex", window: BOOK }, live: recording(data) });
+    expect(textOf(byId(m.el, "chat-state"))).toContain("Chat target not found");
+    expect(textarea(m).attrs.disabled).toBe(true);
+    await typeAndSend(m, "hi");
+    expect(calls(m, "feed")).toHaveLength(0);
+    expect(calls(m, "send")).toHaveLength(0);
+    expect(byId(m.el, "show-terminal")).toBe(null);
+  });
+
+  test("a terminal of the other agent in the chat's tab is not its target", async () => {
+    const data = recording(live("chat-tab"));
+    const m = await mount("bw-chat", { props: { terminal: "t8", machine: null, kind: "codex" }, live: data });
+    expect(calls(m, "feed")).toHaveLength(0);
+    expect(textOf(m.el)).toContain("Chat target not found");
   });
 });
 
@@ -337,6 +437,26 @@ describe("bw-chat", () => {
     expect(calls(m, "send")).toHaveLength(0);
   });
 
+  test("after /new the feed names the new session: old rows go, its first message expects that session", async () => {
+    let answer = out(golden("codex-question", "t5", CODEX_PATH));
+    const data = live("chat-remote");
+    data.exec = bw({ feed: () => answer, send: () => out([{ type: "send", result: "sent", message: "" }]) });
+    const m = await mount("bw-chat", { props: CODEX_REMOTE, live: data });
+    await typeAndSend(m, "/new");
+    expect(calls(m, "send").at(-1)[1].slice(8, 12)).toEqual(["--expect-session", CODEX_SESSION, "--expect-path", CODEX_PATH]);
+    const NEXT = "019a0000-0000-7000-8000-000000000002";
+    answer = out([{ type: "state", state: "no_log", agent: "codex", message: "no codex session log yet", session: NEXT }]);
+    await nextPoll(m);
+    expect(textOf(m.el)).not.toContain("Wrote `blue` to colour.txt.");
+    expect(textOf(m.el)).toContain("No messages yet. Send the first one below.");
+    expect(byId(m.el, "chat-notice")).toBe(null);
+    expect(textarea(m).attrs.disabled).toBe(false);
+    await typeAndSend(m, "first of the new one");
+    expect(calls(m, "send")).toHaveLength(2);
+    expect(calls(m, "send").at(-1)[1].slice(4)).toEqual(["--terminal", "t5", "--expect-kind", "codex", "--expect-session", NEXT, "--expect-path", "none", "--text", "first of the new one"]);
+    expect(calls(m, "feed").at(-1)[1].slice(4)).toEqual(["--terminal", "t5", "--pictures"]);
+  });
+
   test("a feed state other than no log names the wait and disables the composer", async () => {
     for (const [state, agent, shown] of [["not_agent", null, "This terminal runs no Claude or Codex"], ["no_log", "claude", "Waiting for Codex's session log"]]) {
       const data = live("chat-remote");
@@ -468,6 +588,34 @@ describe("bw-chat", () => {
     await fire(byId(m.el, "timeline"), "on_scroll_wheel", { delta: { x: 0, y: 40 } }, m.cx);
     await m.cx.flush();
     expect(calls(m, "feed").filter(([, a]) => a.includes("--before"))).toHaveLength(1);
+  });
+
+  test("a scroll the chat never hears of (scrollbar drag) stops following; back at the end follows again", async () => {
+    let lines = golden("claude-approval", "t8", CLAUDE_PATH);
+    const data = live("chat-tab");
+    data.exec = bw({ feed: () => out(lines) });
+    const m = await mount("bw-chat", { props: CLAUDE, live: data });
+    const scrolls = inspect(m.view.scroll).calls;
+    /** The agent writes one more row; the next poll reads it. @param {string} id */
+    let count = 4;
+    const grow = async (id) => {
+      lines = [lines[0], { type: "splice", at: count++, count: 1 }, { type: "row", k: "assistant", id, text: id }];
+      await nextPoll(m);
+      lines = [lines[0], { type: "unchanged" }];
+    };
+    const n = list(m).attrs.count;
+    expect(n).toBe(4);
+
+    layOut(list(m), { start: 0, end: 2 });
+    const before = scrolls.length;
+    await grow("more-1");
+    expect(scrolls.slice(before)).toEqual([]);
+
+    // Herdr also lays out one representative row each frame; that is not where the view is.
+    layOut(list(m), { start: 3, end: 5 });
+    layOut(list(m), { start: 0, end: 1 });
+    await grow("more-2");
+    expect(scrolls.slice(before)).toEqual([["item", 5, "top"]]);
   });
 
   test("no props renders a named state and runs nothing", async () => {

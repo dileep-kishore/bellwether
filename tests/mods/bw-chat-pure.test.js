@@ -1,7 +1,7 @@
 // bw-chat's pure modules: feed state, row heights and markdown blocks.
 import { describe, expect, test } from "bun:test";
-import { applyFeed, applyOlder, emptyFeed, olderFrom } from "../../mods/bw-chat/feedstate.js";
-import { BUBBLE, GUTTER, READ_W, columnWidth, rowHeight, sizes } from "../../mods/bw-chat/estimate.js";
+import { applyFeed, applyOlder, emptyFeed, expectation, olderFrom } from "../../mods/bw-chat/feedstate.js";
+import { BUBBLE, GUTTER, READ_W, columnWidth, markdownHeight, rowHeight, sizes } from "../../mods/bw-chat/estimate.js";
 import { codeBlockAt, splitBlocks, tableCells } from "../../mods/bw-chat/mdblocks.js";
 
 const log = (extra = {}) => ({ type: "log", agent: "claude", terminal: "t8", session: "s1", path: "/l/s1.jsonl",
@@ -71,10 +71,41 @@ describe("feedstate", () => {
     const wait = { type: "state", state: "no_terminal", agent: "claude", message: "terminal t8 is gone" };
     expect(applyFeed(s, ok(wait))).toBe(0);
     expect(ids(s)).toEqual(["a", "b", "c"]);
-    expect(s.waiting).toEqual({ state: "no_terminal", agent: "claude", message: "terminal t8 is gone" });
+    expect(s.waiting).toEqual({ state: "no_terminal", agent: "claude", message: "terminal t8 is gone", session: null });
     expect(applyFeed(s, ok(wait))).toBe(-1);
     expect(applyFeed(s, ok(log(), { type: "unchanged" }))).toBe(0);
     expect(s.waiting).toBe(null);
+  });
+
+  test("no log naming another session is a new conversation: rows go, the first message names that session", () => {
+    const s = shown();
+    expect(expectation(s, "claude")).toEqual({ session: "s1", path: "/l/s1.jsonl" });
+    const next = { type: "state", state: "no_log", agent: "claude", message: "no claude session log yet", session: "s2" };
+    expect(applyFeed(s, ok(next))).toBe(0);
+    expect(ids(s)).toEqual([]);
+    expect([s.session, s.path, s.cursor, s.seen]).toEqual(["s2", null, null, true]);
+    expect(expectation(s, "claude")).toEqual({ session: "s2", path: "none" });
+    expect(expectation(s, "codex")).toBe(null);
+    expect(applyFeed(s, ok(next))).toBe(-1);
+    applyFeed(s, ok(log({ session: "s2", path: "/l/s2.jsonl" }), { type: "splice", at: 0, count: 1 }, row("n")));
+    expect(ids(s)).toEqual(["n"]);
+    expect(expectation(s, "claude")).toEqual({ session: "s2", path: "/l/s2.jsonl" });
+  });
+
+  test("no log without a session, or naming the shown one, sends nothing once a conversation was shown", () => {
+    const s = shown();
+    applyFeed(s, ok({ type: "state", state: "no_log", agent: "claude", message: "" }));
+    expect(ids(s)).toEqual(["a", "b", "c"]);
+    expect(expectation(s, "claude")).toEqual({ session: "s1", path: "/l/s1.jsonl" });
+    const same = shown();
+    applyFeed(same, ok({ type: "state", state: "no_log", agent: "claude", message: "", session: "s1" }));
+    expect(ids(same)).toEqual(["a", "b", "c"]);
+    const fresh = emptyFeed("t8");
+    applyFeed(fresh, ok({ type: "state", state: "no_log", agent: "claude", message: "" }));
+    expect(expectation(fresh, "claude")).toEqual({ session: "none", path: "none" });
+    const named = emptyFeed("t8");
+    applyFeed(named, ok({ type: "state", state: "no_log", agent: "claude", message: "", session: "s9" }));
+    expect(expectation(named, "claude")).toEqual({ session: "s9", path: "none" });
   });
 
   test("a helper failure keeps rows and is named once", () => {
@@ -166,5 +197,19 @@ describe("mdblocks", () => {
     const text = "```\none\ntwo\n```";
     expect(codeBlockAt(text, 600, 20)).toBe("one\ntwo");
     expect(codeBlockAt(text, 600, 500)).toBe(null);
+  });
+
+  test("a ~~~ fence is measured and found as the same code box as a ``` fence", () => {
+    const body = Array(100).fill("x();");
+    const tilde = ["~~~js", ...body, "~~~"].join("\n");
+    const tick = ["```js", ...body, "```"].join("\n");
+    expect(splitBlocks(tilde)).toEqual(splitBlocks(tick));
+    expect(markdownHeight(tilde, 736)).toBe(markdownHeight(tick, 736));
+    expect(rowHeight({ k: "assistant", id: "a", text: tilde }, 736)).toBe(rowHeight({ k: "assistant", id: "a", text: tick }, 736));
+    expect(codeBlockAt(tilde, 736, 50)).toBe(body.join("\n"));
+    // A ``` line inside a ~~~ block is code, as mdblocks.js draws it.
+    const mixed = ["~~~", "```", "x", "~~~"].join("\n");
+    expect(splitBlocks(mixed)).toEqual([{ k: "code", lang: "", text: "```\nx" }]);
+    expect(markdownHeight(mixed, 736)).toBe(markdownHeight(["```", "a", "b", "```"].join("\n"), 736));
   });
 });

@@ -119,32 +119,52 @@ export function addPending(value, p, now) {
 /** @param {any[]} panes @param {string} tabId */
 const terminalPaneIn = (panes, tabId) => panes.find((p) => p.tab === tabId && !p.mod && isStr(p.terminal)) ?? null;
 
-/** @param {Entry} e @returns {Action} */
-const splitAction = (e) => ["pane.split", {
-  direction: "right", pane: e.terminalPane, mod: "bw-chat", props: { terminal: e.terminal, machine: e.machine, kind: e.kind },
+/** The agent a terminal pane runs, from Herdr's program table or the agent's own report. @param {any} pane
+ * @returns {ChatKind | null} */
+export function paneKind(pane) {
+  const key = pane.program?.key;
+  if (isKind(key)) return key;
+  return pane.app === "codex" ? "codex" : pane.app === "claude-code" ? "claude" : null;
+}
+
+/** @param {unknown} f */
+const trimSlash = (f) => String(f ?? "").replace(/\/+$/, "");
+
+/**
+ * Props are stored as given and read by every window on the space's core, so `window` names whose
+ * address namespace `terminal` and `machine` are in.
+ * @param {Entry} e @param {string | null} windowId @returns {Action}
+ */
+const splitAction = (e, windowId) => ["pane.split", {
+  direction: "right", pane: e.terminalPane, mod: "bw-chat",
+  props: { terminal: e.terminal, machine: e.machine, kind: e.kind, ...(windowId ? { window: windowId } : {}) },
 }];
 
 /**
- * The tab a pending chat should take, or null while it has not appeared.
+ * The new tab a pending chat should take, named as it asked, in its space or a new space in its folder;
+ * null until it appears.
  * @param {Pending} p
  * @param {any[]} spaces SpaceInfo[]
  * @param {any[]} panes PaneInfo[]
  * @param {Record<string, Entry>} tabs
  */
 function newTabFor(p, spaces, panes, tabs) {
-  const free = (/** @type {any} */ t) => !tabs[t.id] && terminalPaneIn(panes, t.id);
+  // tab.new and space.new return no ids, so the name they were given is what ties a new tab to this launch.
+  const ours = (/** @type {any} */ t) => t.name === p.name && !tabs[t.id] && terminalPaneIn(panes, t.id);
   if (p.space !== null) {
     const space = spaces.find((s) => s.id === p.space);
-    const t = space?.tabs.find((/** @type {any} */ t) => !p.beforeTabs.includes(t.id) && free(t));
+    const t = space?.tabs.find((/** @type {any} */ t) => !p.beforeTabs.includes(t.id) && ours(t));
     return t ? { space, tab: t } : null;
   }
   for (const space of spaces) {
     if (p.beforeSpaces.includes(space.id) || (space.machine ?? null) !== p.machine) continue;
+    if (p.folder !== null && trimSlash(space.folder) !== trimSlash(p.folder)) continue;
     const t = space.tabs[0];
-    if (t && free(t)) return { space, tab: t };
+    if (t && ours(t)) return { space, tab: t };
   }
   return null;
 }
+
 
 /**
  * One render's worth of chat-tab bookkeeping. `next` is null when nothing changed, so the caller
@@ -153,9 +173,10 @@ function newTabFor(p, spaces, panes, tabs) {
  * @param {any[]} spaces SpaceInfo[]
  * @param {any[]} panes PaneInfo[]
  * @param {number} now
+ * @param {string | null} [windowId] this app home's `bw.window-id`, put in the chat panes' props
  * @returns {{ next: ChatTabs | null, actions: Action[], notices: Notice[] }}
  */
-export function adopt(value, spaces, panes, now) {
+export function adopt(value, spaces, panes, now, windowId = null) {
   const s = readChatTabs(value);
   /** @type {Action[]} */
   const actions = [];
@@ -182,7 +203,7 @@ export function adopt(value, spaces, panes, now) {
         terminalPane: pane.pane, chatPane: null, split: { at: now, tries: 1 }, zoomed: false, failed: false, created: now,
       };
       s.tabs[e.tab] = e;
-      actions.push(splitAction(e));
+      actions.push(splitAction(e, windowId));
       changed = true;
     } else if (now - p.at > CHAT_PENDING_MS) {
       notices.push({ title: `${p.name} chat did not start`, body: "No new tab appeared within 30 s." });
@@ -192,6 +213,23 @@ export function adopt(value, spaces, panes, now) {
     }
   }
   s.pending = waiting;
+
+  // Each app home keeps its own entries, but the panes live in the space's core: a chat tab made in
+  // another window, or before this app home existed, is registered here so ⌘J works on it too.
+  for (const space of spaces) {
+    for (const t of space.tabs) {
+      if (s.tabs[t.id]) continue;
+      const terms = panes.filter((p) => p.tab === t.id && !p.mod && isStr(p.terminal));
+      const chats = panes.filter((p) => p.tab === t.id && p.mod === "bw-chat");
+      const kind = terms.length === 1 ? paneKind(terms[0]) : null;
+      if (!kind || chats.length !== 1) continue;
+      s.tabs[t.id] = {
+        tab: t.id, space: space.id, machine: space.machine ?? null, kind, terminal: terms[0].terminal, terminalPane: terms[0].pane,
+        chatPane: chats[0].pane, split: null, zoomed: true, failed: false, created: now,
+      };
+      changed = true;
+    }
+  }
 
   for (const e of Object.values(s.tabs)) {
     if (e.chatPane === null) {
@@ -203,7 +241,7 @@ export function adopt(value, spaces, panes, now) {
       } else if (!e.failed && e.split && now >= e.split.at + SPLIT_RETRY_MS) {
         if (e.split.tries < SPLIT_TRIES) {
           e.split = { at: now, tries: e.split.tries + 1 };
-          actions.push(splitAction(e));
+          actions.push(splitAction(e, windowId));
         } else {
           e.failed = true;
           notices.push({ title: "Chat pane did not open", body: "The agent keeps running in this tab." });
