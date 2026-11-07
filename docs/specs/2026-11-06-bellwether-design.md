@@ -603,8 +603,9 @@ repository.
    focus guard covers this window, and typing from another Herdr client can
    still move a held key, shown as "uncertain". A conditional key request is
    filed with Herdr.
-3. Codex sub-agent approvals are unverified; their cards are show-only until
-   the phase 3 experiment and matcher pass.
+3. Codex sub-agent approvals depend on reading Codex 0.167's child approval
+   box; the phase 3 experiment and matcher made them answerable, and a
+   box the matcher cannot read falls back to "Answer in terminal".
 4. The user's Claude settings use auto mode, so few actions prompt.
 5. The browser's debugging port has no authentication, here and through the
    forward; the Bellwether profile holds only logins the user makes there,
@@ -630,8 +631,8 @@ repository.
 - Linear: open issues only, 50 per page, personal API key, no writes; link
   stored per `origin` URL.
 - Browser: port 9222, Chrome DevTools MCP 1.12.0 pinned, separate profile.
-- The composer never retries or forces; Codex approval cards show-only until
-  matched.
+- The composer never retries or forces; a prompt the matchers cannot read
+  is answered in the terminal.
 - Cache under `~/.cache/bellwether/` with per-folder pruning (feeds 7 days,
   events 24 h and 2,000 files, requests 24 h, git pages 200 MB, Linear 30
   days); pictures under the app home's `data/bellwether/pictures/` 7 days.

@@ -638,3 +638,10 @@ for this build; tests that need the Herdr window are deferred, other tests
   declined in the terminal, stale, uncertain." Evidence: the Task 12 run
   (a card read `stale` for a prompt answered in the terminal when `bw
   cards` ran before Claude logged the result); commit `36b66e6`.
+- 2026-11-07: Risk 3 and the composer default no longer call Codex
+  sub-agent cards show-only. Original: "Codex sub-agent approvals are
+  unverified; their cards are show-only until the phase 3 experiment and
+  matcher pass" and "Codex approval cards show-only until matched".
+  Evidence: phase 3 experiment case (e) (`docs/research/2026-11-06-phase3-requests.md`),
+  `CODEX_CHILD_ANSWERABLE = true` with `codex_child_box_is_read`, and
+  `requests.sh` `codex-child-approval` PASS (289aff4).
