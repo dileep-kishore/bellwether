@@ -1,0 +1,68 @@
+#!/bin/sh
+# Stands in for hc in tests: `exec` and `file write` with FAKE_HC_ROOT as that machine's home.
+#   FAKE_HC_UNAME         what `uname -sm` prints there
+#   FAKE_HC_CORRUPT_PART  N: the write of a file ending in .partN lands with its first byte changed
+#   FAKE_HC_OFFLINE       1: every call fails as hc does for a machine it cannot reach
+#   FAKE_HC_LOG           each call is appended here as "<command> <args>"
+# Argument shapes are the ones bw sends; anything else exits 2 so a changed call shows up in a test.
+set -u
+root=${FAKE_HC_ROOT:?FAKE_HC_ROOT is not set}
+log=${FAKE_HC_LOG:-/dev/null}
+
+fail() {
+  printf '{"error":{"hint":"","kind":"%s","message":"%s"}}\n' "$1" "$2" >&2
+  exit "$3"
+}
+b64() { base64 < "$1" | tr -d '\n'; }
+
+[ $# -gt 0 ] || fail usage "no command" 2
+cmd=$1
+shift
+if [ "$cmd" = file ]; then
+  cmd="file ${1:-}"
+  shift
+fi
+machine=
+while [ $# -gt 0 ]; do
+  case $1 in
+    --json) shift ;;
+    --on=*) machine=${1#--on=}; shift ;;
+    --timeout=*) shift ;;
+    --) shift; break ;;
+    *) fail usage "unexpected argument $1" 2 ;;
+  esac
+done
+[ -n "$machine" ] || fail usage "no --on" 2
+[ $# -gt 0 ] || fail usage "nothing to run or write" 2
+echo "$cmd $*" >> "$log"
+[ "${FAKE_HC_OFFLINE:-}" = 1 ] && fail machine_offline "machine $machine is not connected" 4
+
+case $cmd in
+  exec)
+    if [ "$*" = "uname -sm" ] && [ -n "${FAKE_HC_UNAME:-}" ]; then
+      out=$(mktemp) err=$(mktemp)
+      printf '%s\n' "$FAKE_HC_UNAME" > "$out"
+      code=0
+    elif ! command -v "$1" >/dev/null 2>&1; then
+      fail spawn_failed "cannot start $1: No such file or directory (os error 2)" 1
+    else
+      out=$(mktemp) err=$(mktemp)
+      (cd "$root" && HOME=$root exec "$@") > "$out" 2> "$err"
+      code=$?
+    fi
+    printf '{"code":%d,"ms":0,"signal":null,"stderr":"%s","stdout":"%s","timed_out":false,"truncated":false}\n' \
+      "$code" "$(b64 "$err")" "$(b64 "$out")"
+    rm -f "$out" "$err"
+    ;;
+  "file write")
+    path=$root/$1
+    mkdir -p "$(dirname "$path")"
+    cat > "$path"
+    case $1 in
+      *.part"${FAKE_HC_CORRUPT_PART:-none}")
+        printf x | dd of="$path" bs=1 count=1 conv=notrunc 2>/dev/null ;;
+    esac
+    printf '{"bytes":%d,"path":"%s"}\n' "$(($(wc -c < "$path")))" "$path"
+    ;;
+  *) fail usage "unknown command $cmd" 2 ;;
+esac

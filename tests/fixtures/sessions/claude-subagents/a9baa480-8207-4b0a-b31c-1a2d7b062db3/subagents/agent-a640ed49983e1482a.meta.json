@@ -1,0 +1,1 @@
+{"agentType":"counter","isBuiltIn":false,"description":"Count files in current folder","toolUseId":"toolu_01AQJWGWmmgfPj8of5YxhVbf","parentAgentId":"ad16657758350f019","spawnDepth":2,"requestShape":"foreground","requestNonInteractive":true,"model":"claude-haiku-5-5","pickedEffortModel":"claude-sonnet-5-5","finished":true}

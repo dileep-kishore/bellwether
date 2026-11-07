@@ -1,0 +1,8 @@
+[workspace]
+members = ["crates/bw"]
+# Vendored code builds in its own workspace so this one's fmt and clippy gates never ask for edits to it.
+exclude = ["crates/vendor"]
+resolver = "2"
+
+[profile.release]
+strip = true

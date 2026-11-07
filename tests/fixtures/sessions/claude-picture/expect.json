@@ -1,0 +1,13 @@
+{
+  "agent": "claude",
+  "version": "2.1.319",
+  "session": "3833b375-e79d-47bf-8e7e-f66cf3faab4b",
+  "file": "3833b375-e79d-47bf-8e7e-f66cf3faab4b.jsonl",
+  "user_messages": 1,
+  "assistant_messages": 1,
+  "tool_calls": 1,
+  "pictures": 1,
+  "picture_tool_use_id": "toolu_01RGSZbTBg4xb9RRvSQoKAqJ",
+  "children": [],
+  "requests": []
+}

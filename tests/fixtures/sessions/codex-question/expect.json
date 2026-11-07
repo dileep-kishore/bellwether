@@ -1,0 +1,15 @@
+{
+  "agent": "codex",
+  "version": "0.167.0",
+  "session": "01a1b4a2-6731-7140-87be-4960d8a7aefe",
+  "file": "rollout-2026-11-06T22-11-44-01a1b4a2-6731-7140-87be-4960d8a7aefe.jsonl",
+  "user_messages": 3,
+  "assistant_messages": 3,
+  "tool_calls": 4,
+  "pictures": 0,
+  "children": [],
+  "requests": [
+    {"kind": "question", "tool": "request_user_input", "call_id": "call_f62ca7e1e0824b2495c2b2496b4a7b2e", "question": "Which colour?", "options": ["red", "blue"], "screen": "screen-question.txt", "answer": "blue"},
+    {"kind": "question_async", "tool": "request_user_input_async", "call_id": "call_261068c0a529492d8d12899f3b5edeb9", "question": "Which size?", "options": ["small", "large"], "screen": "screen-async.txt", "answer": "large", "answered_by_user_message": true}
+  ]
+}
