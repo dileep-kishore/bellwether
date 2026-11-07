@@ -37,7 +37,8 @@ pub fn run(cmd: &str, args: &[String]) -> ExitCode {
     }
 }
 
-/// One `agent-args` call. `target` and `ssh_config` are hidden test flags for a scratch sshd.
+/// One `agent-args` call. `target` and `ssh_config` are hidden test flags for a scratch sshd; `window`, also
+/// hidden, gives a verify run its own agent files beside the real window's.
 struct Request {
     kind: String,
     machine: String,
@@ -45,17 +46,19 @@ struct Request {
     profile: Option<String>,
     target: Option<String>,
     ssh_config: Option<PathBuf>,
+    window: Option<String>,
 }
 
 impl Request {
     fn parse(args: &[String]) -> Result<Request, String> {
-        const ALLOWED: [&str; 6] = [
+        const ALLOWED: [&str; 7] = [
             "--kind",
             "--machine",
             "--cwd",
             "--profile",
             "--target",
             "--ssh-config",
+            "--window",
         ];
         let mut opts: Vec<(&str, &str)> = Vec::new();
         let mut it = args.iter();
@@ -82,6 +85,12 @@ impl Request {
         let machine = get("--machine").ok_or("--machine is required; \"\" is this machine")?;
         let (cwd, profile) = (get("--cwd"), get("--profile"));
         agent::check_options(&kind, cwd.as_deref(), profile.as_deref())?;
+        let window = get("--window");
+        if let Some(w) = window.as_deref().filter(|w| !agent::valid_window(w)) {
+            return Err(format!(
+                "--window must be 1-32 of a-z, 0-9 and -, got {w:?}"
+            ));
+        }
         Ok(Request {
             kind,
             machine,
@@ -89,6 +98,7 @@ impl Request {
             profile,
             target: get("--target"),
             ssh_config: get("--ssh-config").map(PathBuf::from),
+            window,
         })
     }
 
@@ -110,7 +120,7 @@ fn agent_args(req: &Request) -> Value {
         ("running", Some(id)) => id.clone(),
         _ => return req.line(Err(chrome.message)),
     };
-    let window = agent::this_window();
+    let window = req.window.clone().unwrap_or_else(agent::this_window);
     let argv = if req.machine.is_empty() {
         local_args(req, &window, chrome.port, &id)
     } else {

@@ -425,6 +425,42 @@ fn local_claude_args_after_up() {
 }
 
 #[test]
+fn window_flag_keeps_a_test_run_off_the_real_window_files() {
+    let _serial = serial();
+    let s = Scene::new();
+    let v = s.agent_args(&["--kind", "claude", "--machine", "", "--window", "bwv-test"]);
+    assert_eq!(v["browser"], "ready", "{v}");
+    let agent = s.home().join(AGENT_DIR);
+    assert_eq!(
+        strings(&v["argv"])[1],
+        agent.join("claude-mcp-bwv-test.json").display().to_string()
+    );
+    assert_eq!(
+        fs::read_to_string(agent.join("ports/bwv-test")).unwrap(),
+        format!("{}\n{BROWSER_ID}\n", s.chrome_port)
+    );
+    let w = window();
+    assert!(
+        !agent.join("ports").join(&w).exists(),
+        "the real window's port file stays untouched"
+    );
+    assert!(!agent.join(format!("claude-mcp-{w}.json")).exists());
+    let (code, _) = s.run(&[
+        "agent-args",
+        "--kind",
+        "claude",
+        "--machine",
+        "",
+        "--window",
+        "Bad/Name",
+    ]);
+    assert_eq!(
+        code, 2,
+        "a window id names files, so a bad one is a usage error"
+    );
+}
+
+#[test]
 fn local_args_need_no_cwd() {
     let _serial = serial();
     let mut s = Scene::new();

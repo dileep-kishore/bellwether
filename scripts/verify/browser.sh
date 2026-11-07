@@ -10,8 +10,9 @@
 # folder, ~/.npm and ~/.cache/chrome-devtools-mcp, and deletes each file and folder the run created there.
 # Here, the Chrome runs on a scratch profile and a free port (BW_CHROME_PROFILE, BW_CHROME_PORT; never 9222 or
 # the real profile) and is stopped with bw browser down; local agents run in a private hc core (HC_SESSION=
-# bw-browser); bw browser forward runs in the user's core, the only one that knows the machine, and the files
-# it and agent-args write under ~/.local/share/bellwether/{agent,browser} are put back the same way.
+# bw-browser); bw browser forward runs in the user's core, the only one that knows the machine. agent-args gets
+# the run's own window id (--window bwv-<pid>), so its port file and MCP config never replace the real window's;
+# only those files, the shared agent texts and this machine's forward state are put back the same way.
 # Prints PASS <check>: <what> or FAIL <check>: <why>; exits 1 on any FAIL, including when ~/.claude/settings.json,
 # ~/.codex/hooks.json or ~/.codex/config.toml changed, ~/.claude.json gained a bw-browser or sentinel text, or
 # the user's own Chrome processes changed. BW_CLAUDE_MODEL (haiku) and BW_CODEX_MODEL (gpt-6-luna) pick models.
@@ -91,7 +92,12 @@ L=/private/tmp/claude-501/bwv-chrome
 core=bw-browser
 CLAUDE_MODEL=${BW_CLAUDE_MODEL:-haiku} CODEX_MODEL=${BW_CODEX_MODEL:-gpt-6-luna}
 SENT_TOP=BW-SENT-TOP-$(uuidgen | cut -c1-8) SENT_PROJ=BW-SENT-PROJ-$(uuidgen | cut -c1-8)
-local_paths=".local/share/bellwether/agent .local/share/bellwether/browser"
+# The run's own window id keeps its port file and MCP config apart from the real window's, which a "+" launch
+# here may write meanwhile; cleanup puts back only these files.
+W=bwv-$$
+a=.local/share/bellwether/agent f=.local/share/bellwether/browser/forwards/default fs=$(bw_slug "$machine")
+local_paths="$a/ports/$W $a/claude-mcp-$W.json $a/browser.md $a/browser-claude.md $a/browser-codex.md $a/browser-mcp \
+  $a/warm-1.12.0 $a/.warm.lock $f/$fs.json $f/$fs.lock"
 remote_paths=".claude .codex .local/share/bellwether .npm .cache/chrome-devtools-mcp"
 home_files=$(cat "$src/scripts/verify/home-files.sh") || { echo "FAIL setup: read home-files.sh"; exit 1; }
 
@@ -206,8 +212,8 @@ cleanup() {
   if [ "$local_saved" = 1 ]; then
     out=$(sh -c "$home_files" sh restore "$HOME" "$L/saved-local" $local_paths 2>&1) || fail "cleanup" "could not put back $local_paths here: $out"
     [ "$(sh -c "$home_files" sh sums "$HOME" $local_paths)" = "$local_before" ] &&
-      pass "cleanup-local-files" "~/.local/share/bellwether/agent and browser hold what they held before the run" ||
-      fail "cleanup-local-files" "~/.local/share/bellwether/agent or browser differ from before the run"
+      pass "cleanup-local-files" "this run's window ($W) files and its forward's state here hold what they held before the run" ||
+      fail "cleanup-local-files" "this run's window ($W) files or its forward's state here differ from before the run"
   fi
   if [ -n "$H" ]; then
     out=$(there sh -c "$home_files" sh restore "$H" "$R/saved" $remote_paths 2>&1) || fail "cleanup" "could not put back $remote_paths on $machine: $out"
@@ -312,7 +318,7 @@ SSH_TARGET=$(printf %s "$ssh_out" | sed -n 's/.* SSH_TARGET=\([^ ]*\)$/\1/p')
 pass "scratch-sshd" "sshd as $USER on 127.0.0.1:$(cat "$L/sshd/port"), target $SSH_TARGET"
 
 # agent-args here runs in the private core, so the npx warm it may start ends with that core.
-a=$(HC_SESSION=$core "$bw" browser agent-args --kind claude --machine "" --cwd "$L/claude-p" 2>&1)
+a=$(HC_SESSION=$core "$bw" browser agent-args --kind claude --machine "" --cwd "$L/claude-p" --window "$W" 2>&1)
 if printf %s "$a" | jq -e '.browser == "ready" and (.argv | index("--mcp-config")) and (.argv | index("--allowedTools")) and
   (.argv | index("--append-system-prompt-file")) and ((.argv | index("--strict-mcp-config")) | not)' > /dev/null 2>&1; then
   claude_q=$(printf %s "$a" | jq -r '.argv | @sh')
@@ -322,7 +328,7 @@ else
   exit 1
 fi
 forward_up=1
-a=$("$bw" browser agent-args --kind codex --machine "$machine" --cwd "$R/codex-r" --target "$SSH_TARGET" --ssh-config "$SSH_CONFIG" 2>&1)
+a=$("$bw" browser agent-args --kind codex --machine "$machine" --cwd "$R/codex-r" --target "$SSH_TARGET" --ssh-config "$SSH_CONFIG" --window "$W" 2>&1)
 if printf %s "$a" | jq -e '.browser == "ready" and (.argv | any(startswith("mcp_servers.bw-browser.args="))) and
   (.argv | any(startswith("developer_instructions=")))' > /dev/null 2>&1; then
   codex_q=$(printf %s "$a" | jq -r '.argv | @sh')
@@ -340,9 +346,9 @@ if [ "$(printf %s "$fwd" | jq -r .state)" = ready ] && [ "$addrs" = "127.0.0.1:$
 else
   fail "forward-ready" "forward $fwd; listeners [$addrs]; browser id through it $via_id, Chrome's $chrome_id"
 fi
-pf=$(there sh -c 'cat "$HOME"/.local/share/bellwether/agent/ports/*' 2>&1)
+pf=$(there sh -c 'cat "$HOME/.local/share/bellwether/agent/ports/$1"' sh "$W" 2>&1)
 [ "$pf" = "$(printf '%s\n%s' "$fport" "$chrome_id")" ] &&
-  pass "remote-port-file" "$machine's agent/ports file holds the forward's port $fport and the Chrome's id $chrome_id" ||
+  pass "remote-port-file" "$machine's agent/ports/$W holds the forward's port $fport and the Chrome's id $chrome_id" ||
   fail "remote-port-file" "$machine's agent/ports holds [$pf], the forward is on $fport to browser $chrome_id"
 
 # Codex's rollout and PATH are that machine's; Codex gets a scratch CODEX_HOME holding a copy of auth.json.
@@ -488,7 +494,7 @@ else
 fi
 for s in stub-wild stub-other; do kill "$(cat "$L/$s.pid")" 2> /dev/null; done
 
-a=$("$bw" browser agent-args --kind codex --machine "$machine" 2>&1)
+a=$("$bw" browser agent-args --kind codex --machine "$machine" --window "$W" 2>&1)
 printf %s "$a" | jq -e '.browser == "unavailable" and .argv == [] and (.reason | contains("via"))' > /dev/null 2>&1 &&
   pass "via" "agent-args --machine $machine without the test target: unavailable, argv [], \"$(printf %s "$a" | jq -r .reason)\"" ||
   fail "via" "$a"
@@ -499,7 +505,7 @@ printf 'developer_instructions = "%s: the top-level value."\n\n[projects."%s"]\n
   "$SENT_TOP" "$L/sent/plain" "$L/sent/proj" > "$L/sent/home/config.toml"
 printf 'developer_instructions = """\n%s: the trusted project'"'"'s value."""\n' "$SENT_PROJ" > "$L/sent/proj/.codex/config.toml"
 sent_check() { # <folder> <kept> <dropped>
-  _a=$(CODEX_HOME=$L/sent/home HC_SESSION=$core "$bw" browser agent-args --kind codex --machine "" --cwd "$1" 2>&1)
+  _a=$(CODEX_HOME=$L/sent/home HC_SESSION=$core "$bw" browser agent-args --kind codex --machine "" --cwd "$1" --window "$W" 2>&1)
   printf %s "$_a" | jq -e '.browser == "ready"' > /dev/null 2>&1 || { echo "agent-args: $_a"; return 1; }
   _q=$(printf %s "$_a" | jq -r '.argv | @sh')
   _p=$(cd "$1" && eval "set -- $_q" && CODEX_HOME=$L/sent/home codex "$@" debug prompt-input x < /dev/null 2>&1)

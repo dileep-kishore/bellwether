@@ -75,7 +75,7 @@ pub fn this_window() -> String {
 }
 
 /// A window id as the launcher accepts it; it names files, so nothing else may pass.
-fn valid_window(w: &str) -> bool {
+pub(crate) fn valid_window(w: &str) -> bool {
     (1..=32).contains(&w.len())
         && w.chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
