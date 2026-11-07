@@ -145,7 +145,7 @@ reached from other machines through ssh -R. Keychain: Linear key, read by bw.
 | `crates/bw` | The Rust helper. | Chat modules and the remote installer adapted from `flockbook-modfeed` (MIT); Git, Linear, browser new. |
 | `crates/vendor/herdr-core` | Flockbook's core crate. | Vendored whole at `c0420c7`, changed in reviewed steps. |
 | `hooks/bw-event` | A `sh` gate that runs the installed `bw event`, which records approval and sub-agent events in `~/.cache/bellwether/events/<terminal>/`, since parsing JSON in `sh` needs `jq`, which a machine may lack; decides nothing. | New; Herdr-terminal gate after Shepherdr's `ask-hook.sh:19`. |
-| `agent/` | The per-session browser instructions and MCP config Bellwether passes to agents it starts. | New; modelled on T3 Code's `orchestrationInstructions.ts:32-37`. |
+| `agent/` | The per-session browser instructions and MCP launcher Bellwether passes to agents it starts; `bw` embeds them and writes them, with each window's Claude MCP config and port file, to `~/.local/share/bellwether/agent/` on each machine. | New; modelled on T3 Code's `orchestrationInstructions.ts:32-37`. |
 
 ## Seamless machines
 
@@ -175,7 +175,10 @@ holds the space runs the agents, the logs, Git and the hooks.
 - Each machine's agents reach the shared browser through an SSH reverse
   forward the window machine keeps open (see "Browser"). Node is on both
   machines (`/opt/homebrew/bin/npx`, v26), so Chrome DevTools MCP runs beside
-  each agent.
+  each agent. Bellwether's agent files go to
+  `~/.local/share/bellwether/agent/` on each machine through `bw machine
+  setup <machine> --agent` and are refreshed by every `bw browser
+  agent-args`, with no user setting changed.
 - Pictures, attached Linear issues and files placed with `hc put` travel to
   or from the machine through Herdr's connection.
 - A tab on another machine carries a small machine tag; nothing else
@@ -254,9 +257,10 @@ holds the space runs the agents, the logs, Git and the hooks.
   ended by the chat's `close`; its ownership and close behaviour are
   specified in that spike.
 - Bellwether launches chat agents with per-session additions (see
-  "Browser"): Claude with `--mcp-config` and `--append-system-prompt-file`,
-  Codex with `-c mcp_servers.bw-browser…` and `-c developer_instructions=…`,
-  where the value is the effective existing `developer_instructions` (that
+  "Browser"): Claude with `--mcp-config`, `--allowedTools mcp__bw-browser`
+  and `--append-system-prompt-file`, Codex with `-c
+  mcp_servers.bw-browser…` and `-c developer_instructions=…`, where the
+  value is the effective existing `developer_instructions` (that
   machine's `~/.codex/config.toml`, then the `--profile` file, then a
   trusted project's `.codex/config.toml`) followed by Bellwether's text, so
   nothing the user set is lost. Claude gets no `--strict-mcp-config`, and
@@ -450,12 +454,26 @@ Design:
 - The Bellwether Chrome: a headed Chrome window with its own profile
   (`~/.local/share/bellwether/chrome`) and `--remote-debugging-port=9222` on
   127.0.0.1 (Chrome ignores the port on the default profile). `bw browser up`
-  starts it or reuses it; the panel's Arrange button places it beside the
-  Herdr window with CDP `Browser.setWindowBounds`.
+  starts it or reuses it, and `bw browser down` closes only it, for tests
+  and quitting. `bw browser agent-args` starts it in the background when an
+  agent starts and it is not running, since a forward cannot be checked
+  without its browser id. The panel's Arrange button places it beside the
+  Herdr window with CDP `Browser.setWindowBounds`; `bw` finds the Herdr
+  window through macOS's window list, since `window()` has no bounds, so
+  Arrange is macOS only.
 - Agents: Chrome DevTools MCP, pinned (1.12.0 as researched), one instance
-  per agent session, with `--browserUrl http://127.0.0.1:9222`. Bellwether
+  per agent session, with `--wsEndpoint
+  ws://127.0.0.1:<port>/devtools/browser/<browser id>`, so a session that
+  reconnects after the Bellwether Chrome quits can never attach to another
+  browser on that port (a running session's tools stop until its next
+  session), and `--no-usage-statistics --no-performance-crux --screenshotFormat jpeg
+  --screenshotMaxWidth 1280`, so no visited URL goes to Google and
+  screenshots stay under the 4 MB picture cap. Bellwether
   passes it, and a short instructions file, to every agent it starts (chat
   and terminal tabs), so nothing in the user's global agent settings changes.
+  Claude also gets `--allowedTools mcp__bw-browser`, so the server's tools
+  run without a prompt, as Codex's `approve` does and as T3 Code does for
+  its own server.
   The instructions, after T3 Code's: the Bellwether Chrome is the browser you
   share with the user; open your own tab in the background and act only in
   tabs you opened; snapshot before acting; never enter passwords or payment
@@ -465,24 +483,36 @@ Design:
   browser use.
 - Remote agents: for each machine with a Bellwether-started agent, the
   window machine keeps a reverse forward open as an unlabeled kept core
-  terminal: `ssh -o ExitOnForwardFailure=yes -N -R
-  127.0.0.1:<port>:127.0.0.1:9222 <target>`. `<target>` is the machine's SSH
+  terminal whose program, `bw browser forward keep`, runs `ssh -o
+  ExitOnForwardFailure=yes -N -R 127.0.0.1:<port>:127.0.0.1:9222 <target>`
+  (plus `BatchMode`, `ServerAlive*` and `ControlMaster=no`) and reconnects
+  it with the checks below, because a reconnect needs a process that
+  outlives `exec` and a mod may not poll. `<target>` is the machine's SSH
   target from `hc machine ls --json`, not its Herdr name; a machine connected
   through `via` (no SSH target) shows "browser forward unavailable" and its
-  agents start without the browser MCP. `<port>` is chosen per window and
+  agents, like those of a machine whose forward failed, start with no
+  additions at all: no MCP, no instructions, and Codex's
+  `developer_instructions` untouched. `<port>` is chosen per window and
   machine from a free port on that machine, so another Chrome or forward on
-  9222 there is never mistaken for this one. Before agents get the MCP
+  9222 there is never mistaken for this one. It stays the same across
+  reconnects and is written per window, with the Chrome's browser id, to
+  `~/.local/share/bellwether/agent/ports/<window>` on that machine, which
+  the MCP launcher reads at session start. Before agents get the MCP
   config, `bw` checks on the remote machine that the port listens only on
   127.0.0.1 (`lsof -nP -iTCP:<port> -sTCP:LISTEN`) and that
   `http://127.0.0.1:<port>/json/version` returns this Chrome's browser id;
   if either fails (for example under `GatewayPorts yes`), the forward is
   closed and the state is named. A dropped forward reconnects with the same
-  checks. The panel offers "Forward port" for a dev server on that machine
-  (`ssh -o ExitOnForwardFailure=yes -N -L <port>:127.0.0.1:<port>
-  <target>`) so the Chrome here can open it.
+  checks, and a live one repeats them every 60 s, closing for good when the
+  browser id changed. The panel offers "Forward port" for a dev server on that machine
+  (`ssh -o ExitOnForwardFailure=yes -N -L
+  127.0.0.1:<port>:127.0.0.1:<port> <target>`, bound to 127.0.0.1
+  explicitly) so the Chrome here can open it.
 - The panel lists the Chrome's tabs from `http://127.0.0.1:9222/json/list`
   (title, URL, favicon), marks the active one, and offers focus and close,
-  New tab, Arrange, and the forwards in effect.
+  New tab, Arrange, and the forwards in effect. Every tab command first
+  checks that the port belongs to the Bellwether Chrome, matching its
+  `--user-data-dir` argument whole in the process's own argv.
 - Agents' screenshots appear inline in their chat through the picture path.
 
 ## Decisions
@@ -635,7 +665,8 @@ repository.
   is answered in the terminal.
 - Cache under `~/.cache/bellwether/` with per-folder pruning (feeds 7 days,
   events 24 h and 2,000 files, requests 24 h, git pages 200 MB, Linear 30
-  days); pictures under the app home's `data/bellwether/pictures/` 7 days.
+  days); pictures under the app home's `data/bellwether/pictures/` and
+  favicons under its `data/bellwether/favicons/`, 7 days each.
 
 ## Change log
 

@@ -282,7 +282,7 @@ fn missing_files_are_created() {
     let h = Home::new();
     assert_eq!(
         h.check(),
-        json!({"type": "hooks", "claude": "missing", "codex": "missing"})
+        json!({"type": "hooks", "claude": "missing", "codex": "missing", "agent": "missing"})
     );
     let (code, lines) = h.hooks(&["diff"]);
     assert_eq!(code, 0);
@@ -568,7 +568,7 @@ fn codex_untrusted_until_config_has_hashes() {
     std::fs::write(h.config(), &config).unwrap();
     assert_eq!(
         h.check(),
-        json!({"type": "hooks", "claude": "ok", "codex": "ok"})
+        json!({"type": "hooks", "claude": "ok", "codex": "ok", "agent": "missing"})
     );
 
     let wrong = config.replace("sha256:3143", "sha256:0000");
@@ -613,14 +613,14 @@ fn outdated_script_is_named() {
     std::fs::write(h.script(), "#!/bin/sh\nexit 0\n").unwrap();
     assert_eq!(
         h.check(),
-        json!({"type": "hooks", "claude": "outdated", "codex": "outdated"})
+        json!({"type": "hooks", "claude": "outdated", "codex": "outdated", "agent": "missing"})
     );
     std::fs::remove_file(h.script()).unwrap();
     assert_eq!(h.check()["claude"], "outdated");
     assert_eq!(h.hooks(&["apply"]).0, 0);
     assert_eq!(
         h.check(),
-        json!({"type": "hooks", "claude": "ok", "codex": "ok"})
+        json!({"type": "hooks", "claude": "ok", "codex": "ok", "agent": "missing"})
     );
 }
 
@@ -631,7 +631,7 @@ fn machine_setup_runs_here_for_local() {
     assert_eq!(code, 0);
     assert_eq!(
         lines,
-        vec![json!({"type": "hooks", "claude": "missing", "codex": "missing"})]
+        vec![json!({"type": "hooks", "claude": "missing", "codex": "missing", "agent": "missing"})]
     );
     let (code, lines) = h.bw(&["machine", "setup", "local", "--apply"], &[]);
     assert_eq!(code, 0, "{lines:?}");

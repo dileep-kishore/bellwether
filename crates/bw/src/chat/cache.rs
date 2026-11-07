@@ -53,6 +53,14 @@ pub fn cache_dir() -> PathBuf {
     PathBuf::from(home).join(".cache/bellwether")
 }
 
+/// Herdr's app home, which `image()` paths are relative to: `$HERDR_APP_HOME`, else `~/.config/herdr-app`.
+pub fn app_home() -> PathBuf {
+    if let Some(d) = std::env::var_os("HERDR_APP_HOME").filter(|d| !d.is_empty()) {
+        return d.into();
+    }
+    PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".config/herdr-app")
+}
+
 /// The hc core this helper talks to: `HC_SESSION`, else `default`.
 pub fn core_name() -> String {
     std::env::var("HC_SESSION")

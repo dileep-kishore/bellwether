@@ -7,7 +7,7 @@ import { basename, dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { createHelper } from "../../shared/helper.js";
 import {
-  AGENT_PATH, HC, Term, USER_ENV, changed, claudeReady, codexHome, codexReady, envWith, filesWith, hcUser, lines, makeRepo,
+  AGENT_PATH, HC, Term, USER_ENV, aboveFooter, changed, claudeReady, codexHome, codexReady, envWith, filesWith, hcUser, lines, makeRepo,
   marker, reporter, rollouts, short, sleep, spawn, until, viaHc,
 } from "./live.js";
 
@@ -184,11 +184,12 @@ async function oldRefused(name, t, old, logsWith) {
     return l && !(l.type === "located" && l.session === old.session) ? l : null;
   }, 40000);
   if (!now) return fail(name, `bw locate still names ${old.session} after the new conversation`);
-  const before = await t.steady();
+  // Claude's footer below the input box changes on its own (mode hints after /clear); typed text shows above it.
+  const before = aboveFooter(await t.steady());
   const rowsBefore = (await bwOld(t, old)).length;
   const r = await t.send(old, text);
   await sleep(4000);
-  const after = await t.screen();
+  const after = aboveFooter(await t.screen());
   const rowsAfter = (await bwOld(t, old)).length;
   const hits = await logsWith(text);
   if (r?.result !== "refused-conversation") return fail(name, `bw send gave ${short(r)}`);
@@ -500,8 +501,8 @@ async function remoteChecks() {
   await check(`${M}-helper-installed`, async () => {
     const ready = await helper.ensure(M);
     const v = lines((await there(["sh", "-c", RUN_HELPER, "bw", "version"])).stdout)[0];
-    ready.ok && v?.protocol === 3 && v?.version === "0.3.0"
-      ? pass(`${M}-helper-installed`, `ensure ran bw machine install ${M}; bw version there is protocol 3, 0.3.0`)
+    ready.ok && v?.protocol === 4 && v?.version === "0.4.0"
+      ? pass(`${M}-helper-installed`, `ensure ran bw machine install ${M}; bw version there is protocol 4, 0.4.0`)
       : fail(`${M}-helper-installed`, `ensure gave ${short(ready)}; bw version ${short(v)}`);
   });
 
