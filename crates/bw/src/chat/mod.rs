@@ -13,7 +13,7 @@ pub mod feed;
 pub mod locate;
 mod picture;
 pub mod rows;
-mod send;
+pub(crate) mod send;
 mod sentence;
 pub mod tail;
 pub mod tree;

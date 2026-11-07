@@ -158,7 +158,8 @@ pub fn write(file: &Path, c: &TerminalCache) -> std::io::Result<()> {
 }
 
 /// Deletes files under `dir`, at any depth, last changed more than `max_age` ago.
-/// Folders stay, since a concurrent writer may be about to rename a file into one.
+/// Folders stay, since a concurrent writer may be about to rename a file into one. So do `*.lock` files: a
+/// lock removed while one process holds it lets the next lock a new file beside it.
 pub fn prune(dir: &Path, max_age: Duration) {
     let Some(cutoff) = SystemTime::now().checked_sub(max_age) else {
         return;
@@ -172,6 +173,8 @@ pub fn prune(dir: &Path, max_age: Duration) {
         };
         if meta.is_dir() {
             prune(&entry.path(), max_age);
+        } else if entry.file_name().to_string_lossy().ends_with(".lock") {
+            continue;
         } else if meta.modified().is_ok_and(|m| m < cutoff) {
             let _ = fs::remove_file(entry.path());
         }
@@ -259,12 +262,13 @@ mod tests {
         let old = tmp.path().join("default/t1.json");
         let new = tmp.path().join("default/t2.json");
         let old_log = tmp.path().join("log/abc.json");
-        for f in [&old, &new, &old_log] {
+        let old_lock = tmp.path().join("default/t1.json.lock");
+        for f in [&old, &new, &old_log, &old_lock] {
             fs::create_dir_all(f.parent().unwrap()).unwrap();
             fs::write(f, "{}").unwrap();
         }
         let eight_days = SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60);
-        for f in [&old, &old_log] {
+        for f in [&old, &old_log, &old_lock] {
             fs::File::options()
                 .write(true)
                 .open(f)
@@ -276,6 +280,7 @@ mod tests {
         assert!(!old.exists());
         assert!(!old_log.exists());
         assert!(new.exists());
+        assert!(old_lock.exists());
         assert!(tmp.path().join("default").is_dir());
     }
 

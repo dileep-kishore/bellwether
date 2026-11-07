@@ -21,6 +21,8 @@ pub const VERSION: u32 = 1;
 pub const MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 /// Resolved occurrences kept per store, newest first, so a reused event or call id is still known as used.
 const MAX_RESOLVED: usize = 200;
+/// How long `update` waits for another process's lock; a holder keeps it for one load, build and save.
+const LOCK_WAIT: Duration = Duration::from_secs(5);
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Occurrence {
@@ -147,6 +149,59 @@ pub fn save_to(file: &Path, s: &Store) -> io::Result<()> {
     result
 }
 
+/// An exclusive `flock` on `<store>.lock`, held across one read, change and write of the store, so `bw cards` and
+/// `bw answer` never write over each other's change. The kernel drops it when its process ends, dead or not.
+pub struct StoreLock {
+    _file: fs::File,
+}
+
+/// Takes the lock beside `file`, waiting up to `LOCK_WAIT` for another process to let it go.
+pub fn lock_at(file: &Path) -> io::Result<StoreLock> {
+    let dir = file
+        .parent()
+        .ok_or_else(|| io::Error::other("store file has no folder"))?;
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)?;
+    let name = file.file_name().unwrap_or_default().to_string_lossy();
+    let f = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(dir.join(format!("{name}.lock")))?;
+    let deadline = std::time::Instant::now() + LOCK_WAIT;
+    loop {
+        match f.try_lock() {
+            Ok(()) => return Ok(StoreLock { _file: f }),
+            Err(fs::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(fs::TryLockError::WouldBlock) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    format!("{} stayed locked", file.display()),
+                ))
+            }
+            Err(fs::TryLockError::Error(e)) => return Err(e),
+        }
+    }
+}
+
+/// Loads the terminal's store under its lock, lets `f` change it, prunes it and writes it back. Err only when the
+/// lock cannot be had; a store that cannot be written costs the next pass its occurrences, as before.
+pub fn update<R>(terminal: &str, now_ms: i64, f: impl FnOnce(&mut Store) -> R) -> io::Result<R> {
+    let file = store_file(terminal);
+    let _lock = lock_at(&file)?;
+    let mut s = load_from(&file);
+    let r = f(&mut s);
+    s.prune(now_ms);
+    let _ = save(terminal, &s);
+    Ok(r)
+}
+
 /// `r3.<fnv1a(terminal \n root \n child \n occurrence)>`, the child empty for the root.
 pub fn request_id(terminal: &str, root: &str, child: Option<&str>, occurrence: &str) -> String {
     format!(
@@ -205,5 +260,46 @@ mod tests {
         save_to(&file, &s).unwrap();
         assert_eq!(load_from(&file), s);
         assert_eq!(load_from(&tmp.path().join("missing.json")).root, "");
+    }
+
+    #[test]
+    fn concurrent_changes_are_all_kept() {
+        // Without the lock two writers each load the same store and the later write drops the other's change.
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("core/t1.json");
+        let writers: Vec<_> = (0..8)
+            .map(|n| {
+                let file = file.clone();
+                std::thread::spawn(move || {
+                    let _lock = lock_at(&file).unwrap();
+                    let mut s = load_from(&file);
+                    std::thread::sleep(Duration::from_millis(20));
+                    s.occurrences.push(occ(&format!("o{n}"), "pending", 1));
+                    save_to(&file, &s).unwrap();
+                })
+            })
+            .collect();
+        for w in writers {
+            w.join().unwrap();
+        }
+        assert_eq!(load_from(&file).occurrences.len(), 8);
+    }
+
+    #[test]
+    fn a_held_lock_makes_the_next_wait() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("core/t1.json");
+        let held = lock_at(&file).unwrap();
+        let waiter = {
+            let file = file.clone();
+            std::thread::spawn(move || {
+                let started = std::time::Instant::now();
+                let _lock = lock_at(&file).unwrap();
+                started.elapsed()
+            })
+        };
+        std::thread::sleep(Duration::from_millis(200));
+        drop(held);
+        assert!(waiter.join().unwrap() >= Duration::from_millis(150));
     }
 }
