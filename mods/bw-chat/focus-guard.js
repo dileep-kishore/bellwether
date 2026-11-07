@@ -30,6 +30,16 @@ export function observe(guard, focusedTerminal, ours, now) {
   return guard.focused ? { focused: false, since: now } : guard;
 }
 
+/**
+ * Records a leave seen by bw-tabs while this chat was not drawn: a later leave starts the quiet time then.
+ * @param {Guard} guard @param {number | null} left when focus last left the chat's terminal, or null
+ * @returns {Guard} the same object when nothing changed
+ */
+export function observeLeft(guard, left) {
+  if (guard.focused || left === null || left <= guard.since) return guard;
+  return { focused: false, since: left };
+}
+
 /** @param {Guard} guard @returns {number} `Infinity` while the terminal has focus */
 export const guardedUntil = (guard) => (guard.focused ? Infinity : guard.since + FOCUS_QUIET_MS);
 

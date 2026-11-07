@@ -10,6 +10,8 @@ import {
   flipActions,
   isShown,
   readChatTabs,
+  focusRecord,
+  leftAt,
   shownChatPanes,
   shownFrom,
   SPLIT_RETRY_MS,
@@ -559,5 +561,20 @@ describe("shownChatPanes", () => {
     expect(shownFrom(undefined, "p9", true)).toBe(true);
     expect(shownFrom("p9", "p9", false)).toBe(false);
     expect(shownFrom(["p9"], null, false)).toBe(false);
+  });
+});
+
+describe("focusRecord", () => {
+  test("records when focus leaves a terminal, keeps a minute of leaves, and is null when nothing changed", () => {
+    const a = focusRecord(undefined, "t8", 1000);
+    expect(a).toEqual({ focused: "t8", left: {} });
+    expect(focusRecord(a, "t8", 2000)).toBe(null);
+    const b = focusRecord(a, null, 3000);
+    expect(b).toEqual({ focused: null, left: { t8: 3000 } });
+    expect(leftAt(b, "t8")).toBe(3000);
+    expect(leftAt(b, "t9")).toBe(null);
+    const c = focusRecord(b, "macmini/t5", 70_000);
+    expect(c).toEqual({ focused: "macmini/t5", left: {} });
+    expect(leftAt("junk", "t8")).toBe(null);
   });
 });

@@ -76,8 +76,8 @@ async function fireAfter(m, i) {
   await m.cx.flush();
 }
 
-/** bw-tabs's shared writes other than the shown-chats list it keeps for hidden bw-chat copies. @param {any} m */
-const kept = (m) => m.log.shared.filter(([k]) => k !== "bw.chat-shown");
+/** bw-tabs's shared writes other than the shown chats and focus record it keeps for hidden bw-chat copies. @param {any} m */
+const kept = (m) => m.log.shared.filter(([k]) => k !== "bw.chat-shown" && k !== "bw.terminal-focus");
 
 describe("bw-tabs chat adoption", () => {
   test("bw-tabs adopts the new tab: split, then zoom once across renders", async () => {
@@ -320,6 +320,19 @@ describe("bw-tabs shown chats", () => {
     m.render();
     expect(fake.shared["bw.chat-shown"]).toEqual([]);
     expect(writes()).toBe(before + 1);
+  });
+});
+
+describe("bw-tabs terminal focus", () => {
+  test("records when focus leaves a terminal, for a chat copy that was not drawn meanwhile", async () => {
+    setSystemTime(new Date(1794032000000));
+    const m = await mount("bw-tabs", { live: { ...live("chat-tab"), focused: { pane: "p8", terminal: "t8" } } });
+    expect(fake.shared["bw.terminal-focus"]).toEqual({ focused: "t8", left: {} });
+    setSystemTime(new Date(1794032005000));
+    fake.focused = { pane: "p9", terminal: null };
+    m.render();
+    expect(fake.shared["bw.terminal-focus"]).toEqual({ focused: null, left: { t8: 1794032005000 } });
+    setSystemTime();
   });
 });
 

@@ -408,6 +408,36 @@ export function shownFrom(stored, pane, fallback) {
   return Array.isArray(stored) && stored.includes(pane);
 }
 
+/** `shared` key: the focused terminal and when focus last left each one, which bw-tabs keeps for the chats'
+ *  focus guard, because Herdr draws no hidden chat to see its terminal take focus. */
+export const TERMINAL_FOCUS = "bw.terminal-focus";
+const FOCUS_KEEP_MS = 60_000;
+
+/**
+ * The focus record after `focused()?.terminal` is `focused` at `now`, or null when it is unchanged.
+ * Leaves older than a minute are dropped.
+ * @param {unknown} stored @param {string | null} focused @param {number} now
+ * @returns {{ focused: string | null, left: Record<string, number> } | null}
+ */
+export function focusRecord(stored, focused, now) {
+  const was =
+    isObj(stored) && strOrNull(/** @type {any} */ (stored).focused) ? /** @type {any} */ (stored).focused : null;
+  if (isObj(stored) ? was === focused : focused === null) return null;
+  const old = isObj(stored) && isObj(/** @type {any} */ (stored).left) ? /** @type {any} */ (stored).left : {};
+  /** @type {Record<string, number>} */
+  const left = {};
+  for (const [t, at] of Object.entries(old)) if (isNum(at) && now - at < FOCUS_KEEP_MS && t !== focused) left[t] = at;
+  if (was !== null && was !== focused) left[was] = now;
+  return { focused, left };
+}
+
+/** When focus last left `terminal` by the record, or null. @param {unknown} stored @param {string | null} terminal */
+export function leftAt(stored, terminal) {
+  if (terminal === null || !isObj(stored)) return null;
+  const at = isObj(/** @type {any} */ (stored).left) ? /** @type {any} */ (stored).left[terminal] : undefined;
+  return isNum(at) ? at : null;
+}
+
 /**
  * Shown: its tab is the active tab of the active space, and its chat pane is zoomed or the tab is not.
  * @param {Pick<Entry, "tab" | "chatPane"> | null} entry

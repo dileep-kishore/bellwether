@@ -17,7 +17,7 @@ import {
   spaces,
   terminals,
 } from "herdr";
-import { CHAT_SHOWN, isShown, shownFrom } from "./chat-tabs.js";
+import { CHAT_SHOWN, isShown, leftAt, shownFrom, TERMINAL_FOCUS } from "./chat-tabs.js";
 import { Composer } from "./composer.js";
 import { dock } from "./dock.js";
 import {
@@ -34,7 +34,7 @@ import {
 } from "./dock-model.js";
 import { columnWidth, rowHeight } from "./estimate.js";
 import { applyFeed, applyOlder, emptyFeed, expectation, freshChat, newConversation, olderFrom } from "./feedstate.js";
-import { createGuard, guardedUntil, isGuarded, observe } from "./focus-guard.js";
+import { createGuard, guardedUntil, isGuarded, observe, observeLeft } from "./focus-guard.js";
 import { createHelper, parseLines } from "./helper.js";
 import { createPictures } from "./pictures.js";
 import { createPoke } from "./refresh-driver.js";
@@ -1013,12 +1013,10 @@ export default class Chat extends View {
     const target = this.target;
     const view = this.view;
     const own = isTerminalView(view);
-    this.guard = observe(
-      this.guard,
-      focused()?.terminal ?? null,
-      own ? view.terminal : (target?.terminal ?? null),
-      now,
-    );
+    const ours = own ? view.terminal : (target?.terminal ?? null);
+    this.guard = observe(this.guard, focused()?.terminal ?? null, ours, now);
+    // The terminal may have had focus while this copy was hidden and not drawn; bw-tabs saw it leave.
+    this.guard = observeLeft(this.guard, leftAt(shared(TERMINAL_FOCUS), ours));
     const term = target ? (ps.find((p) => p.pane === target.pane) ?? null) : null;
     const tab = this.tab();
     const f = this.viewFeed();
