@@ -1,9 +1,15 @@
 // The tab bar over the active tab: the active space's tabs, drag to reorder, and "+" for bw-new.
+// Always shown, so it also turns the tabs "+" starts into chat tabs and runs ⌘J (bw-tabs.chat-flip).
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { home, layout, openOverlay, panes, run, spaces, theme, window } from "herdr";
+import { home, layout, nextCommand, notify, openOverlay, panes, run, setShared, shared, spaces, theme, window } from "herdr";
+import { adopt, flipActions, wakeAt } from "./chat-tabs.js";
 import { moveIndex, tabItems } from "./model.js";
+import { createPoke } from "./refresh-driver.js";
 import { ICONS, machineTag, programIcon, statusIcon } from "./ui.js";
+
+const CHAT_TABS = "bw.chat-tabs";
+const MIN_WAKE_MS = 1000;
 
 /** @param {any} node @param {string} id @returns {any} */
 function find(node, id) {
@@ -20,17 +26,79 @@ function find(node, id) {
 const stop = (_e, cx) => cx.stop_propagation();
 
 export default class Tabs extends View {
-  init() {
+  /** @param {unknown} _p @param {any} cx */
+  init(_p, cx) {
     /** The tab a left press started on, until the release. @type {string | null} */
     this.pressed = null;
     /** The tab under the pointer while one is pressed, for the drop marker. @type {string | null} */
     this.over = null;
+    /** ⌘J was pressed; the next render flips the active chat tab. */
+    this.flip = false;
+    /** The wake time render last asked the wake task for. @type {number | null} */
+    this.wakeFor = null;
+    this.wake = createPoke();
+
+    // Tasks never read live data: this one only marks the flip, and render reads panes().
+    cx.spawn(async (/** @type {any} */ cx) => {
+      for (;;) {
+        if ((await nextCommand()) !== "chat-flip") continue;
+        this.flip = true;
+        cx.notify();
+      }
+    });
+    // A split retry or a pending chat's expiry is due by the clock alone, with no live change to redraw.
+    cx.spawn(async (/** @type {any} */ cx) => {
+      /** @type {{ cancel(): void } | null} */
+      let timer = null;
+      for (;;) {
+        await this.wake.wait();
+        timer?.cancel();
+        timer = null;
+        const at = this.wakeFor;
+        if (at === null) continue;
+        // No timer under 1000 ms; a retry then runs up to a second late.
+        timer = cx.timer.after(Math.max(MIN_WAKE_MS, at - Date.now()), (/** @type {any} */ cx) => {
+          this.wakeFor = null;
+          cx.notify();
+        });
+      }
+    });
+  }
+
+  /**
+   * Adopts new chat tabs and runs a pending ⌘J. Every command here is guarded by the stored state
+   * or `this.flip`, so a second render repeats none of them.
+   * @param {any[]} all SpaceInfo[]
+   * @param {any[]} ps PaneInfo[]
+   * @param {any} space the active space
+   */
+  chatTabs(all, ps, space) {
+    const r = adopt(shared(CHAT_TABS), all, ps, Date.now());
+    if (r.next) setShared(CHAT_TABS, r.next);
+    for (const [cmd, args] of r.actions) run(cmd, args);
+    for (const n of r.notices) notify({ ...n, level: "warning" });
+    const state = r.next ?? shared(CHAT_TABS);
+
+    if (this.flip) {
+      this.flip = false;
+      const active = space?.tabs.find((/** @type {any} */ t) => t.active)?.id ?? null;
+      for (const [cmd, args] of flipActions(state, active, ps)) run(cmd, args);
+    }
+
+    const at = wakeAt(state);
+    if (at !== this.wakeFor) {
+      this.wakeFor = at;
+      this.wake.poke();
+    }
   }
 
   render() {
     const t = theme();
-    const space = spaces().find((s) => s.active) ?? null;
-    const items = tabItems(space, panes());
+    const all = spaces();
+    const ps = panes();
+    const space = all.find((s) => s.active) ?? null;
+    this.chatTabs(all, ps, space);
+    const items = tabItems(space, ps);
     const w = window();
     const sidebar = find(layout(), "sidebar");
     // With the sidebar hidden the bar's left edge sits under macOS's traffic lights.

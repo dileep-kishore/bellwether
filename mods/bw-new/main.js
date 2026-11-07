@@ -1,12 +1,14 @@
-// The "+" menu: a shell or an agent in the space (or a new space in a folder), and Herdr's worktree dialogs.
+// The "+" menu: a chat, a shell or an agent in the space (or a new space in a folder), and Herdr's worktree dialogs.
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { closeOverlay, knownAgents, openOverlay, panes, props, run, setShared, shared, spaces, theme } from "herdr";
-import { contextOf, menuEntries } from "./entries.js";
+import { addPending } from "./chat-tabs.js";
+import { chatLaunch, contextOf, menuEntries } from "./entries.js";
 import { ICONS, programIcon } from "./ui.js";
 
 // The last agents each machine reported, keyed by machine name ("" for this Mac), shown at once.
 const KNOWN = "bw.known-agents";
+const CHAT_TABS = "bw.chat-tabs";
 
 export default class NewMenu extends View {
   /** @param {any} p @param {any} cx */
@@ -46,10 +48,17 @@ export default class NewMenu extends View {
         .on_click(() => {
           if (!r.enabled) return;
           // The space can close after this render drew the row.
-          if (contextOf(props() ?? {}, spaces(), panes()).closed) return;
+          const all = spaces();
+          const ctx = contextOf(props() ?? {}, all, panes());
+          if (ctx.closed) return;
           if (typeof p.overlay === "string") closeOverlay(p.overlay);
           if (r.action[0] === "run") run(r.action[1], r.action[2]);
-          else openOverlay(r.action[1]);
+          else if (r.action[0] === "chat") {
+            const { pending, command } = chatLaunch(r.action[1], ctx, all);
+            // Recorded before the tab exists, so bw-tabs's render for the new tab already finds it.
+            setShared(CHAT_TABS, addPending(shared(CHAT_TABS), pending, Date.now()));
+            run(command[0], command[1]);
+          } else openOverlay(r.action[1]);
         })
         .child(icon(r))
         .child(div().flex_1().min_w(0).truncate().child(r.label))
