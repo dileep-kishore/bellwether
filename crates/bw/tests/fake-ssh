@@ -1,0 +1,77 @@
+#!/bin/sh
+# Stands in for ssh in forward tests: binds the -R or -L listen port on this machine and passes each
+# connection to the forward's destination port, as ssh's forward would, then waits to be killed.
+#   FAKE_SSH_LOG            each start is appended here as "start <args>"
+#   FAKE_SSH_WILDCARD       1: bind 0.0.0.0 instead of 127.0.0.1, as sshd with GatewayPorts yes does
+#   FAKE_SSH_TAKEN          1: fail as ssh does when the listen port is held (a held port fails the same way)
+#   FAKE_SSH_PROXY_TO       a 127.0.0.1 port to pass connections to instead of the destination
+#   FAKE_SSH_EXIT_AFTER_MS  exit 255 this long after starting, as ssh does when the connection drops
+#   FAKE_SSH_EXIT_STARTS    N: only the first N starts (counted in FAKE_SSH_LOG) exit; default every start
+js='
+const fs = require("fs");
+const args = process.argv.slice(1);
+const env = process.env;
+let starts = 1;
+if (env.FAKE_SSH_LOG) {
+  fs.appendFileSync(env.FAKE_SSH_LOG, "start " + args.join(" ") + "\n");
+  starts = fs.readFileSync(env.FAKE_SSH_LOG, "utf8").split("\n").filter((l) => l.startsWith("start ")).length;
+}
+const i = args.findIndex((a) => a === "-R" || a === "-L");
+if (i < 0 || !args[i + 1]) {
+  console.error("fake-ssh: no -R or -L forward");
+  process.exit(2);
+}
+const flag = args[i];
+const spec = args[i + 1].split(":");
+const port = Number(spec[1]);
+const dest = Number(env.FAKE_SSH_PROXY_TO || spec[3]);
+const taken = () => {
+  if (flag === "-R") {
+    console.error("Error: remote port forwarding failed for listen port " + port);
+  } else {
+    console.error("bind [127.0.0.1]:" + port + ": Address already in use");
+    console.error("Could not request local forwarding.");
+  }
+  process.exit(255);
+};
+if (env.FAKE_SSH_TAKEN === "1") taken();
+const pipe = {
+  open(s) {
+    s.data = { out: null, queue: [] };
+    Bun.connect({
+      hostname: "127.0.0.1",
+      port: dest,
+      socket: {
+        open(o) {
+          o.data = s;
+          s.data.out = o;
+          for (const b of s.data.queue) o.write(b);
+          s.data.queue = [];
+        },
+        data(o, b) { o.data.write(b); },
+        close(o) { o.data.end(); },
+        error(o) { o.data.end(); },
+      },
+    }).catch(() => s.end());
+  },
+  // Bun reuses the buffer after the callback, so a queued chunk is copied.
+  data(s, b) { if (s.data.out) s.data.out.write(b); else s.data.queue.push(Buffer.from(b)); },
+  close(s) { if (s.data.out) s.data.out.end(); },
+  error() {},
+};
+try {
+  Bun.listen({ hostname: env.FAKE_SSH_WILDCARD === "1" ? "0.0.0.0" : "127.0.0.1", port, socket: pipe });
+} catch (e) {
+  taken();
+}
+const after = Number(env.FAKE_SSH_EXIT_AFTER_MS || 0);
+const limit = Number(env.FAKE_SSH_EXIT_STARTS || 0);
+if (after > 0 && (limit === 0 || starts <= limit)) {
+  setTimeout(() => {
+    console.error("Connection to " + args[args.length - 1] + " closed by remote host.");
+    process.exit(255);
+  }, after);
+}
+'
+bun=$(command -v bun || echo /opt/homebrew/bin/bun)
+exec "$bun" -e "$js" -- "$@"
