@@ -8,6 +8,7 @@ import {
   exec,
   focused,
   home,
+  layout,
   nextCommand,
   panes,
   props as herdrProps,
@@ -17,7 +18,7 @@ import {
   spaces,
   terminals,
 } from "herdr";
-import { CHAT_SHOWN, isShown, leftAt, shownFrom, TERMINAL_FOCUS } from "./chat-tabs.js";
+import { CHAT_SHOWN, hasMod, isShown, leftAt, shownFrom, TERMINAL_FOCUS } from "./chat-tabs.js";
 import { Composer } from "./composer.js";
 import { dock } from "./dock.js";
 import {
@@ -180,6 +181,8 @@ export default class Chat extends View {
     this.locate(spaces(), ps);
     /** This chat's own pane, as the last render saw it. @type {string | null} */
     this.chatPane = null;
+    /** The layout has bw-tabs, the writer of the shown list, as the last render saw it. */
+    this.listed = false;
     /** @type {boolean} */
     this.shown = this.readShown(spaces(), ps);
     this.status = this.statusOf(ps);
@@ -243,7 +246,8 @@ export default class Chat extends View {
           // The guard ended since the last frame: draw the buttons enabled again.
           if (this.drawnGuarded && !isGuarded(this.guard, now)) cx.notify();
           // A hidden copy is not drawn, so render cannot tell it went out of sight; bw-tabs's list can.
-          this.shown = shownFrom(shared(CHAT_SHOWN), this.chatPane, this.shown);
+          // Only bw-tabs writes the list, so in a layout without it the list is stale and render decides.
+          if (this.listed) this.shown = shownFrom(shared(CHAT_SHOWN), this.chatPane, this.shown);
           let wait = Math.max(0, pollMs(this.shown) - (now - started));
           if (this.answerable() && isGuarded(this.guard, now))
             wait = Math.max(1000, Math.min(wait, guardedUntil(this.guard) - now));
@@ -345,6 +349,7 @@ export default class Chat extends View {
     if (tab === null) return false;
     const chat = ps.find((p) => p.tab === tab && p.mod === "bw-chat");
     this.chatPane = chat?.pane ?? null;
+    this.listed = hasMod(layout(), "bw-tabs");
     return isShown({ tab, chatPane: this.chatPane }, all, ps);
   }
 

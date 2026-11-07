@@ -11,6 +11,7 @@ import {
   isShown,
   readChatTabs,
   focusRecord,
+  hasMod,
   leftAt,
   shownChatPanes,
   shownFrom,
@@ -576,5 +577,20 @@ describe("focusRecord", () => {
     const c = focusRecord(b, "macmini/t5", 70_000);
     expect(c).toEqual({ focused: "macmini/t5", left: {} });
     expect(leftAt("junk", "t8")).toBe(null);
+  });
+});
+
+describe("hasMod", () => {
+  test("finds a mod block anywhere in a layout tree, floating blocks included", () => {
+    const tree = {
+      id: "root",
+      type: "row",
+      children: [{ id: "w", type: "column", children: [{ id: "t", type: "block", content: { mod: "bw-tabs" } }] }],
+      floating: [{ id: "f", content: { mod: "board" } }],
+    };
+    expect(hasMod(tree, "bw-tabs")).toBe(true);
+    expect(hasMod(tree, "board")).toBe(true);
+    expect(hasMod(tree, "tabs")).toBe(false);
+    expect(hasMod(null, "bw-tabs")).toBe(false);
   });
 });

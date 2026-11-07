@@ -398,6 +398,20 @@ export function shownChatPanes(spaces, panes) {
 }
 
 /**
+ * Whether a layout tree shows `mod` in a block, floating blocks included.
+ * @param {any} node `layout()` @param {string} mod
+ * @returns {boolean}
+ */
+export function hasMod(node, mod) {
+  if (!isObj(node)) return false;
+  if (isObj(node.content) && node.content.mod === mod) return true;
+  return [
+    ...(Array.isArray(node.children) ? node.children : []),
+    ...(Array.isArray(node.floating) ? node.floating : []),
+  ].some((c) => hasMod(c, mod));
+}
+
+/**
  * Whether `pane` is on screen by bw-tabs's stored list; `fallback` when there is no list or no pane.
  * @param {unknown} stored the value of `shared(CHAT_SHOWN)`
  * @param {string | null} pane this chat's pane

@@ -514,6 +514,17 @@ describe("bw-chat", () => {
     expect(ms()).toBeLessThanOrEqual(2000);
   });
 
+  test("in a layout without bw-tabs a stale shown list is ignored and render decides", async () => {
+    const d = live("chat-tab");
+    // Left behind by bw-tabs in Bellwether while this chat was hidden; Herdr's main layout has no bw-tabs.
+    d.shared["bw.chat-shown"] = [];
+    d.layout = { id: "root", type: "row", children: [{ id: "main", type: "block", content: { tab: "active" } }] };
+    const m = await mount("bw-chat", { props: CLAUDE, live: d });
+    m.cx.sleeps.at(-1).wake();
+    await m.cx.flush();
+    expect(m.cx.sleeps.at(-1).ms).toBeLessThanOrEqual(2000);
+  });
+
   test("terminal gone is named, composer disabled, Close tab", async () => {
     const data = live("chat-tab");
     data.panes = data.panes.filter((p) => p.pane !== "p8");
