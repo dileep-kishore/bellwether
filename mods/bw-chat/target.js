@@ -94,8 +94,35 @@ export function waitingText(state, agent, machine = null) {
     case "no_terminal": return `${agent} exited`;
     case "not_agent": return "This terminal runs no Claude or Codex";
     case "no_log": return `Waiting for ${agent}'s session log`;
+    case "no_child": return "This sub-agent has no log yet";
     default: return `${agent}'s conversation cannot be read (${state})`;
   }
+}
+
+/**
+ * The dock's hooks notice for a `cards` line's `hooks` state; null when nothing needs saying.
+ * @param {string | null} state "ok", "missing", "outdated" or "untrusted" @param {string | null} machine
+ */
+export function hooksText(state, machine) {
+  switch (state) {
+    case "missing": return `Bellwether hooks are not set up on ${where(machine)}; requests show without who asked`;
+    case "outdated": return `Bellwether hooks on ${where(machine)} are out of date; requests show without who asked`;
+    case "untrusted": return `Codex hook not trusted on ${where(machine)}`;
+    default: return null;
+  }
+}
+
+/** The user's step to trust Bellwether's hook in Codex, from the phase 3 experiment's note. */
+export const TRUST_STEP = "Start Codex there and choose “Trust all and continue” (2, then Enter), or type /hooks and press t.";
+
+/**
+ * The `hooks` state of a `cards` line for this chat's agent: the line may name one state or one per agent.
+ * @param {unknown} hooks @param {string} kind @returns {string | null}
+ */
+export function hooksState(hooks, kind) {
+  if (typeof hooks === "string") return hooks || null;
+  const v = hooks && typeof hooks === "object" ? /** @type {Record<string, unknown>} */ (hooks)[kind] : null;
+  return typeof v === "string" && v ? v : null;
 }
 
 /**
