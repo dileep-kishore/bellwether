@@ -4,7 +4,7 @@ import * as kitModule from "gpui-kit";
 import * as baseModule from "gpui-base";
 import api from "./api.json";
 import { fake, log, reset, setPhase } from "./herdr-stub.js";
-import { byId, div, fire, findAll, svg, textOf } from "./kit-stub.js";
+import { byId, div, emit, fire, findAll, image, inspect, svg, textOf } from "./kit-stub.js";
 import { makeCx } from "./cx.js";
 import { live, mount } from "./mount.js";
 
@@ -14,6 +14,11 @@ describe("api.json", () => {
   test("api names cover what phase 1 uses", () => {
     for (const n of ["watchFolder", "knownAgents", "setAgentOrder", "openOverlay", "pickFolder"]) expect(api.herdr).toContain(n);
     for (const m of ["spin", "frames", "on_size_change", "overflow_x_scrollbar", "on_mouse_up", "truncate"]) expect(api.element).toContain(m);
+    expect(api.baseMembers.interfaces.TextViewElement).toEqual(["on_link_click", "scrollable", "selectable"]);
+    expect(api.baseMembers.interfaces.TextareaState).toContain("set_auto_grow");
+    expect(api.baseMembers.interfaces.VirtualListScrollHandle).toEqual(["release", "scroll_to_bottom", "scroll_to_item"]);
+    expect(api.baseMembers.consts.Scrollbar).toEqual(["horizontal", "new", "vertical"]);
+    expect(api.baseMembers.consts.Textarea).toEqual(["new"]);
     expect(api.commands["tab.move"].required).toEqual(["id", "index"]);
   });
 
@@ -32,7 +37,7 @@ describe("stub modules", () => {
 
   test("a declared but unfaked name throws when used", () => {
     expect(() => herdrModule.updates()).toThrow("stub: updates not faked");
-    expect(() => baseModule.Scrollbar.vertical()).toThrow("stub: Scrollbar not faked");
+    expect(() => baseModule.Checkbox.new()).toThrow("stub: Checkbox not faked");
   });
 
   test("unknown builder method throws", () => expect(() => div().flex_one()).toThrow("unknown builder method flex_one"));
@@ -105,6 +110,75 @@ describe("stub modules", () => {
     const m = await mount("bw-good", { root: F, live: live("empty") });
     expect(herdrModule.layout().id).toBe("root");
     expect(m.log.live.some(([n]) => n === "spaces")).toBe(true);
+  });
+});
+
+describe("gpui-base stubs", () => {
+  const { TextView, Textarea, TextareaState, Scrollbar, VirtualListScrollHandle, v_virtual_list } = baseModule;
+
+  test("TextView draws its text and takes only declared methods", () => {
+    reset();
+    const el = TextView.markdown("m1", "**hi** there").selectable(true).w_full();
+    expect(textOf(div().child(el))).toBe("**hi** there");
+    expect(el.attrs.markdown).toBe("**hi** there");
+    expect(() => TextView.markdown("m2", "x").copyable(true)).toThrow("unknown builder method copyable");
+    expect(() => div().selectable(true)).toThrow("unknown builder method selectable");
+    expect(() => TextView.rich("m3", "x")).toThrow();
+  });
+
+  test("TextareaState: declared methods, events fired as an event, never made in render", async () => {
+    reset();
+    const s = TextareaState.new({ placeholder: "Message Claude…" });
+    s.set_auto_grow(1, 8);
+    let seen = null;
+    s.on("submit", (e) => { seen = [e.shift, s.value()]; });
+    inspect(s).value = "hi";
+    await emit(s, "submit", { shift: false }, makeCx());
+    expect(seen).toEqual([false, "hi"]);
+    expect(inspect(s).autoGrow).toEqual([1, 8]);
+    s.focus();
+    expect(inspect(s).focused).toBe(1);
+    expect(() => s.set_masked(true)).toThrow("TextareaState has no set_masked");
+    expect(() => s.on("keydown", () => {})).toThrow("TextareaState.on: unknown event keydown");
+    expect(Textarea.new(s).attrs.state).toBe(s);
+    setPhase("render");
+    expect(() => TextareaState.new({})).toThrow("TextareaState.new in render");
+  });
+
+  test("v_virtual_list renders every row, checks sizes and keys, and refuses handlers in rows", () => {
+    reset();
+    const rows = ["a", "b", "c"];
+    const list = v_virtual_list("chat", 3, [10, 20, 30], (i) => rows[i], (r) => rows.slice(r.start, r.end).map((x) => div().child(x)));
+    expect(textOf(list)).toBe("a b c");
+    expect(list.attrs.keys).toEqual(["a", "b", "c"]);
+    expect(() => v_virtual_list("l", 3, [1, 2], (i) => rows[i], () => [])).toThrow("2 sizes for 3 items");
+    expect(() => v_virtual_list("l", 2, 5, () => "same", () => [div(), div()])).toThrow("duplicate key same");
+    expect(() => v_virtual_list("l", 1, 5, () => "k", () => [div().on_click(() => {})])).toThrow("on_click inside a virtual list's renderer");
+    expect(() => v_virtual_list("l", 2, 5, (i) => `k${i}`, () => [div()])).toThrow("returned 1 elements for 2 items");
+    expect(() => v_virtual_list("l", 1, 5, () => "k", (_r, cx) => { cx.notify(); return [div()]; })).toThrow("cx.notify() inside a virtual list's renderer");
+  });
+
+  test("VirtualListScrollHandle records scrolls and refuses use after release", () => {
+    reset();
+    const h = VirtualListScrollHandle.new();
+    h.scroll_to_item(4, "top");
+    h.scroll_to_bottom();
+    expect(inspect(h).calls).toEqual([["item", 4, "top"], ["bottom"]]);
+    expect(() => h.scroll_to_item(1, "middle")).toThrow("strategy middle");
+    h.release();
+    expect(() => h.scroll_to_bottom()).toThrow("used after release");
+    expect(div().track_scroll(VirtualListScrollHandle.new()).attrs.track_scroll).toBeDefined();
+  });
+
+  test("Scrollbar names the area it drives", () => {
+    expect(Scrollbar.vertical("chat").attrs).toMatchObject({ id: "chat", axis: "vertical" });
+    expect(() => Scrollbar.diagonal("chat")).toThrow();
+  });
+
+  test("image takes a picture bw copied under data/bellwether/pictures", () => {
+    reset();
+    expect(() => image("data/bellwether/pictures/c3ebbf21e766d2f1.png")).not.toThrow();
+    expect(() => image("data/bellwether/pictures/../x.png")).toThrow("image path");
   });
 });
 

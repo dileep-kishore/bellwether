@@ -22,6 +22,10 @@ length, so byte offsets and Codex row ids (`cx@<offset>`) stay those of the reco
   diff before committing.
 - `rows_match_hand_counts` checks the same rows against each recording's hand counts.
 
-The `bw-chat` mod's tests (phase 2, Task 8) read these files as the helper's answers. They
+The `bw-chat` mod's tests (phase 2, Task 8) read these files as the helper's answers.
+`tests/fixtures/live/chat-tab.json` and `chat-remote.json` hold copies of the
+`claude-picture` and `codex-question` answers with `terminal`, `path` and `cursor` set in
+the `log` line; `tests/mods/bw-chat.test.js` fails when a copy no longer matches its
+golden, so update those copies after blessing a change here. They
 hold only scrubbed recording text and must pass `scripts/verify/scrub-fixture --check
 tests/fixtures/feed`.

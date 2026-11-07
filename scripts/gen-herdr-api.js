@@ -72,6 +72,39 @@ function elementMethods(kit) {
   return { element: [...methods].sort(), elementDeclare: [...declare].sort() };
 }
 
+/**
+ * Member names of each `export interface X {…}` and `export const X: {…}` in a module block, so the
+ * harness can refuse a method a host object does not declare.
+ * @param {string[]} lines
+ */
+function membersOf(lines) {
+  /** @type {Record<string, string[]>} */
+  const interfaces = {};
+  /** @type {Record<string, string[]>} */
+  const consts = {};
+  const member = /^ {4}(?:readonly )?([A-Za-z_$][\w$]*)\??\s*[<(:]/;
+  for (let i = 0; i < lines.length; i++) {
+    const one = /^ {2}export const ([A-Za-z_$][\w$]*): \{ (.*) \};\s*$/.exec(lines[i]);
+    if (one) {
+      consts[one[1]] = [...one[2].matchAll(/(?:^|;\s*)([A-Za-z_$][\w$]*)\??\s*[:(]/g)].map((x) => x[1]).sort();
+      continue;
+    }
+    const iface = /^ {2}export interface ([A-Za-z_$][\w$]*)\b[^{]*\{\s*$/.exec(lines[i]);
+    const obj = iface ? null : /^ {2}export const ([A-Za-z_$][\w$]*): \{\s*$/.exec(lines[i]);
+    const head = iface ?? obj;
+    if (!head) continue;
+    const names = new Set();
+    let j = i + 1;
+    for (; j < lines.length && lines[j] !== "  }" && !lines[j].startsWith("  };"); j++) {
+      const m = member.exec(lines[j]);
+      if (m) names.add(m[1]);
+    }
+    (iface ? interfaces : consts)[head[1]] = [...names].sort();
+    i = j;
+  }
+  return { interfaces, consts };
+}
+
 /** @param {string} dir @param {string|null} herdrApp */
 export function generate(dir, herdrApp = null) {
   const read = (/** @type {string} */ f) => readFileSync(join(dir, f), "utf8");
@@ -83,7 +116,8 @@ export function generate(dir, herdrApp = null) {
   const herdr = exportsOf(herdrDts.split("\n"), "");
   const kitBlock = moduleBlock(kitLines, "gpui-kit");
   const kit = exportsOf(kitBlock, "  ");
-  const base = exportsOf(moduleBlock(kitLines, "gpui-base"), "  ");
+  const baseBlock = moduleBlock(kitLines, "gpui-base");
+  const base = exportsOf(baseBlock, "  ");
   const { element, elementDeclare } = elementMethods(kitBlock);
 
   /** @type {Record<string, { args: string[], required: string[] }>} */
@@ -105,6 +139,7 @@ export function generate(dir, herdrApp = null) {
     base: base.values,
     element,
     elementDeclare,
+    baseMembers: membersOf(baseBlock),
     types: { herdr: herdr.types, kit: kit.types, base: base.types },
     commands,
   };
