@@ -1,0 +1,4 @@
+model_reasoning_effort = "low"
+developer_instructions = """
+BW-TOP-7Q2C: the top-level value.
+It has "quotes", a backslash \\ and \"\"\" inside."""
