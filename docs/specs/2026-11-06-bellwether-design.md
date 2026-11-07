@@ -462,8 +462,11 @@ Design:
   window through macOS's window list, since `window()` has no bounds, so
   Arrange is macOS only.
 - Agents: Chrome DevTools MCP, pinned (1.12.0 as researched), one instance
-  per agent session, with `--browserUrl http://127.0.0.1:9222
-  --no-usage-statistics --no-performance-crux --screenshotFormat jpeg
+  per agent session, with `--wsEndpoint
+  ws://127.0.0.1:<port>/devtools/browser/<browser id>`, so a session that
+  reconnects after the Bellwether Chrome quits can never attach to another
+  browser on that port (a running session's tools stop until its next
+  session), and `--no-usage-statistics --no-performance-crux --screenshotFormat jpeg
   --screenshotMaxWidth 1280`, so no visited URL goes to Google and
   screenshots stay under the 4 MB picture cap. Bellwether
   passes it, and a short instructions file, to every agent it starts (chat
@@ -492,7 +495,7 @@ Design:
   `developer_instructions` untouched. `<port>` is chosen per window and
   machine from a free port on that machine, so another Chrome or forward on
   9222 there is never mistaken for this one. It stays the same across
-  reconnects and is written per window to
+  reconnects and is written per window, with the Chrome's browser id, to
   `~/.local/share/bellwether/agent/ports/<window>` on that machine, which
   the MCP launcher reads at session start. Before agents get the MCP
   config, `bw` checks on the remote machine that the port listens only on
@@ -500,13 +503,16 @@ Design:
   `http://127.0.0.1:<port>/json/version` returns this Chrome's browser id;
   if either fails (for example under `GatewayPorts yes`), the forward is
   closed and the state is named. A dropped forward reconnects with the same
-  checks. The panel offers "Forward port" for a dev server on that machine
+  checks, and a live one repeats them every 60 s, closing for good when the
+  browser id changed. The panel offers "Forward port" for a dev server on that machine
   (`ssh -o ExitOnForwardFailure=yes -N -L
   127.0.0.1:<port>:127.0.0.1:<port> <target>`, bound to 127.0.0.1
   explicitly) so the Chrome here can open it.
 - The panel lists the Chrome's tabs from `http://127.0.0.1:9222/json/list`
   (title, URL, favicon), marks the active one, and offers focus and close,
-  New tab, Arrange, and the forwards in effect.
+  New tab, Arrange, and the forwards in effect. Every tab command first
+  checks that the port belongs to the Bellwether Chrome, matching its
+  `--user-data-dir` argument whole in the process's own argv.
 - Agents' screenshots appear inline in their chat through the picture path.
 
 ## Decisions

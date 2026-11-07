@@ -716,3 +716,19 @@ for this build; tests that need the Herdr window are deferred, other tests
   otherwise reads the picture as base64 text and the chat shows none.
   Evidence: `docs/research/2026-11-07-phase4-browser.md`, contradictions
   1 and 2; phase 4 plan, decisions 2 and 4.
+- 2026-11-07: Chrome DevTools MCP connects to the checked browser's
+  WebSocket endpoint instead of a port URL, and the port file carries the
+  browser id. Original: "with `--browserUrl http://127.0.0.1:9222". Evidence:
+  phase 4 Codex review P4A-3 (the MCP reconnected to whatever held the
+  port); chrome-devtools-mcp 1.12.0 `--wsEndpoint`, a wrong id answers 404;
+  commit `577222a`.
+- 2026-11-07: a live forward repeats its checks every 60 s and closes for
+  good when the browser id changed. Original: "A dropped forward reconnects
+  with the same checks." Evidence: phase 4 Codex review P4A-3; commit
+  `577222a`.
+- 2026-11-07: every tab command checks the port's owner first, matching
+  `--user-data-dir` whole in the process's argv. Original: "The panel lists
+  the Chrome's tabs from `http://127.0.0.1:9222/json/list` (title, URL,
+  favicon), marks the active one, and offers focus and close, New tab,
+  Arrange, and the forwards in effect." Evidence: phase 4 Codex review
+  P4A-1 and P4A-2; commits `e165704`, `0950294`.
