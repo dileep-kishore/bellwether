@@ -38,8 +38,9 @@ export async function mount(name, { props = {}, live: data = {}, root = "mods" }
   if (typeof ViewClass !== "function") throw new Error(`${root}/${name}/main.js has no default View class`);
 
   const cx = makeCx();
-  const view = inPhase("init", () => new ViewClass(props));
-  await inPhase("init", async () => view.init?.(props, cx));
+  // Herdr calls init with undefined as its first argument; a mod reads its props through props().
+  const view = inPhase("init", () => new ViewClass());
+  await inPhase("init", async () => view.init?.(undefined, cx));
   check();
   await cx.flush();
   check();

@@ -4,7 +4,19 @@
 // through the helper on the space's machine; pictures and hook setup through this Mac's helper.
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, VirtualListScrollHandle } from "gpui-base";
-import { exec, focused, home, nextCommand, panes, run, setShared, shared, spaces, terminals } from "herdr";
+import {
+  exec,
+  focused,
+  home,
+  nextCommand,
+  panes,
+  props as herdrProps,
+  run,
+  setShared,
+  shared,
+  spaces,
+  terminals,
+} from "herdr";
 import { isShown } from "./chat-tabs.js";
 import { Composer } from "./composer.js";
 import { dock } from "./dock.js";
@@ -95,8 +107,9 @@ const NO_KEYS_WITH = ["control", "alt", "platform", "function"];
 const WENT_OUT = new Set(["answered", "declined", "uncertain", "sent", "already-answered"]);
 
 export default class Chat extends View {
-  /** @param {unknown} props @param {any} cx */
-  init(props, cx) {
+  /** @param {unknown} _props Herdr passes undefined; props() holds this pane's props. @param {any} cx */
+  init(_props, cx) {
+    const props = /** @type {unknown} */ (herdrProps());
     /** What the props name, in the namespace of the window that wrote them. @type {Target | null} */
     this.id = targetOf(props);
     /** @type {string | null} */

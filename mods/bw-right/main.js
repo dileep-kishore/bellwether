@@ -2,7 +2,7 @@
 // `right-body` stack; with `panel` it is that stack child's placeholder until its phase fills it.
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { layout, run, setShared, shared, spaces } from "herdr";
+import { layout, props, run, setShared, shared, spaces } from "herdr";
 import { PANELS, choose, chosen, wanted } from "./choice.js";
 import { themeColors } from "./ui.js";
 
@@ -23,10 +23,11 @@ function find(node, id) {
 }
 
 export default class Right extends View {
-  /** @param {{ panel?: string } | undefined} props */
-  init(props) {
+  init() {
+    // Herdr passes init no props; props() holds the layout's.
+    const p = /** @type {{ panel?: string } | null} */ (props());
     /** @type {string | null} */
-    this.panel = props?.panel ?? null;
+    this.panel = p?.panel ?? null;
     // The space and panel last asked of layout.select, so a layout() that has not caught up yet
     // does not get the same command on every render.
     /** @type {string | null} */
