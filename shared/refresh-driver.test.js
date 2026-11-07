@@ -281,6 +281,54 @@ describe("refresh driver", () => {
     await r.stop();
   });
 
+  test("driver: a folder re-added after a rejected watch is watched again", async () => {
+    const w = world();
+    const t = target("list", "/r/a/.git", { wakeOn: ["/r/a/.git"] });
+    const r = start(w, [t]);
+    await w.advance(0);
+    r.watch.reject("/r/a/.git");
+    await w.advance(1000);
+    r.schedule.setTargets([], w.now());
+    r.poke.poke();
+    await w.advance(0);
+
+    r.schedule.setTargets([t], w.now());
+    r.poke.poke();
+    await w.advance(0);
+    expect(r.calls).toEqual([
+      [t.key, 0],
+      [t.key, 1000],
+    ]);
+    expect(r.watch.calls).toEqual(["/r/a/.git", "/r/a/.git"]);
+
+    r.watch.reject("/r/a/.git");
+    await w.advance(60_000);
+    expect(r.calls.at(-1)).toEqual([t.key, 61_000]);
+    expect(r.watch.calls).toHaveLength(2);
+    await r.stop();
+  });
+
+  test("driver: a rejected folder dropped and re-added between loop turns keeps its fallback", async () => {
+    const w = world();
+    const t = target("list", "/r/a/.git", { wakeOn: ["/r/a/.git"] });
+    const r = start(w, [t]);
+    await w.advance(0);
+    r.watch.reject("/r/a/.git");
+    await w.advance(1000);
+    r.schedule.setTargets([], w.now());
+    r.schedule.setTargets([t], w.now());
+    r.poke.poke();
+    await w.advance(0);
+    expect(r.calls).toEqual([
+      [t.key, 0],
+      [t.key, 1000],
+    ]);
+    await w.advance(60_000);
+    expect(r.calls.at(-1)).toEqual([t.key, 61_000]);
+    expect(r.watch.calls).toEqual(["/r/a/.git"]);
+    await r.stop();
+  });
+
   test("driver: render poke wakes the loop before wakeIn", async () => {
     const w = world();
     const a = target("counts", "/home/u/gamma", { machine: "macmini" });

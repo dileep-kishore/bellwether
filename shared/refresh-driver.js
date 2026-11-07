@@ -69,6 +69,19 @@ export async function runRefresher(cx, { schedule, run, onResult, watchFolder, n
   const finished = [];
   /** @type {Set<string>} */
   const watching = new Set();
+  // A rejected watch is not retried while the schedule still wants its folder; the schedule's timer stands in.
+  /** @type {Set<string>} */
+  const rejected = new Set();
+
+  // setTargets forgets a rejection once no target wants the folder, so forget it here too, or a
+  // re-added folder would get neither a watch nor the fallback timer.
+  function reconcileRejected() {
+    const wanted = schedule.watchedFolders();
+    for (const dir of rejected) {
+      if (wanted.includes(dir)) schedule.rejected(dir, now());
+      else rejected.delete(dir);
+    }
+  }
 
   function launch(target) {
     schedule.start(target.key, now());
@@ -95,7 +108,8 @@ export async function runRefresher(cx, { schedule, run, onResult, watchFolder, n
         try {
           paths = await watchFolder(dir);
         } catch {
-          // Stays in `watching`: a rejected watch is not retried, the schedule's timer stands in.
+          watching.delete(dir);
+          rejected.add(dir);
           schedule.rejected(dir, now());
           poke.poke();
           return;
@@ -112,8 +126,9 @@ export async function runRefresher(cx, { schedule, run, onResult, watchFolder, n
     for (const [target, result] of finished.splice(0)) if (onResult(target, result)) changed = true;
     if (changed) cx.notify();
 
+    reconcileRejected();
     for (let t = schedule.next(now()); t; t = schedule.next(now())) launch(t);
-    for (const dir of schedule.watchedFolders()) if (!watching.has(dir)) watch(dir);
+    for (const dir of schedule.watchedFolders()) if (!watching.has(dir) && !rejected.has(dir)) watch(dir);
 
     const ms = schedule.wakeIn(now());
     await Promise.race([cx.sleep(ms ?? IDLE_MS), poke.wait()]);
