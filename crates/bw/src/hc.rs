@@ -207,6 +207,12 @@ pub fn hc_get_with(program: &OsStr, address: &str) -> Result<Value, HcError> {
     )
 }
 
+/// Any hc call that answers one JSON value on stdout (`machine ls`, `run --bg`, `kill`, `rm`).
+pub fn hc_json(args: &[&str]) -> Result<Value, HcError> {
+    let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+    run(&args, None)
+}
+
 /// `hc ls --json`: this core's live terminals.
 pub fn hc_ls() -> Result<Value, HcError> {
     hc_ls_with(&program())
