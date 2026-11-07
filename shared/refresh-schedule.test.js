@@ -37,6 +37,48 @@ describe("refresh schedule", () => {
     expect(s.next(10_000_000)).toBe(null);
   });
 
+  test("a failed place reruns after 30 s local, 15 s remote, until it succeeds", () => {
+    const s = createSchedule();
+    const local = target("place", "/r/alpha");
+    const remote = target("place", "/home/u/gamma", { machine: "macmini" });
+    s.setTargets([local, remote], 0);
+    s.start(local.key, 0);
+    s.start(remote.key, 0);
+    s.finish(local.key, 10, { ok: false });
+    s.finish(remote.key, 10, { ok: false });
+    expect(s.next(14_999)).toBe(null);
+    expect(s.wakeIn(10)).toBe(14_990);
+    expect(s.next(15_000)?.key).toBe(remote.key);
+    s.start(remote.key, 15_000);
+    s.finish(remote.key, 15_010, { ok: true });
+    expect(s.next(29_999)).toBe(null);
+    expect(s.next(30_000)?.key).toBe(local.key);
+    s.start(local.key, 30_000);
+    s.finish(local.key, 30_010, { ok: true });
+    expect(s.next(10_000_000)).toBe(null);
+    expect(s.wakeIn(10_000_000)).toBe(null);
+  });
+
+  test("a failed helper reruns after the remote interval", () => {
+    const s = createSchedule();
+    const h = target("helper", "", { machine: "macmini" });
+    s.setTargets([h], 0);
+    s.start(h.key, 0);
+    s.finish(h.key, 10, { ok: false });
+    expect(s.next(14_999)).toBe(null);
+    expect(s.next(15_000)?.key).toBe(h.key);
+  });
+
+  test("a failed run-once target never retries sooner than 1000 ms", () => {
+    const s = createSchedule({ ...TIMES, openLocal: 5, remote: 5 });
+    const p = target("place", "/r/alpha");
+    s.setTargets([p], 0);
+    s.start(p.key, 0);
+    s.finish(p.key, 1, { ok: false });
+    expect(s.next(999)).toBe(null);
+    expect(s.next(1000)?.key).toBe(p.key);
+  });
+
   test("events throttle to one refresh per second, then trailing", () => {
     const s = createSchedule();
     const t = counts("/r/alpha", { wakeOn: ["/r/alpha"] });
@@ -208,13 +250,16 @@ describe("refresh schedule", () => {
     expect(s.inFlight(null)).toBe(true);
   });
 
-  test("nested folder is not watched twice", () => {
+  test("a folder inside a watched one is dropped unless it is a worktree's own", () => {
     const s = createSchedule();
     const main = counts("/r/alpha", { open: true, wakeOn: ["/r/alpha", "/r/alpha/.git"] });
     const nested = counts("/r/alpha/.worktrees/nested", { open: true, wakeOn: ["/r/alpha/.worktrees/nested/"] });
     const feat = counts("/r/alpha-wt/feat", { open: true, wakeOn: ["/r/alpha-wt/feat", "/r/alpha/.git"] });
+    const lst = list("/r/alpha/.git", { wakeOn: ["/r/alpha/.git"] });
+    const closed = counts("/r/alpha/.worktrees/closed", { wakeOn: ["/r/alpha/.git"] });
+    s.setTargets([nested, main, feat, lst, closed], 0);
+    expect(s.watchedFolders()).toEqual(["/r/alpha/.worktrees/nested", "/r/alpha", "/r/alpha-wt/feat"]);
     s.setTargets([nested, main, feat], 0);
-    expect(s.watchedFolders()).toEqual(["/r/alpha", "/r/alpha-wt/feat"]);
 
     for (const t of [main, nested, feat]) {
       s.start(t.key, 0);
@@ -237,6 +282,22 @@ describe("refresh schedule", () => {
       s.finish(t.key, 10_000);
     }
     expect(all.sort()).toEqual([main.key, nested.key, feat.key].sort());
+  });
+
+  test("an ignored nested worktree refreshes from its own watch (Linux skips it in the parent's)", () => {
+    const s = createSchedule();
+    const main = counts("/r/alpha", { open: true, wakeOn: ["/r/alpha", "/r/alpha/.git"] });
+    const nested = counts("/r/alpha/.worktrees/nested", { open: true, selected: true, wakeOn: ["/r/alpha/.worktrees/nested", "/r/alpha/.git"] });
+    s.setTargets([main, nested], 0);
+    for (const t of [nested, main]) {
+      s.start(t.key, 0);
+      s.finish(t.key, 1);
+    }
+    expect(s.watchedFolders()).toEqual(["/r/alpha", "/r/alpha/.worktrees/nested"]);
+    s.event("/r/alpha/.worktrees/nested", ["/r/alpha/.worktrees/nested/notes.txt"], 5000);
+    expect(s.next(5000)?.key).toBe(nested.key);
+    s.start(nested.key, 5000);
+    expect(s.next(5000)).toBe(null);
   });
 
   test("dropped target stops", () => {

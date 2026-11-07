@@ -205,6 +205,41 @@ describe("refresh driver", () => {
     await r.stop();
   });
 
+  test("driver: a place whose first read fails is read again", async () => {
+    const w = world();
+    const p = target("place", "/home/u/gamma", { machine: "macmini" });
+    const answers = [{ ok: false, state: "unreachable", message: "temporary" }, { ok: true, place: {} }];
+    const r = start(w, [p], { run: async () => answers.shift() });
+    await w.advance(14_999);
+    expect(r.calls).toEqual([[p.key, 0]]);
+    await w.advance(1);
+    expect(r.calls).toEqual([
+      [p.key, 0],
+      [p.key, 15_000],
+    ]);
+    await w.advance(600_000);
+    expect(r.calls).toHaveLength(2);
+    await r.stop();
+  });
+
+  test("driver: a place whose read throws is read again", async () => {
+    const w = world();
+    const p = target("place", "/r/alpha");
+    let n = 0;
+    const r = start(w, [p], {
+      run: async () => {
+        if (n++ === 0) throw new Error("exec rejected");
+        return { ok: true, place: {} };
+      },
+    });
+    await w.advance(30_000);
+    expect(r.calls).toEqual([
+      [p.key, 0],
+      [p.key, 30_000],
+    ]);
+    await r.stop();
+  });
+
   test("driver: a watch event refreshes its targets, throttled", async () => {
     const w = world();
     const t = target("counts", "/r/alpha-wt/feat", { wakeOn: ["/r/alpha-wt/feat"] });
@@ -243,6 +278,54 @@ describe("refresh driver", () => {
       [t.key, 60_000],
     ]);
     expect(r.watch.calls).toEqual(["/r/alpha/.git"]);
+    await r.stop();
+  });
+
+  test("driver: a folder re-added after a rejected watch is watched again", async () => {
+    const w = world();
+    const t = target("list", "/r/a/.git", { wakeOn: ["/r/a/.git"] });
+    const r = start(w, [t]);
+    await w.advance(0);
+    r.watch.reject("/r/a/.git");
+    await w.advance(1000);
+    r.schedule.setTargets([], w.now());
+    r.poke.poke();
+    await w.advance(0);
+
+    r.schedule.setTargets([t], w.now());
+    r.poke.poke();
+    await w.advance(0);
+    expect(r.calls).toEqual([
+      [t.key, 0],
+      [t.key, 1000],
+    ]);
+    expect(r.watch.calls).toEqual(["/r/a/.git", "/r/a/.git"]);
+
+    r.watch.reject("/r/a/.git");
+    await w.advance(60_000);
+    expect(r.calls.at(-1)).toEqual([t.key, 61_000]);
+    expect(r.watch.calls).toHaveLength(2);
+    await r.stop();
+  });
+
+  test("driver: a rejected folder dropped and re-added between loop turns keeps its fallback", async () => {
+    const w = world();
+    const t = target("list", "/r/a/.git", { wakeOn: ["/r/a/.git"] });
+    const r = start(w, [t]);
+    await w.advance(0);
+    r.watch.reject("/r/a/.git");
+    await w.advance(1000);
+    r.schedule.setTargets([], w.now());
+    r.schedule.setTargets([t], w.now());
+    r.poke.poke();
+    await w.advance(0);
+    expect(r.calls).toEqual([
+      [t.key, 0],
+      [t.key, 1000],
+    ]);
+    await w.advance(60_000);
+    expect(r.calls.at(-1)).toEqual([t.key, 61_000]);
+    expect(r.watch.calls).toEqual(["/r/a/.git"]);
     await r.stop();
   });
 
