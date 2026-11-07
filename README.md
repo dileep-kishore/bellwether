@@ -3,12 +3,13 @@
 A personal layout and set of mods for the [Herdr app](https://herdr.dev):
 projects grouped with their worktrees and agent status in the sidebar, a chat
 view of each agent built from its session log, a Git diff viewer against
-`origin/main` or a chosen ref, and Linear issues that can be attached to the
-current chat. Rust helpers do the heavy work; the mods draw the window.
+`origin/main` or a chosen ref, a Chrome that you and the agents share, and
+Linear issues that can be attached to the current chat. Rust helpers do the
+heavy work; the mods draw the window.
 
-Status: phases 1 (window and project sidebar), 2 (chat tabs) and 3
-(sub-agents and requests) are built and their headless checks pass; their
-checks in a Herdr window are still owed. The browser, diffs and Linear come in
+Status: phases 1 (window and project sidebar), 2 (chat tabs), 3 (sub-agents
+and requests) and 4 (a shared browser) are built and their headless checks
+pass; their checks in a Herdr window are still owed. Diffs and Linear come in
 later phases.
 
 ## What phase 1 delivers
@@ -153,10 +154,11 @@ so a file that changed since is refused untouched. Not now hides the notice
 for that machine. The same steps from a shell:
 
 ```sh
-bw machine setup <machine|local> --check    # {"type":"hooks","claude":…,"codex":…}
+bw machine setup <machine|local> --check    # {"type":"hooks","claude":…,"codex":…,"agent":…}
 bw machine setup <machine|local> --diff     # one hooks-diff line per file, with its sha256
 bw machine setup <machine|local> --apply [--expect-sha <claude sha>,<codex sha>]
 bw machine setup <machine|local> --remove
+bw machine setup <machine|local> --agent    # phase 4's agent files; see "Agent files" below
 ```
 
 `--apply` copies `hooks/bw-event` to `~/.local/share/bellwether/hooks/` on
@@ -180,6 +182,177 @@ or type `/hooks` and press `t`. `check` compares the `trusted_hash` Codex
 records in `config.toml` with the one it computes for each of Bellwether's
 groups, and never writes `config.toml`.
 
+## What phase 4 delivers
+
+Claude and Codex agents started from "+" share one Google Chrome with you,
+the Bellwether Chrome. The right sidebar's Browser panel shows its tabs.
+
+The Bellwether Chrome is a second Google Chrome instance with its own profile,
+`~/.local/share/bellwether/chrome`, and its DevTools port on 127.0.0.1:9222.
+Bellwether never uses or touches your own Chrome or its default profile.
+`bw browser up` reuses a Chrome on that port only when every listener is on
+127.0.0.1 or [::1], the listening process's command line holds
+`--user-data-dir=<that profile>`, and `/json/version` answers. When the port
+is free and the profile is not running, it starts Chrome with `open -n`.
+`--background` adds `-g`, which keeps focus where it is. Otherwise it starts
+nothing and names the state: `port_taken` with the pid and command of the
+program on the port, or `no_debug_port` when the profile runs without the
+port. It reports `not_installed` when it finds no Google Chrome and
+`start_failed` when Chrome does not start or answer. `bw browser down` sends
+the CDP command `Browser.close` to that Chrome only and never signals a
+process.
+
+The Browser panel is the `bw-browser` mod, which replaces the Browser
+placeholder in `layouts/bellwether.json`. Its header shows "Bellwether
+Chrome", the state such as "Running · 6 tabs" or "Not running", and the New
+tab and Arrange buttons. It adds Start when Chrome is stopped, runs without
+the port or failed to start. Below the header:
+
+- Each tab has one row with its favicon, title, host and path. An accent bar
+  marks the active tab. Clicking a row focuses that tab, and hovering shows a
+  close button.
+- The Forwards section lists each forward with its state and a Stop button.
+- Forward port adds a forward for a dev server
+  (`ssh -L 127.0.0.1:<n>:127.0.0.1:<n>`) from the active space's machine.
+  For a space on this Mac it is disabled and says "This space is on this
+  Mac".
+- Arrange places Chrome beside the Herdr window, at Herdr's top and height:
+  in the gap to its right when that gap is at least 640 points wide, else in
+  the gap to its left when that one is, else on the right half of that
+  display. It works on macOS only and shows its result for 4 s.
+
+The panel runs one `bw browser status` every 2 s while shown and none while
+hidden. It caches favicons for 7 days in the app home's
+`data/bellwether/favicons/`, with at most 4 new fetches per poll.
+
+Each Claude or Codex row in "+" (New chat and New terminal) first runs
+`bw browser agent-args` on the window machine for up to 20 s, and the row
+shows "Preparing browser…". That command starts the Bellwether Chrome in the
+background when it is not running. For an agent on another machine it also
+makes sure that machine's forward runs. Claude then starts with
+`--mcp-config <agent dir>/claude-mcp-<window>.json --allowedTools mcp__bw-browser --append-system-prompt-file <agent dir>/browser-claude.md`,
+where `<agent dir>` is `~/.local/share/bellwether/agent` on the agent's
+machine. Codex starts with `-c mcp_servers.bw-browser.*` flags (command `sh`
+with the launcher, `default_tools_approval_mode="approve"`,
+`startup_timeout_sec=60`) and `-c developer_instructions=…`. That value is
+Codex's effective `developer_instructions` followed by `browser-codex.md`.
+Codex's effective value comes from the top-level `config.toml`, then the
+profile file a `--profile` or `-p` names, then a trusted project's
+`.codex/config.toml`.
+
+These additions last for that session only. No user setting is written.
+Claude never gets `--strict-mcp-config`, so your own MCP servers stay. When
+the browser is unavailable, the agent starts with no additions and Herdr shows
+"Started without the browser" with the reason. That happens when Chrome
+cannot start, the machine is reached through `via` or is offline, the forward
+is refused, Node is missing, or Codex's `config.toml` does not parse. Shell
+rows are unchanged.
+
+The MCP server is Chrome DevTools MCP 1.12.0, named `bw-browser`. It runs
+through `npx -y chrome-devtools-mcp@1.12.0` and is never installed globally.
+It runs with usage statistics and CrUX off and takes JPEG screenshots at most
+1280 px wide. The instructions (`agent/browser.md` and its Claude and Codex
+copies) tell the agent to open its own background tab and act only in tabs
+it opened. They tell it never to type passwords, codes or payment details,
+and to leave its tab open for you to close from the panel.
+
+For a space on another machine, `bw browser forward ensure` keeps one SSH
+reverse forward per machine. The forward is a kept `hc` terminal named
+`bw-fwd-<machine>` that runs `bw browser forward keep`. That command
+supervises
+`ssh -o ExitOnForwardFailure=yes -o BatchMode=yes … -N -R 127.0.0.1:<port>:127.0.0.1:9222 <target>`.
+After each connect it runs `bw browser port-check` on that machine. The port
+must listen only on 127.0.0.1 or [::1], and its `/json/version` must carry
+this Chrome's browser id. A failed check closes the forward and writes
+`refused`, and the supervisor never retries it. When ssh exits, the
+supervisor writes `reconnecting` and retries after 2, 4, 8, 16 and 30 s, then
+every 60 s, on the same port with the same checks. When another program takes
+the port in the meantime, it writes `port_taken`, and the next `ensure` picks
+a new port. The state files live in
+`~/.local/share/bellwether/browser/forwards/<core>/`. Agents on that machine
+find the forward's port in `~/.local/share/bellwether/agent/ports/<window>`.
+
+### Agent files
+
+`bw agent ensure` writes these files under `~/.local/share/bellwether/agent/`
+on each machine where an agent starts:
+
+- `browser.md`, `browser-claude.md` and `browser-codex.md` hold the
+  instructions.
+- `browser-mcp` is a 0755 `sh` launcher. It reads `ports/<window>`, finds
+  `npx` on PATH or in `/opt/homebrew/bin` or `/usr/local/bin`, and runs Chrome
+  DevTools MCP 1.12.0 against `http://127.0.0.1:<port>`.
+- `claude-mcp-<window>.json` is Claude's `--mcp-config` file.
+- `ports/<window>` holds the port this window's Chrome answers on there: 9222
+  on the window machine, the forward's port elsewhere.
+
+`<window>` is the window machine's `hostname -s`, lower-cased, reduced to
+a-z, 0-9 and -, and at most 32 characters long. `ensure` rewrites a file only
+when its bytes differ. The first `ensure` on a machine fetches the package
+into the npx cache once, with a 25 s limit, and records it with the marker
+`warm-1.12.0`. Every "+" refreshes these files, so no machine needs a manual
+step.
+
+### Commands
+
+```sh
+bw browser up [--background] | down
+bw browser status                                   # chrome line, one tab line per page, one forward line per forward
+bw browser tabs | focus --id <id> | close --id <id> | new [--url <url>]
+bw browser arrange [--owner-pid <pid>]
+bw browser agent-args --kind claude|codex --machine <m|""> [--cwd <dir>] [--profile <p>]
+bw browser forward ensure --machine <m>
+bw browser forward dev --machine <m> --port <n>
+bw browser forward stop --machine <m> [--dev <n>]
+bw browser forward list
+bw browser free-port [--prefer <port>]
+bw browser port-check --port <port> --browser-id <id>
+bw agent ensure --window <w> [--port <p>] [--no-warm]
+bw agent args --kind claude|codex --window <w> [--cwd <dir>] [--profile <p>]
+bw agent warm
+bw machine setup <machine|local> --agent
+```
+
+`bw browser …` runs on the window machine. `bw agent …`,
+`bw browser free-port` and `bw browser port-check` run on the space's
+machine, where the window machine's `bw` runs them with `hc exec`. The
+forward's terminal runs `bw browser forward keep`, the supervisor, so you
+never call it by hand. Most `bw browser …` commands print JSON lines and exit
+0 for every state; only a usage error exits 2.
+
+`bw machine setup <m> --agent` is a fifth operation beside `--check`,
+`--diff`, `--apply` and `--remove`, and setup takes exactly one of them. It
+runs `bw agent ensure` on that machine, changes no user setting and needs no
+approval. The `hooks` line of `--check` gains
+`"agent":"ok"|"missing"|"outdated"`.
+
+### Removal
+
+```sh
+rm -r ~/.local/share/bellwether/agent      # on each machine: the agent files
+bw browser forward stop --machine <m>      # hc kill and hc rm on the forward's terminal, and delete its state file
+bw browser down                            # close the Bellwether Chrome
+```
+
+The Chrome's profile stays in `~/.local/share/bellwether/chrome`. Deleting
+that folder removes its history and sign-ins.
+
+### Known limits
+
+- An agent's browser MCP needs Node and `npx` on the machine the agent runs
+  on. Without them the agent starts without the browser (`node_missing`).
+- The first session on a machine may wait on the npx download of
+  `chrome-devtools-mcp@1.12.0` when the one-time warm-up has not finished.
+- A machine that `hc` reaches through `via` gets no browser, because the
+  forward needs SSH ("browser forward unavailable: <m> connects through via,
+  not SSH").
+- Claude's `--allowedTools mcp__bw-browser` lets its browser tools run
+  without a permission prompt, as Codex's `approve` does. The instructions
+  forbid passwords, one-time codes, payment details and purchases.
+- Arrange works on macOS only.
+- The checks in a Herdr window are still owed: the panel, Arrange beside a
+  real Herdr window, a screenshot inline in a chat, and a real SSH machine.
+
 ## Layout of this repository
 
 The folders mirror `~/.config/herdr-app`, so a sync is a plain copy:
@@ -201,6 +374,7 @@ crates/                   Rust helpers; crates/bw is the bw binary the mods run
 crates/vendor/            code copied from other projects, in its own Cargo workspace
 tests/                    Bun tests, and the headless harness that stubs herdr and gpui-kit
 hooks/bw-event            the hook bw machine setup installs; it hands each event to bw event
+agent/                    the browser instructions and MCP launcher that bw embeds and bw agent ensure writes to each machine
 docs/brief/               the requests this work answers, verbatim
 docs/research/            what the reference projects do, with evidence
 ```
@@ -317,14 +491,40 @@ copy. It prints a Markdown table of sizes and user plus system milliseconds,
 never a path or a log's text. `docs/research/2026-11-06-phase2-feed.md` holds
 the macmini results: at most 14 ms per read.
 
+## Checking the browser
+
+`scripts/verify/browser.sh --offline` runs no agent and starts nothing: it
+checks that the files exist, that `bun test tests/browser` passes and that
+`bw browser status` parses. The live run needs `--machine` with a machine
+that `hc machine ls --json` marks temporary (bwloop). Its Chrome runs on a
+scratch profile and a free port, never 9222 or the real profile, and
+`bw browser down` stops it. `claude -p` here and Codex on the temporary
+machine each click a button in a tab they opened (`claude-p-clicked`,
+`codex-clicked`). Codex reaches this Chrome through a real `ssh -R` forward
+to a scratch `sshd`. The script also runs interactive Claude in a private
+core (`HC_SESSION=bw-browser`, check `interactive-claude`) and looks for each
+agent's screenshot in `bw feed --pictures` (`claude-picture`,
+`codex-picture`). It puts back each file it changed on that machine and here,
+and deletes the files it created. It prints `PASS` or `FAIL` per check and
+exits 1 on any `FAIL`. It fails when `~/.claude/settings.json`,
+`~/.codex/hooks.json` or `~/.codex/config.toml` changed, when
+`~/.claude.json` gained a `bw-browser` trace, or when your own Chrome
+processes changed. It spends tokens.
+
+```sh
+scripts/verify/browser.sh --offline          # files exist, bun test tests/browser, bw browser status parses; what scripts/test.sh runs
+scripts/verify/browser.sh --machine <name>   # real agents; <name> must be a temporary hc machine (bwloop)
+```
+
 ## The bw helper on each machine
 
 Mods call `~/.local/share/bellwether/helper/current/bw` on the machine a space
 lives on. `current` links to a version folder, so an update swaps one link.
 `shared/helper.js` needs `bw version` to report version 0.4.0 and protocol 4.
-When another machine's helper is missing or outdated, a mod runs this Mac's
-`bw machine install <machine>` and checks again; this Mac's own helper comes
-from `scripts/install-helper.sh`.
+Phase 4's helper adds the `browser` and `agent` commands, so every machine's
+helper reinstalls once. When another machine's helper is missing or
+outdated, a mod runs this Mac's `bw machine install <machine>` and checks
+again; this Mac's own helper comes from `scripts/install-helper.sh`.
 
 ```sh
 scripts/install-helper.sh               # this machine
