@@ -26,6 +26,8 @@ export default class NewMenu extends View {
     this.failed = false;
     /** The row whose agent waits for its browser flags; every click is ignored meanwhile. @type {string | null} */
     this.preparing = null;
+    /** The prepared agent `render` starts next. @type {{ action: import("./entries.js").RowAction, ctx: import("./entries.js").MenuContext, overlay: string | null, argv: string[], notice: string | null } | null} */
+    this.ready = null;
     // Only the window machine is called, and the helper never installs there.
     this.helper = createHelper({ exec, localInstall: async () => { throw new Error("bw-new installs no helper"); } });
     cx.spawn(async (/** @type {any} */ cx) => {
@@ -42,15 +44,15 @@ export default class NewMenu extends View {
   }
 
   /**
-   * Asks the window machine for the agent's browser flags, then starts it with them, or without
-   * them and a warning when they fail or take longer than the budget.
+   * Asks the window machine for the agent's browser flags, then hands them to `render`, which
+   * starts the agent with them, or without them and a warning when they fail or take longer than
+   * the budget.
    * @param {import("./entries.js").Row} r an agent row
-   * @param {import("./entries.js").MenuContext} ctx
-   * @param {any[]} all spaces() at the click, since a task may not read it
+   * @param {import("./entries.js").MenuContext} ctx with the folder the agent starts in
    * @param {string | null} overlay
    * @param {any} cx
    */
-  prepare(r, ctx, all, overlay, cx) {
+  prepare(r, ctx, overlay, cx) {
     const kind = /** @type {import("./chat-tabs.js").ChatKind} */ (r.kind);
     const action = r.action;
     if (action[0] === "overlay") return;
@@ -66,24 +68,39 @@ export default class NewMenu extends View {
       );
       const result = await Promise.race([call, cx.sleep(ARGS_BUDGET_MS).then(() => TIMED_OUT)]);
       const { extras, notice } = extrasFrom(result);
-      const argv = chatArgv(kind, runArgv, extras);
-      if (overlay) closeOverlay(overlay);
-      if (action[0] === "chat") {
-        const { pending, command } = chatLaunch({ ...action[1], argv }, ctx, all);
-        // Recorded before the tab exists, so bw-tabs's render for the new tab already finds it.
-        setShared(CHAT_TABS, addPending(shared(CHAT_TABS), pending, Date.now()));
-        run(command[0], command[1]);
-      } else {
-        const [name, args] = terminalLaunch(action, ctx, argv);
-        run(name, args);
-      }
-      if (notice) notify({ title: "Started without the browser", body: notice, level: "warning" });
-      this.preparing = null;
+      this.ready = { action, ctx, overlay, argv: chatArgv(kind, runArgv, extras), notice };
       cx.notify();
     });
   }
 
+  /** Starts the prepared agent once; a render may read spaces() where the task may not. */
+  launch() {
+    const ready = this.ready;
+    if (!ready) return;
+    this.ready = null;
+    this.preparing = null;
+    const { action, ctx, overlay, argv, notice } = ready;
+    if (overlay) closeOverlay(overlay);
+    // Taken now, so a same-named tab or space made during the wait counts as already there.
+    const all = spaces();
+    if (ctx.space && !all.some((s) => s.id === ctx.space)) {
+      notify({ title: "Nothing started", body: "The space closed while the browser was being prepared.", level: "warning" });
+      return;
+    }
+    if (action[0] === "chat") {
+      const { pending, command } = chatLaunch({ ...action[1], argv }, ctx, all);
+      // Recorded before the tab exists, so bw-tabs's render for the new tab already finds it.
+      setShared(CHAT_TABS, addPending(shared(CHAT_TABS), pending, Date.now()));
+      run(command[0], command[1]);
+    } else if (action[0] === "run") {
+      const [name, args] = terminalLaunch(action, ctx, argv);
+      run(name, args);
+    }
+    if (notice) notify({ title: "Started without the browser", body: notice, level: "warning" });
+  }
+
   render() {
+    this.launch();
     const t = theme();
     const p = props() ?? {};
     const rows = menuEntries({ agents: this.agents, failed: this.failed, ctx: contextOf(p, spaces(), panes()) });
@@ -108,7 +125,7 @@ export default class NewMenu extends View {
           if (ctx.closed) return;
           const overlay = typeof p.overlay === "string" ? p.overlay : null;
           if (r.kind !== null && r.action[0] !== "overlay") {
-            this.prepare(r, { ...ctx, folder: launchFolder(ctx, all, live) }, all, overlay, cx);
+            this.prepare(r, { ...ctx, folder: launchFolder(ctx, all, live) }, overlay, cx);
             return;
           }
           if (overlay) closeOverlay(overlay);

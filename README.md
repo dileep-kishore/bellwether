@@ -247,8 +247,9 @@ Claude never gets `--strict-mcp-config`, so your own MCP servers stay. When
 the browser is unavailable, the agent starts with no additions and Herdr shows
 "Started without the browser" with the reason. That happens when Chrome
 cannot start, the machine is reached through `via` or is offline, the forward
-is refused, Node is missing, or Codex's `config.toml` does not parse. Shell
-rows are unchanged.
+is refused, Node is missing, or Codex's `config.toml` does not parse. When
+the space closes during the wait, nothing starts and Herdr shows "Nothing
+started". Shell rows are unchanged.
 
 The MCP server is Chrome DevTools MCP 1.12.0, named `bw-browser`. It runs
 through `npx -y chrome-devtools-mcp@1.12.0` and is never installed globally.

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { live, mount } from "../harness/mount.js";
 import { byId, textOf } from "../harness/kit-stub.js";
+import { fake } from "../harness/herdr-stub.js";
+import { adopt } from "../../shared/chat-tabs.js";
 import { HELPER_SCRIPT, HELPER_VERSION, PROTOCOL } from "../../shared/helper.js";
 import { argsRequest, extrasFrom, launchFolder } from "../../mods/bw-new/entries.js";
 
@@ -34,6 +36,16 @@ function held() {
   return { answer: () => promise, resolve };
 }
 
+/**
+ * Runs the tasks, then draws again as Herdr does after their cx.notify(); the launch happens in that render.
+ * @param {any} m
+ */
+async function settle(m) {
+  const notified = m.cx.notified;
+  await m.cx.flush();
+  expect(m.cx.notified).toBeGreaterThan(notified);
+  m.render();
+}
 /** @param {any} m */
 const argsCalls = (m) => m.log.exec.filter((/** @type {any} */ [c, a]) => c === "sh" && a[1] === HELPER_SCRIPT && a[3] === "browser");
 /** @param {any} m */
@@ -158,7 +170,7 @@ describe("bw-new: browser additions", () => {
     const budget = m.cx.sleeps.filter((s) => s.ms === 20000);
     expect(budget).toHaveLength(1);
     budget[0].wake();
-    await m.cx.flush();
+    await settle(m);
     expect(m.log.run).toEqual([["tab.new", { space: "macmini/s3", folder: "/home/u/gamma", name: "Codex", argv: ["codex"] }]]);
     expect(m.log.notify).toHaveLength(1);
     expect(m.log.notify[0]).toMatchObject({ title: WARNING, level: "warning" });
@@ -166,6 +178,7 @@ describe("bw-new: browser additions", () => {
     // The answer arriving after the budget starts nothing more.
     h.resolve(out([argsLine({ kind: "codex" })]));
     await m.cx.flush();
+    m.render();
     expect(m.log.run).toHaveLength(1);
     expect(chatWrites(m)).toHaveLength(1);
     expect(m.log.notify).toHaveLength(1);
@@ -186,7 +199,7 @@ describe("bw-new: browser additions", () => {
     expect(m.log.overlays).toEqual([]);
     expect(m.log.closed).toEqual([]);
     h.resolve(out([argsLine()]));
-    await m.cx.flush();
+    await settle(m);
     expect(m.log.run).toEqual([["tab.new", { space: "s1", folder: "/r/alpha", name: "Claude Code", argv: ["claude", ...EXTRAS] }]]);
     expect(m.log.closed).toEqual(["o1"]);
   });
@@ -222,7 +235,7 @@ describe("bw-new: browser additions", () => {
     expect(m.log.closed).toEqual([]);
     const before = Date.now();
     h.resolve(out([argsLine({ kind: "codex" })]));
-    await m.cx.flush();
+    await settle(m);
     const writes = chatWrites(m);
     expect(writes).toHaveLength(1);
     const pending = /** @type {any} */ (writes[0][1]).pending;
@@ -287,5 +300,69 @@ describe("bw-new: the folder an agent starts in", () => {
     m.render();
     await m.click("row-chat-codex");
     expect(m.log.run).toEqual([["tab.new", { space: "s1", folder: "/repo/root/service", name: "Codex", argv: ["codex"] }]]);
+  });
+});
+
+describe("bw-new: the launch reads the spaces when it starts", () => {
+  /** @param {string} id @param {string} name */
+  const tab = (id, name) => ({ id, index: 9, name, named: true, active: false, status: null, panes: 1, zoomed: false, settled: false, settled_at: null, changed_at: null, working_since: null });
+  /** @param {string} pane @param {string} terminal @param {string} tabId */
+  const pane = (pane, terminal, tabId) => ({ pane, terminal, tab: tabId, title: "Claude Code", cwd: "/r/alpha", app: "claude-code", program: { key: "claude" }, focused: false, zoomed: false, movable: false });
+
+  test("a same-named tab made while preparing is not adopted as the new chat", async () => {
+    const h = held();
+    const m = await mount("bw-new", { props: { space: "s1", overlay: "o1" }, live: data(h.answer) });
+    await m.click("row-chat-claude");
+    // Another window opens a plain "Claude Code" terminal tab in s1 during the wait.
+    const s1 = fake.spaces.find((/** @type {any} */ s) => s.id === "s1");
+    s1.tabs.push(tab("interloper", "Claude Code"));
+    fake.panes.push(pane("interloper-pane", "t-old", "interloper"));
+    m.render();
+    h.resolve(out([argsLine()]));
+    await settle(m);
+    expect(m.log.run).toEqual([["tab.new", { space: "s1", folder: "/r/alpha", name: "Claude Code", argv: ["claude", ...EXTRAS] }]]);
+    const value = /** @type {any} */ (chatWrites(m).at(-1)?.[1]);
+    expect(value.pending[0].beforeTabs).toEqual(["tb1", "tb2", "tb7", "interloper"]);
+    s1.tabs.push(tab("requested", "Claude Code"));
+    fake.panes.push(pane("requested-pane", "t-new", "requested"));
+    const r = adopt(value, fake.spaces, fake.panes, Date.now());
+    expect(r.actions.map((a) => /** @type {any} */ (a[1]).props?.terminal)).toEqual(["t-new"]);
+  });
+
+  test("a space made while preparing is not taken as the new chat's space", async () => {
+    const h = held();
+    const m = await mount("bw-new", { props: { machine: null, folder: "/r/beta", overlay: "o1" }, live: data(h.answer) });
+    await m.click("row-chat-claude");
+    fake.spaces.push({ ...structuredClone(fake.spaces[0]), id: "s-other", folder: "/r/beta", tabs: [] });
+    m.render();
+    h.resolve(out([argsLine()]));
+    await settle(m);
+    expect(m.log.run).toEqual([["space.new", { folder: "/r/beta", machine: "", tab: "Claude Code", argv: ["claude", ...EXTRAS] }]]);
+    expect(/** @type {any} */ (chatWrites(m).at(-1)?.[1]).pending[0].beforeSpaces).toEqual(["s1", "s2", "macmini/s3", "s-other"]);
+  });
+
+  test("renders after the launch start it once", async () => {
+    const h = held();
+    const m = await mount("bw-new", { props: { space: "s1", overlay: "o1" }, live: data(h.answer) });
+    await m.click("row-codex");
+    h.resolve(out([argsLine({ kind: "codex" })]));
+    await settle(m);
+    m.render();
+    expect(m.log.run).toHaveLength(1);
+    expect(m.log.closed).toEqual(["o1"]);
+    expect(m.log.live.filter(([, phase]) => phase === "task" || phase === "timer")).toEqual([]);
+  });
+
+  test("a space that closed while preparing starts nothing and says so", async () => {
+    const h = held();
+    const m = await mount("bw-new", { props: { space: "macmini/s3", overlay: "o1" }, live: data(h.answer) });
+    await m.click("row-chat-codex");
+    fake.spaces = fake.spaces.filter((/** @type {any} */ s) => s.id !== "macmini/s3");
+    h.resolve(out([argsLine({ kind: "codex" })]));
+    await settle(m);
+    expect(m.log.run).toEqual([]);
+    expect(chatWrites(m)).toEqual([]);
+    expect(m.log.closed).toEqual(["o1"]);
+    expect(m.log.notify).toEqual([{ title: "Nothing started", body: "The space closed while the browser was being prepared.", level: "warning" }]);
   });
 });
