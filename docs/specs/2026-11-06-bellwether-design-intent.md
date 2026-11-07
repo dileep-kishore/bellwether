@@ -708,3 +708,11 @@ for this build; tests that need the Herdr window are deferred, other tests
   in a chat tab, the panel, Arrange, the user's own click, and macmini as
   a real SSH machine). Evidence: phase 4 plan, Build environment and
   decision 16.
+- 2026-11-07: build note, not a spec change: the Browser panel marks a
+  tab active when `document.hasFocus()` is true in it, because Chrome 156
+  lists pages newest-created first and `/json/activate` does not reorder
+  them; Codex gets its own copy of the browser instructions with one line
+  telling it to pass a screenshot to `image(...)`, because Codex 0.167
+  otherwise reads the picture as base64 text and the chat shows none.
+  Evidence: `docs/research/2026-11-07-phase4-browser.md`, contradictions
+  1 and 2; phase 4 plan, decisions 2 and 4.
