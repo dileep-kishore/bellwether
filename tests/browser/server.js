@@ -34,7 +34,9 @@ const server = Bun.serve({
   async fetch(req) {
     const { pathname } = new URL(req.url);
     if (req.method === "GET" && pathname === "/page.html") {
-      return new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      return new Response(page, {
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+      });
     }
     if (req.method === "GET" && pathname === "/clicks") {
       return new Response(readFileSync(log), { headers: { "content-type": "application/x-ndjson" } });

@@ -15,17 +15,24 @@ const withStored = (stored) => ({ ...live("two-machines"), shared: { "bw.right.t
 
 describe("choice", () => {
   test("panels in strip order with their phases", () => {
-    expect(PANELS.map((p) => [p.id, p.label, p.phase])).toEqual([["changes", "Changes", 5], ["issues", "Issues", 6], ["browser", "Browser", 4]]);
+    expect(PANELS.map((p) => [p.id, p.label, p.phase])).toEqual([
+      ["changes", "Changes", 5],
+      ["issues", "Issues", 6],
+      ["browser", "Browser", 4],
+    ]);
   });
 
   test("chosen defaults to changes for missing, junk and unknown ids", () => {
-    for (const stored of [undefined, null, [], "issues", 7, { s1: "nope" }, { s2: "issues" }]) expect(chosen(stored, "s1")).toBe("changes");
+    for (const stored of [undefined, null, [], "issues", 7, { s1: "nope" }, { s2: "issues" }])
+      expect(chosen(stored, "s1")).toBe("changes");
     expect(chosen({ s1: "browser" }, "s1")).toBe("browser");
     expect(chosen({ s1: "browser" }, null)).toBe("changes");
   });
 
   test("choose sets one space and drops spaces that are gone", () => {
-    expect(choose({ s1: "browser", gone: "issues", s2: "junk" }, "s1", "issues", ["s1", "s2"])).toEqual({ s1: "issues" });
+    expect(choose({ s1: "browser", gone: "issues", s2: "junk" }, "s1", "issues", ["s1", "s2"])).toEqual({
+      s1: "issues",
+    });
     expect(choose(null, "s2", "browser", ["s1", "s2"])).toEqual({ s2: "browser" });
     expect(choose({ s1: "browser" }, null, "issues", ["s1"])).toEqual({ s1: "browser" });
   });
@@ -40,7 +47,9 @@ describe("choice", () => {
 
 describe("bw-right", () => {
   test("panel copy names its phase", async () => {
-    expect(textOf((await mount("bw-right", { props: { panel: "changes" } })).el)).toContain("Changes: coming in phase 5");
+    expect(textOf((await mount("bw-right", { props: { panel: "changes" } })).el)).toContain(
+      "Changes: coming in phase 5",
+    );
     expect(textOf((await mount("bw-right", { props: { panel: "issues" } })).el)).toContain("Issues: coming in phase 6");
   });
 

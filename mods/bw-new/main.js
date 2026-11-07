@@ -1,9 +1,30 @@
 // The "+" menu: a chat, a shell or an agent in the space (or a new space in a folder), and Herdr's worktree dialogs.
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { closeOverlay, exec, knownAgents, notify, openOverlay, panes, props, run, setShared, shared, spaces, theme } from "herdr";
+import {
+  closeOverlay,
+  exec,
+  knownAgents,
+  notify,
+  openOverlay,
+  panes,
+  props,
+  run,
+  setShared,
+  shared,
+  spaces,
+  theme,
+} from "herdr";
 import { addPending, chatArgv } from "./chat-tabs.js";
-import { argsRequest, chatLaunch, contextOf, extrasFrom, launchFolder, menuEntries, terminalLaunch } from "./entries.js";
+import {
+  argsRequest,
+  chatLaunch,
+  contextOf,
+  extrasFrom,
+  launchFolder,
+  menuEntries,
+  terminalLaunch,
+} from "./entries.js";
 import { createHelper } from "./helper.js";
 import { ICONS, programIcon } from "./ui.js";
 
@@ -29,7 +50,12 @@ export default class NewMenu extends View {
     /** The prepared agent `render` starts next. @type {{ action: import("./entries.js").RowAction, ctx: import("./entries.js").MenuContext, overlay: string | null, argv: string[], notice: string | null } | null} */
     this.ready = null;
     // Only the window machine is called, and the helper never installs there.
-    this.helper = createHelper({ exec, localInstall: async () => { throw new Error("bw-new installs no helper"); } });
+    this.helper = createHelper({
+      exec,
+      localInstall: async () => {
+        throw new Error("bw-new installs no helper");
+      },
+    });
     cx.spawn(async (/** @type {any} */ cx) => {
       try {
         const list = await knownAgents({ on: machine });
@@ -84,7 +110,11 @@ export default class NewMenu extends View {
     // Taken now, so a same-named tab or space made during the wait counts as already there.
     const all = spaces();
     if (ctx.space && !all.some((s) => s.id === ctx.space)) {
-      notify({ title: "Nothing started", body: "The space closed while the browser was being prepared.", level: "warning" });
+      notify({
+        title: "Nothing started",
+        body: "The space closed while the browser was being prepared.",
+        level: "warning",
+      });
       return;
     }
     if (action[0] === "chat") {
@@ -113,7 +143,14 @@ export default class NewMenu extends View {
     };
     const line = (/** @type {import("./entries.js").Row} */ r) => {
       const hint = r.id === this.preparing ? "Preparing browser…" : r.hint;
-      return h_flex().id(`row-${r.id}`).h(30).px(8).gap(9).flex_none().items_center().rounded(6)
+      return h_flex()
+        .id(`row-${r.id}`)
+        .h(30)
+        .px(8)
+        .gap(9)
+        .flex_none()
+        .items_center()
+        .rounded(6)
         .text_color(r.enabled ? t.foreground : t.dim)
         .when(r.enabled && !busy, (el) => el.cursor_pointer().hover((s) => s.bg(t.selected)))
         .on_click((/** @type {any} */ _e, /** @type {any} */ cx) => {
@@ -139,8 +176,12 @@ export default class NewMenu extends View {
     const heading = (/** @type {string} */ name) => div().px(8).pt(6).pb(3).text_size(11).text_color(t.dim).child(name);
 
     const sections = [...new Set(rows.map((r) => r.section))];
-    return v_flex().id("bw-new").w(232).p(4).bg(t.popover).text_size(12.5).children(
-      sections.map((s) => v_flex().children([heading(s), ...rows.filter((r) => r.section === s).map(line)])),
-    );
+    return v_flex()
+      .id("bw-new")
+      .w(232)
+      .p(4)
+      .bg(t.popover)
+      .text_size(12.5)
+      .children(sections.map((s) => v_flex().children([heading(s), ...rows.filter((r) => r.section === s).map(line)])));
   }
 }

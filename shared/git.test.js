@@ -1,5 +1,16 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, utimesSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { COUNTS_SCRIPT, readCounts, readPlace, readWorktrees } from "./git.js";
@@ -11,7 +22,11 @@ const calls = [];
 async function exec(cmd, args, opts) {
   calls.push({ cmd, args, opts });
   const p = Bun.spawn([cmd, ...args], { stdout: "pipe", stderr: "pipe" });
-  const [stdout, stderr, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(p.stdout).text(),
+    new Response(p.stderr).text(),
+    p.exited,
+  ]);
   return { code, stdout, stderr };
 }
 const offline = async () => {
@@ -23,7 +38,13 @@ beforeAll(() => {
   scratch = mkdtempSync(join(tmpdir(), "bw-git-"));
   const made = Bun.spawnSync(["sh", MAKE_REPOS, join(scratch, "repos")], { stderr: "pipe" });
   if (made.exitCode !== 0) throw new Error(`make-repos.sh failed: ${made.stderr}`);
-  const lines = Object.fromEntries(made.stdout.toString().trim().split("\n").map((l) => l.split("\t")));
+  const lines = Object.fromEntries(
+    made.stdout
+      .toString()
+      .trim()
+      .split("\n")
+      .map((l) => l.split("\t")),
+  );
   root = realpathSync(join(scratch, "repos"));
   alphaCommon = lines.alpha;
   expect(lines).toEqual({ alpha: `${root}/alpha/.git`, beta: `${root}/beta/.git` });
@@ -89,7 +110,11 @@ test("non-repo folder is not_git", async () => {
 });
 
 test("rejected exec is unreachable", async () => {
-  for (const r of [await readPlace(offline, "macmini", "/r/alpha"), await readWorktrees(offline, "macmini", "/r/alpha/.git"), await readCounts(offline, "macmini", "/r/alpha")]) {
+  for (const r of [
+    await readPlace(offline, "macmini", "/r/alpha"),
+    await readWorktrees(offline, "macmini", "/r/alpha/.git"),
+    await readCounts(offline, "macmini", "/r/alpha"),
+  ]) {
     expect(r).toEqual({ ok: false, state: "unreachable", message: "machine macmini is unreachable" });
   }
 });
@@ -117,10 +142,30 @@ test("every call names its machine, never uses cwd, and carries the read-only fl
   expect(seen.map((c) => c.opts)).toEqual([{ on: "macmini" }, { on: "macmini" }, { on: "macmini" }]);
   expect(seen[0]).toEqual({
     cmd: "git",
-    args: ["-C", "/home/u/gamma", "--no-optional-locks", "-c", "core.fsmonitor=false", "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"],
+    args: [
+      "-C",
+      "/home/u/gamma",
+      "--no-optional-locks",
+      "-c",
+      "core.fsmonitor=false",
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir",
+      "--show-toplevel",
+    ],
     opts: { on: "macmini" },
   });
-  expect(seen[1].args).toEqual(["--git-dir", "/home/u/gamma/.git", "--no-optional-locks", "-c", "core.fsmonitor=false", "worktree", "list", "--porcelain", "-z"]);
+  expect(seen[1].args).toEqual([
+    "--git-dir",
+    "/home/u/gamma/.git",
+    "--no-optional-locks",
+    "-c",
+    "core.fsmonitor=false",
+    "worktree",
+    "list",
+    "--porcelain",
+    "-z",
+  ]);
   // The path reaches the script only as $1.
   expect(seen[2]).toEqual({ cmd: "sh", args: ["-c", COUNTS_SCRIPT, "sh", "/home/u/gamma"], opts: { on: "macmini" } });
   for (const git of COUNTS_SCRIPT.split("\n").filter((l) => /\bgit\b/.test(l))) {
@@ -153,7 +198,12 @@ test("no call writes under the common dir", async () => {
   }
   appendFileSync(`${root}/alpha-wt/feat/notes.txt`, "");
   const before = snapshot(alphaCommon);
-  for (const wt of [`${root}/alpha`, `${root}/alpha-wt/feat`, `${root}/alpha-wt/detached`, `${root}/alpha/.worktrees/nested`]) {
+  for (const wt of [
+    `${root}/alpha`,
+    `${root}/alpha-wt/feat`,
+    `${root}/alpha-wt/detached`,
+    `${root}/alpha/.worktrees/nested`,
+  ]) {
     expect((await readPlace(exec, null, wt)).ok).toBe(true);
     expect((await readCounts(exec, null, wt)).ok).toBe(true);
   }

@@ -1,7 +1,18 @@
 // requests.sh --machine runs only on a temporary hc machine, and home-files.sh puts back only the files a run
 // created or changed under that machine's HOME.
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,7 +23,10 @@ const PATHS = [".claude", ".codex", ".local/share/bellwether/hooks"];
 /** @param {string[]} args */
 function homeFiles(args) {
   // Run the way requests.sh runs it on the other machine: its text as sh -c.
-  const p = Bun.spawnSync(["sh", "-c", readFileSync(HOME_FILES, "utf8"), "sh", ...args], { stdout: "pipe", stderr: "pipe" });
+  const p = Bun.spawnSync(["sh", "-c", readFileSync(HOME_FILES, "utf8"), "sh", ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() };
 }
 
@@ -26,7 +40,9 @@ function put(dir, files) {
 
 /** @type {string[]} */
 const made = [];
-afterAll(() => { for (const d of made) rmSync(d, { recursive: true, force: true }); });
+afterAll(() => {
+  for (const d of made) rmSync(d, { recursive: true, force: true });
+});
 
 function scratch() {
   const base = mkdtempSync(join(tmpdir(), "bw-home-files-"));
@@ -40,14 +56,24 @@ function scratch() {
 describe("home-files.sh", () => {
   test("restore puts back changed and removed files, deletes new ones, and leaves unchanged files alone", () => {
     const { home, saved } = scratch();
-    put(home, { ".codex/config.toml": "model = 1\n", ".codex/sessions/old.jsonl": "{}\n", ".claude/settings.json": "{}\n", "keep.txt": "mine\n" });
+    put(home, {
+      ".codex/config.toml": "model = 1\n",
+      ".codex/sessions/old.jsonl": "{}\n",
+      ".claude/settings.json": "{}\n",
+      "keep.txt": "mine\n",
+    });
     const before = homeFiles(["sums", home, ...PATHS]);
     expect(before.code).toBe(0);
     expect(homeFiles(["save", home, saved, ...PATHS]).code).toBe(0);
     const untouched = statSync(join(home, ".codex/sessions/old.jsonl")).ino;
 
-    put(home, { ".codex/config.toml": "model = 2\n", ".codex/auth.json": "secret\n", ".codex/sessions/2026/11/07/new.jsonl": "{}\n",
-      ".local/share/bellwether/hooks/bw-event": "#!/bin/sh\n", "outside.txt": "not ours\n" });
+    put(home, {
+      ".codex/config.toml": "model = 2\n",
+      ".codex/auth.json": "secret\n",
+      ".codex/sessions/2026/11/07/new.jsonl": "{}\n",
+      ".local/share/bellwether/hooks/bw-event": "#!/bin/sh\n",
+      "outside.txt": "not ours\n",
+    });
     Bun.spawnSync(["rm", join(home, ".claude/settings.json")]);
     const r = homeFiles(["restore", home, saved, ...PATHS]);
     expect(r.err).toBe("");
@@ -123,12 +149,22 @@ describe("requests.sh --machine", () => {
     { name: "bwloop", temporary: true, state: "connected" },
     { name: "macmini", temporary: false, state: "connected" },
   ];
-  for (const [name, machines] of /** @type {[string, object[] | null][]} */ ([["macmini", MACHINES], ["nosuch", MACHINES], ["bwloop", null]])) {
+  for (const [name, machines] of /** @type {[string, object[] | null][]} */ ([
+    ["macmini", MACHINES],
+    ["nosuch", MACHINES],
+    ["bwloop", null],
+  ])) {
     test(`refuses ${name} when hc does not mark it temporary, before touching it`, () => {
       const { hc, log } = fakeHc(machines);
       // Should the check let it through, the run stops at cargo (a scratch HOME with no toolchain), not in the user's files.
       const { home } = scratch();
-      const env = { ...process.env, HOME: home, RUSTUP_HOME: join(home, ".rustup"), RUSTUP_AUTO_INSTALL: "0", BW_HC: hc };
+      const env = {
+        ...process.env,
+        HOME: home,
+        RUSTUP_HOME: join(home, ".rustup"),
+        RUSTUP_AUTO_INSTALL: "0",
+        BW_HC: hc,
+      };
       const p = Bun.spawnSync(["sh", REQUESTS, "--machine", name], { env, stdout: "pipe", stderr: "pipe" });
       expect(p.exitCode).toBe(2);
       expect(p.stderr.toString()).toContain("temporary");

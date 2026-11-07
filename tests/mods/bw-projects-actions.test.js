@@ -37,7 +37,9 @@ describe("openWorktree", () => {
   });
 
   test("dimmed remote row names its machine", () => {
-    expect(openWorktree(node({ path: "/home/u/gamma" }), "macmini")).toEqual([["space.new", { folder: "/home/u/gamma", machine: "macmini" }]]);
+    expect(openWorktree(node({ path: "/home/u/gamma" }), "macmini")).toEqual([
+      ["space.new", { folder: "/home/u/gamma", machine: "macmini" }],
+    ]);
   });
 
   test("open row selects its first space", () => {
@@ -51,7 +53,17 @@ describe("openWorktree", () => {
 });
 
 test("agent click selects space, tab, then agent.focus", () => {
-  const line = { address: "macmini/t5", space: "macmini/s3", tab: "macmini/tb5", title: "Port", status: "done", program: null, subagents: 0, requests: 0, changedAt: null };
+  const line = {
+    address: "macmini/t5",
+    space: "macmini/s3",
+    tab: "macmini/tb5",
+    title: "Port",
+    status: "done",
+    program: null,
+    subagents: 0,
+    requests: 0,
+    changedAt: null,
+  };
   expect(focusAgent(line)).toEqual([
     ["space.select", { id: "macmini/s3" }],
     ["tab.select", { id: "macmini/tb5" }],
@@ -64,7 +76,16 @@ test("project menu carries what bw-menu needs", () => {
     mod: "bw-menu",
     kind: "popup",
     width: 220,
-    props: { project: { key: project.key, machine: null, commonDir: "/r/alpha/.git", main: "/r/alpha", name: "alpha", open: true } },
+    props: {
+      project: {
+        key: project.key,
+        machine: null,
+        commonDir: "/r/alpha/.git",
+        main: "/r/alpha",
+        name: "alpha",
+        open: true,
+      },
+    },
   });
 });
 

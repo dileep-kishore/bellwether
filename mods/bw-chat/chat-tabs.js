@@ -56,20 +56,45 @@ const strings = (/** @type {unknown} */ v) => Array.isArray(v) && v.every((s) =>
 function readEntry(tabId, e) {
   if (!isObj(e) || e.tab !== tabId || !isStr(e.space) || !strOrNull(e.machine) || !isKind(e.kind)) return null;
   if (!isStr(e.terminal) || !isStr(e.terminalPane) || !(e.chatPane === null || isStr(e.chatPane))) return null;
-  const split = isObj(e.split) && isNum(e.split.at) && isNum(e.split.tries) ? { at: e.split.at, tries: e.split.tries } : null;
+  const split =
+    isObj(e.split) && isNum(e.split.at) && isNum(e.split.tries) ? { at: e.split.at, tries: e.split.tries } : null;
   return {
-    tab: e.tab, space: e.space, machine: e.machine, kind: e.kind, terminal: e.terminal, terminalPane: e.terminalPane,
-    chatPane: e.chatPane, split, zoomed: e.zoomed === true, failed: e.failed === true, created: isNum(e.created) ? e.created : 0,
+    tab: e.tab,
+    space: e.space,
+    machine: e.machine,
+    kind: e.kind,
+    terminal: e.terminal,
+    terminalPane: e.terminalPane,
+    chatPane: e.chatPane,
+    split,
+    zoomed: e.zoomed === true,
+    failed: e.failed === true,
+    created: isNum(e.created) ? e.created : 0,
   };
 }
 
 /** @param {any} p @returns {Pending | null} */
 function readPending(p) {
-  if (!isObj(p) || !isStr(p.id) || !isKind(p.kind) || !strOrNull(p.machine) || !strOrNull(p.space) || !strOrNull(p.folder)) return null;
+  if (
+    !isObj(p) ||
+    !isStr(p.id) ||
+    !isKind(p.kind) ||
+    !strOrNull(p.machine) ||
+    !strOrNull(p.space) ||
+    !strOrNull(p.folder)
+  )
+    return null;
   if (!strings(p.beforeTabs) || !strings(p.beforeSpaces) || typeof p.name !== "string" || !isNum(p.at)) return null;
   return {
-    id: p.id, kind: p.kind, machine: p.machine, space: p.space, folder: p.folder,
-    beforeTabs: [...p.beforeTabs], beforeSpaces: [...p.beforeSpaces], name: p.name, at: p.at,
+    id: p.id,
+    kind: p.kind,
+    machine: p.machine,
+    space: p.space,
+    folder: p.folder,
+    beforeTabs: [...p.beforeTabs],
+    beforeSpaces: [...p.beforeSpaces],
+    name: p.name,
+    at: p.at,
   };
 }
 
@@ -110,8 +135,15 @@ export function addPending(value, p, now) {
   let n = 0;
   while (ids.has(`p-${now}-${n}`)) n += 1;
   s.pending.push({
-    id: `p-${now}-${n}`, kind: p.kind, machine: p.machine ?? null, space: p.space ?? null, folder: p.folder ?? null,
-    beforeTabs: [...(p.beforeTabs ?? [])], beforeSpaces: [...(p.beforeSpaces ?? [])], name: p.name, at: now,
+    id: `p-${now}-${n}`,
+    kind: p.kind,
+    machine: p.machine ?? null,
+    space: p.space ?? null,
+    folder: p.folder ?? null,
+    beforeTabs: [...(p.beforeTabs ?? [])],
+    beforeSpaces: [...(p.beforeSpaces ?? [])],
+    name: p.name,
+    at: now,
   });
   return s;
 }
@@ -135,10 +167,15 @@ const trimSlash = (f) => String(f ?? "").replace(/\/+$/, "");
  * address namespace `terminal` and `machine` are in.
  * @param {Entry} e @param {string | null} windowId @returns {Action}
  */
-const splitAction = (e, windowId) => ["pane.split", {
-  direction: "right", pane: e.terminalPane, mod: "bw-chat",
-  props: { terminal: e.terminal, machine: e.machine, kind: e.kind, ...(windowId ? { window: windowId } : {}) },
-}];
+const splitAction = (e, windowId) => [
+  "pane.split",
+  {
+    direction: "right",
+    pane: e.terminalPane,
+    mod: "bw-chat",
+    props: { terminal: e.terminal, machine: e.machine, kind: e.kind, ...(windowId ? { window: windowId } : {}) },
+  },
+];
 
 /**
  * The new tab a pending chat should take, named as it asked, in its space or a new space in its folder;
@@ -164,7 +201,6 @@ function newTabFor(p, spaces, panes, tabs) {
   }
   return null;
 }
-
 
 /**
  * One render's worth of chat-tab bookkeeping. `next` is null when nothing changed, so the caller
@@ -199,8 +235,17 @@ export function adopt(value, spaces, panes, now, windowId = null) {
       const pane = terminalPaneIn(panes, found.tab.id);
       /** @type {Entry} */
       const e = {
-        tab: found.tab.id, space: found.space.id, machine: p.machine, kind: p.kind, terminal: pane.terminal,
-        terminalPane: pane.pane, chatPane: null, split: { at: now, tries: 1 }, zoomed: false, failed: false, created: now,
+        tab: found.tab.id,
+        space: found.space.id,
+        machine: p.machine,
+        kind: p.kind,
+        terminal: pane.terminal,
+        terminalPane: pane.pane,
+        chatPane: null,
+        split: { at: now, tries: 1 },
+        zoomed: false,
+        failed: false,
+        created: now,
       };
       s.tabs[e.tab] = e;
       actions.push(splitAction(e, windowId));
@@ -224,8 +269,17 @@ export function adopt(value, spaces, panes, now, windowId = null) {
       const kind = terms.length === 1 ? paneKind(terms[0]) : null;
       if (!kind || chats.length !== 1) continue;
       s.tabs[t.id] = {
-        tab: t.id, space: space.id, machine: space.machine ?? null, kind, terminal: terms[0].terminal, terminalPane: terms[0].pane,
-        chatPane: chats[0].pane, split: null, zoomed: true, failed: false, created: now,
+        tab: t.id,
+        space: space.id,
+        machine: space.machine ?? null,
+        kind,
+        terminal: terms[0].terminal,
+        terminalPane: terms[0].pane,
+        chatPane: chats[0].pane,
+        split: null,
+        zoomed: true,
+        failed: false,
+        created: now,
       };
       changed = true;
     }
@@ -268,7 +322,9 @@ export function wakeAt(value) {
   const s = readChatTabs(value);
   const times = [
     ...s.pending.map((p) => p.at + CHAT_PENDING_MS + 1),
-    ...Object.values(s.tabs).filter((e) => e.chatPane === null && !e.failed && e.split).map((e) => /** @type {{ at: number }} */ (e.split).at + SPLIT_RETRY_MS),
+    ...Object.values(s.tabs)
+      .filter((e) => e.chatPane === null && !e.failed && e.split)
+      .map((e) => /** @type {{ at: number }} */ (e.split).at + SPLIT_RETRY_MS),
   ];
   return times.length ? Math.min(...times) : null;
 }
@@ -278,7 +334,10 @@ export function wakeAt(value) {
  * @param {any[]} panes PaneInfo[]
  */
 function panesOf(e, panes) {
-  const chat = e.chatPane === null ? null : panes.find((p) => p.pane === e.chatPane && p.tab === e.tab && p.mod === "bw-chat") ?? null;
+  const chat =
+    e.chatPane === null
+      ? null
+      : (panes.find((p) => p.pane === e.chatPane && p.tab === e.tab && p.mod === "bw-chat") ?? null);
   const term = panes.find((p) => p.pane === e.terminalPane && p.tab === e.tab && p.terminal === e.terminal) ?? null;
   return { chat, term };
 }
@@ -296,12 +355,19 @@ export function flipActions(value, activeTabId, panes) {
   const { chat, term } = panesOf(e, panes);
   if (!chat || !term) return [];
   /** @param {any} from @param {any} to @returns {Action[]} */
-  const swap = (from, to) => [["pane.zoom", { pane: from.pane }], ["pane.zoom", { pane: to.pane }], ["pane.focus", { pane: to.pane }]];
+  const swap = (from, to) => [
+    ["pane.zoom", { pane: from.pane }],
+    ["pane.zoom", { pane: to.pane }],
+    ["pane.focus", { pane: to.pane }],
+  ];
   if (chat.zoomed) return swap(chat, term);
   if (term.zoomed) return swap(term, chat);
   // With focus outside both panes, the chat is the one shown.
   const target = chat.focused ? term : chat;
-  return [["pane.zoom", { pane: target.pane }], ["pane.focus", { pane: target.pane }]];
+  return [
+    ["pane.zoom", { pane: target.pane }],
+    ["pane.focus", { pane: target.pane }],
+  ];
 }
 
 /**

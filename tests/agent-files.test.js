@@ -49,7 +49,7 @@ function setup(portFiles = {}) {
   const bin = join(dir, "bin");
   mkdirSync(bin);
   const npx = join(bin, "npx");
-  writeFileSync(npx, '#!/bin/sh\nprintf \'%s\\n\' "$@"\nprintf \'PATH=%s\\n\' "$PATH"\n');
+  writeFileSync(npx, "#!/bin/sh\nprintf '%s\\n' \"$@\"\nprintf 'PATH=%s\\n' \"$PATH\"\n");
   chmodSync(npx, 0o755);
   return { home, bin, npx };
 }

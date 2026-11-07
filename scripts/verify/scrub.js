@@ -16,7 +16,7 @@ const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}
 // The lookbehind keeps words such as "risk-free" or "task-list" from counting as tokens.
 const TOKEN = /(?<![A-Za-z0-9_-])(?:sk-ant-|sk-|lin_api_|gho_|ghp_)[A-Za-z0-9][A-Za-z0-9_-]*/g;
 
-const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const slug = (path) => path.replace(/[^A-Za-z0-9]/g, "-");
 
 export function defaultContext() {
@@ -35,7 +35,7 @@ function instructionLines() {
 }
 
 function wordRegex(word, flags = "gi") {
-  return new RegExp(`(?<![A-Za-z0-9])${escape(word)}(?![A-Za-z0-9])`, flags);
+  return new RegExp(`(?<![A-Za-z0-9])${escapeRe(word)}(?![A-Za-z0-9])`, flags);
 }
 
 export function scrubText(text, ctx = defaultContext()) {
@@ -43,8 +43,8 @@ export function scrubText(text, ctx = defaultContext()) {
 
   const bare = SCRATCH_ROOT.replace(/^\/private\//, "/");
   for (const root of [SCRATCH_ROOT, bare]) {
-    out = out.replace(new RegExp(`${escape(root)}/([A-Za-z0-9._-]+)`, "g"), "/scratch/$1");
-    out = out.replace(new RegExp(`${escape(slug(root))}-([A-Za-z0-9-]+)`, "g"), "-scratch-$1");
+    out = out.replace(new RegExp(`${escapeRe(root)}/([A-Za-z0-9._-]+)`, "g"), "/scratch/$1");
+    out = out.replace(new RegExp(`${escapeRe(slug(root))}-([A-Za-z0-9-]+)`, "g"), "-scratch-$1");
   }
   out = out.replace(/(?:\/private)?\/var\/folders\/[^/\s"']+\/[^/\s"']+\/T\//g, "/tmp/");
   out = out.replace(/(?:\/private)?\/tmp\/claude-\d+\//g, "/tmp/");
@@ -54,7 +54,7 @@ export function scrubText(text, ctx = defaultContext()) {
   out = out.replace(/-Users-[A-Za-z0-9]+/g, "-home-user");
 
   for (const host of ctx.hosts) {
-    out = out.replace(new RegExp(`${escape(host)}(?:\\.[A-Za-z0-9-]+)*`, "gi"), "host");
+    out = out.replace(new RegExp(`${escapeRe(host)}(?:\\.[A-Za-z0-9-]+)*`, "gi"), "host");
   }
   for (const user of ctx.users) out = out.replace(wordRegex(user), "user");
   out = out.replace(/dileep\s+kishore/gi, "Test User");
@@ -65,7 +65,7 @@ export function checkText(text, ctx = defaultContext()) {
   const patterns = [
     ...STATIC_CHECKS,
     ...ctx.users.map((u) => ["username", wordRegex(u, "i")]),
-    ...ctx.hosts.map((h) => ["hostname", new RegExp(escape(h), "i")]),
+    ...ctx.hosts.map((h) => ["hostname", new RegExp(escapeRe(h), "i")]),
     ["email", { test: (l) => [...l.matchAll(EMAIL)].some((m) => m[0] !== "user@example.com") }],
     ["token", new RegExp(TOKEN.source)],
   ];

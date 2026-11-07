@@ -4,13 +4,32 @@ import { div, image, svg } from "gpui-kit";
 /** @typedef {"working" | "blocked" | "done" | "idle"} Status */
 /** @typedef {{ icon?: string | null, tint?: boolean } | null | undefined} ProgramLike */
 
-const NAMES = ["ring", "ring-spin", "check", "question", "plus", "close", "branch", "server", "monitor", "chevron-right", "chevron-down", "more", "terminal"];
+const NAMES = [
+  "ring",
+  "ring-spin",
+  "check",
+  "question",
+  "plus",
+  "close",
+  "branch",
+  "server",
+  "monitor",
+  "chevron-right",
+  "chevron-down",
+  "more",
+  "terminal",
+];
 
 /** Paths of Bellwether's own SVGs, as svg() takes them. @type {Readonly<Record<string, string>>} */
 export const ICONS = Object.freeze(Object.fromEntries(NAMES.map((n) => [n, `mods/bw-projects/icons/${n}.svg`])));
 
 /** @type {Record<Status, [icon: string, color: Status]>} */
-const STATUS_ICON = { working: ["ring-spin", "working"], blocked: ["question", "blocked"], done: ["check", "done"], idle: ["ring", "idle"] };
+const STATUS_ICON = {
+  working: ["ring-spin", "working"],
+  blocked: ["question", "blocked"],
+  done: ["check", "done"],
+  idle: ["ring", "idle"],
+};
 
 /**
  * An agent's state as a theme-coloured glyph; null draws an empty box so rows stay aligned.
@@ -19,7 +38,10 @@ const STATUS_ICON = { working: ["ring-spin", "working"], blocked: ["question", "
  * @param {number} [size]
  */
 export function statusIcon(t, status, size = 12) {
-  const s = typeof status === "string" && Object.hasOwn(STATUS_ICON, status) ? STATUS_ICON[/** @type {Status} */ (status)] : null;
+  const s =
+    typeof status === "string" && Object.hasOwn(STATUS_ICON, status)
+      ? STATUS_ICON[/** @type {Status} */ (status)]
+      : null;
   if (!s) return div().size(size).flex_none();
   const el = svg(ICONS[s[0]]).size(size).flex_none().text_color(t[s[1]]);
   return status === "working" ? el.spin(900) : el;
@@ -43,7 +65,15 @@ export function programIcon(program, t, size = 14) {
  * @param {Record<string, string>} t theme()
  */
 export function machineTag(name, t) {
-  return div().flex_none().text_size(10).text_color(t.dim).border(1).border_color(t.border).rounded(4).px(4).child(name);
+  return div()
+    .flex_none()
+    .text_size(10)
+    .text_color(t.dim)
+    .border(1)
+    .border_color(t.border)
+    .rounded(4)
+    .px(4)
+    .child(name);
 }
 
 /**

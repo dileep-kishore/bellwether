@@ -153,14 +153,20 @@ export function createHelper({ exec, localInstall, now = Date.now }) {
     try {
       lines = await localInstall(machine);
     } catch (e) {
-      return remember(machine, fail("failed", `install on ${machine} failed: ${e instanceof Error ? e.message : String(e)}`));
+      return remember(
+        machine,
+        fail("failed", `install on ${machine} failed: ${e instanceof Error ? e.message : String(e)}`),
+      );
     }
     const err = lines.find((l) => l?.type === "error");
     if (err) return remember(machine, fail("failed", String(err.message ?? err.code ?? "install failed")));
     const after = await check(machine);
     if (after.ok) return remember(machine, after);
     if (after.state === "missing" || after.state === "outdated") {
-      return remember(machine, fail("failed", `bw on ${machine} is still ${after.state} after install: ${after.message}`));
+      return remember(
+        machine,
+        fail("failed", `bw on ${machine} is still ${after.state} after install: ${after.message}`),
+      );
     }
     return after;
   }

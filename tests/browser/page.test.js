@@ -134,7 +134,11 @@ describe("page.html", () => {
     let script = "";
     let style = "";
     await new HTMLRewriter()
-      .on("title", { text: (t) => void (title += t.text) })
+      .on("title", {
+        text: (t) => {
+          title += t.text;
+        },
+      })
       .on("button", {
         element(el) {
           buttons.push({ id: el.getAttribute("id") ?? "", text: "" });
@@ -143,16 +147,26 @@ describe("page.html", () => {
           buttons[buttons.length - 1].text += t.text;
         },
       })
-      .on("ol#log", { element: () => void (logs += 1) })
-      .on("script", { text: (t) => void (script += t.text) })
-      .on("style", { text: (t) => void (style += t.text) })
+      .on("ol#log", {
+        element: () => {
+          logs += 1;
+        },
+      })
+      .on("script", {
+        text: (t) => {
+          script += t.text;
+        },
+      })
+      .on("style", {
+        text: (t) => {
+          style += t.text;
+        },
+      })
       .transform(new Response(html))
       .text();
 
     expect(title).toBe("Bellwether test page");
-    expect(buttons).toEqual(
-      Array.from({ length: 9 }, (_, i) => ({ id: `b${i + 1}`, text: `Button ${i + 1}` })),
-    );
+    expect(buttons).toEqual(Array.from({ length: 9 }, (_, i) => ({ id: `b${i + 1}`, text: `Button ${i + 1}` })));
     expect(logs).toBe(1);
     expect(style).toMatch(/button\s*\{[^}]*width:\s*120px;[^}]*height:\s*48px;/);
     expect(script.length).toBeGreaterThan(0);
@@ -162,7 +176,11 @@ describe("page.html", () => {
     const html = readFileSync(pageHtml, "utf8");
     let script = "";
     await new HTMLRewriter()
-      .on("script", { text: (t) => void (script += t.text) })
+      .on("script", {
+        text: (t) => {
+          script += t.text;
+        },
+      })
       .transform(new Response(html))
       .text();
 
@@ -223,9 +241,7 @@ function fakeChrome(pages, { wsHost } = {}) {
       const url = new URL(req.url);
       if (url.pathname === "/json/list") {
         const host = wsHost ?? `127.0.0.1:${srv.port}`;
-        return Response.json(
-          pages.map((p) => ({ ...p, webSocketDebuggerUrl: `ws://${host}/devtools/page/${p.id}` })),
-        );
+        return Response.json(pages.map((p) => ({ ...p, webSocketDebuggerUrl: `ws://${host}/devtools/page/${p.id}` })));
       }
       const m = url.pathname.match(/^\/devtools\/page\/(.+)$/);
       if (m && srv.upgrade(req, { data: { target: m[1], origin: req.headers.get("origin") } })) return;

@@ -6,11 +6,14 @@ const server = new URL("./fixtures/mcp-echo/server.js", import.meta.url).pathnam
 // Sends newline-delimited JSON-RPC requests and collects one response per request id.
 async function session(requests) {
   const proc = Bun.spawn(["node", server], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
-  for (const r of requests) proc.stdin.write(JSON.stringify(r) + "\n");
+  for (const r of requests) proc.stdin.write(`${JSON.stringify(r)}\n`);
   proc.stdin.end();
   const out = await new Response(proc.stdout).text();
   await proc.exited;
-  return out.split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  return out
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => JSON.parse(l));
 }
 
 const init = {

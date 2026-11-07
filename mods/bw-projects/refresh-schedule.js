@@ -38,7 +38,13 @@
  */
 
 /** @type {Times} */
-export const TIMES = Object.freeze({ throttle: 1000, openLocal: 30000, rejected: 60000, remote: 15000, selectedRemote: 1500 });
+export const TIMES = Object.freeze({
+  throttle: 1000,
+  openLocal: 30000,
+  rejected: 60000,
+  remote: 15000,
+  selectedRemote: 1500,
+});
 
 // Run once after a success; after a failure, again at the machine's usual interval.
 const ONCE = new Set(["place", "helper"]);
@@ -61,7 +67,7 @@ function norm(p) {
 
 /** True when `path` is `folder` or lies under it; "/r/alpha-wt" is not under "/r/alpha". */
 function under(path, folder) {
-  return path === folder || path.startsWith(folder === "/" ? "/" : folder + "/");
+  return path === folder || path.startsWith(folder === "/" ? "/" : `${folder}/`);
 }
 
 /** @param {Target} t */
@@ -167,9 +173,7 @@ export function createSchedule(times = TIMES) {
       const everything = changed.includes(root);
       for (const state of states.values()) {
         const fs = folders(state.target);
-        const hit = everything
-          ? fs.some((f) => under(f, root))
-          : fs.some((f) => changed.some((p) => under(p, f)));
+        const hit = everything ? fs.some((f) => under(f, root)) : fs.some((f) => changed.some((p) => under(p, f)));
         if (hit) state.marked = true;
       }
     },

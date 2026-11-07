@@ -48,9 +48,10 @@ export function parseWorktrees(stdout) {
     if (key === "worktree") {
       cur = { path: value, head: null, branch: null, detached: false, bare: false, locked: false, prunable: false };
       out.push(cur);
-    } else if (!cur) {
       continue;
-    } else if (key === "HEAD") {
+    }
+    if (!cur) continue;
+    if (key === "HEAD") {
       cur.head = value;
     } else if (key === "branch") {
       cur.branch = value.startsWith("refs/heads/") ? value.slice("refs/heads/".length) : value;

@@ -62,7 +62,7 @@ export const RESOLVED_SHOW_MS = 10000;
  */
 
 /** @param {Request} req @returns {Who[]} */
-const whoList = (req) => (Array.isArray(req.who) ? req.who : req.who ? [req.who] : []).filter((w) => w && w.child);
+const whoList = (req) => (Array.isArray(req.who) ? req.who : req.who ? [req.who] : []).filter((w) => w?.child);
 
 /** @param {string[]} names */
 function joinNames(names) {
@@ -97,15 +97,24 @@ export function titleOf(req, agentName) {
  */
 export function stateNote(state, kind = "approval") {
   switch (state) {
-    case "answered": return kind === "approval" ? "Approved" : "Answered";
-    case "declined": return "Denied";
-    case "answered_terminal": return "Answered in the terminal";
-    case "declined_terminal": return "Denied in the terminal";
-    case "settling": return "Left the screen; checking who answered";
-    case "stale": return "Changed on screen; nothing was pressed";
-    case "uncertain": return "Sent, but the screen did not change. Check the terminal (⌘J).";
-    case "sending": return "Sending…";
-    default: return null;
+    case "answered":
+      return kind === "approval" ? "Approved" : "Answered";
+    case "declined":
+      return "Denied";
+    case "answered_terminal":
+      return "Answered in the terminal";
+    case "declined_terminal":
+      return "Denied in the terminal";
+    case "settling":
+      return "Left the screen; checking who answered";
+    case "stale":
+      return "Changed on screen; nothing was pressed";
+    case "uncertain":
+      return "Sent, but the screen did not change. Check the terminal (⌘J).";
+    case "sending":
+      return "Sending…";
+    default:
+      return null;
   }
 }
 
@@ -115,13 +124,20 @@ export function stateNote(state, kind = "approval") {
  */
 export function reasonNote(reason, agentName) {
   switch (reason) {
-    case "codex_child": return "Codex sub-agent approvals are answered in the terminal for now";
-    case "clipped": return "Command too long to show here. Read it in the terminal";
-    case "no_match": return "Bellwether cannot read this prompt. Answer it in the terminal";
-    case "multi_question": return "This prompt has several questions. Answer it in the terminal";
-    case "other_view": return "Answer it in that sub-agent's own chat";
-    case "ambiguous": return waitingText("ambiguous", agentName);
-    default: return "Answer it in the terminal";
+    case "codex_child":
+      return "Codex sub-agent approvals are answered in the terminal for now";
+    case "clipped":
+      return "Command too long to show here. Read it in the terminal";
+    case "no_match":
+      return "Bellwether cannot read this prompt. Answer it in the terminal";
+    case "multi_question":
+      return "This prompt has several questions. Answer it in the terminal";
+    case "other_view":
+      return "Answer it in that sub-agent's own chat";
+    case "ambiguous":
+      return waitingText("ambiguous", agentName);
+    default:
+      return "Answer it in the terminal";
   }
 }
 
@@ -134,18 +150,30 @@ export function reasonNote(reason, agentName) {
  */
 export function answerNote(line, kind, agentName) {
   switch (line.result) {
-    case "answered": case "declined": case "uncertain": case "stale":
+    case "answered":
+    case "declined":
+    case "uncertain":
+    case "stale":
       // A settling request is one whose box just left: what `bw answer` did is the note.
-      return /** @type {string} */ (stateNote(line.state && line.state !== "pending" && line.state !== "settling"
-        ? line.state : line.result, kind));
-    case "sent": return /** @type {string} */ (stateNote("answered", kind));
-    case "refused-conversation": return `${agentName} moved to another conversation; nothing was pressed`;
-    case "refused-agent": return "This terminal runs another program now; nothing was pressed";
-    case "refused-prompt": return `${agentName} is waiting on another prompt; answer it in the terminal`;
-    case "not-answerable": return "Answer it in the terminal";
-    case "already-answered": return "Already answered";
-    case "busy": return "Another answer is being sent; try again in a moment";
-    default: return line.message ? `Not sent (${line.message})` : "Not sent";
+      return /** @type {string} */ (
+        stateNote(line.state && line.state !== "pending" && line.state !== "settling" ? line.state : line.result, kind)
+      );
+    case "sent":
+      return /** @type {string} */ (stateNote("answered", kind));
+    case "refused-conversation":
+      return `${agentName} moved to another conversation; nothing was pressed`;
+    case "refused-agent":
+      return "This terminal runs another program now; nothing was pressed";
+    case "refused-prompt":
+      return `${agentName} is waiting on another prompt; answer it in the terminal`;
+    case "not-answerable":
+      return "Answer it in the terminal";
+    case "already-answered":
+      return "Already answered";
+    case "busy":
+      return "Another answer is being sent; try again in a moment";
+    default:
+      return line.message ? `Not sent (${line.message})` : "Not sent";
   }
 }
 
@@ -155,9 +183,11 @@ const TERMINAL = { id: "terminal", label: "Answer in terminal", enabled: true, p
 function answerButtonsOf(req) {
   const actions = Array.isArray(req.actions) ? req.actions : [];
   const has = (/** @type {string} */ id) => actions.find((a) => a?.id === id);
-  if (req.kind === "question" || req.kind === "question_async") return [{ id: "submit", label: "Submit", primary: true }];
+  if (req.kind === "question" || req.kind === "question_async")
+    return [{ id: "submit", label: "Submit", primary: true }];
   if (req.kind === "prompt") {
-    return actions.filter((a) => /^option-\d+$/.test(a?.id ?? ""))
+    return actions
+      .filter((a) => /^option-\d+$/.test(a?.id ?? ""))
       .map((a, i) => ({ id: a.id, label: a.label || a.id, primary: i === 0 }));
   }
   /** @type {Omit<Button, "enabled">[]} */
@@ -181,8 +211,9 @@ export function dockCards(requests, o) {
   /** @type {Map<string, Request>} */
   const byId = new Map();
   for (const r of requests ?? []) if (r && typeof r.id === "string") byId.set(r.id, r);
-  const live = [...byId.values()].filter((r) => r.state === "pending" || typeof r.resolved_ms !== "number"
-    || o.now - r.resolved_ms < RESOLVED_SHOW_MS);
+  const live = [...byId.values()].filter(
+    (r) => r.state === "pending" || typeof r.resolved_ms !== "number" || o.now - r.resolved_ms < RESOLVED_SHOW_MS,
+  );
   live.sort((a, b) => (a.at_ms ?? 0) - (b.at_ms ?? 0));
   // One screen shows one prompt: while any answer is on its way, no other button may press keys.
   const free = !o.guarded && sending.size === 0 && o.expect != null;
@@ -200,9 +231,19 @@ export function dockCards(requests, o) {
     } else {
       buttons = state === "stale" || state === "uncertain" ? [TERMINAL] : [];
     }
-    return { id: r.id, kind: r.kind, title: titleOf(r, o.agentName), who: whoName(r, o.agentName),
-      tool: r.tool ?? "", command: r.command ?? "", detail: r.detail ?? "", state, note,
-      buttons: buttons.map((b) => ({ ...b })), question: r.question ?? null };
+    return {
+      id: r.id,
+      kind: r.kind,
+      title: titleOf(r, o.agentName),
+      who: whoName(r, o.agentName),
+      tool: r.tool ?? "",
+      command: r.command ?? "",
+      detail: r.detail ?? "",
+      state,
+      note,
+      buttons: buttons.map((b) => ({ ...b })),
+      question: r.question ?? null,
+    };
   });
 }
 
@@ -216,10 +257,21 @@ export function dockCards(requests, o) {
  * @returns {string[]}
  */
 export function answerArgs(req, choice, target, expect) {
-  if (!expect || !expect.kind || !expect.session || !expect.path) throw new Error("answer needs the feed's expectation");
+  if (!expect?.kind || !expect.session || !expect.path) throw new Error("answer needs the feed's expectation");
   if (!target?.local) throw new Error("answer needs the terminal's local address");
-  const head = ["answer", "--terminal", target.local, "--request", req.id, "--expect-kind", expect.kind,
-    "--expect-session", expect.session, "--expect-path", expect.path];
+  const head = [
+    "answer",
+    "--terminal",
+    target.local,
+    "--request",
+    req.id,
+    "--expect-kind",
+    expect.kind,
+    "--expect-session",
+    expect.session,
+    "--expect-path",
+    expect.path,
+  ];
   const question = req.kind === "question" || req.kind === "question_async";
   if ("answers" in choice) {
     if (!question || !Array.isArray(choice.answers)) throw new Error(`a ${req.kind} takes no answers`);
@@ -248,17 +300,32 @@ const isMulti = (q) => Boolean(q?.multi ?? q?.multi_select ?? q?.multiSelect);
  */
 export function emptyDraft(question) {
   const qs = Array.isArray(question?.questions) ? question.questions : [];
-  return { counts: qs.map((q) => (Array.isArray(q?.options) ? q.options.length : 0)), multi: qs.map(isMulti),
-    picks: qs.map(() => []), other: qs.map(() => ""), step: 0 };
+  return {
+    counts: qs.map((q) => (Array.isArray(q?.options) ? q.options.length : 0)),
+    multi: qs.map(isMulti),
+    picks: qs.map(() => []),
+    other: qs.map(() => ""),
+    step: 0,
+  };
 }
 
 /** @param {Draft} d @param {number} step @param {number} index */
-const fits = (d, step, index) => Number.isInteger(step) && step >= 0 && step < d.counts.length
-  && Number.isInteger(index) && index >= 0 && index < d.counts[step];
+const fits = (d, step, index) =>
+  Number.isInteger(step) &&
+  step >= 0 &&
+  step < d.counts.length &&
+  Number.isInteger(index) &&
+  index >= 0 &&
+  index < d.counts[step];
 
 /** @param {Draft} d @param {number} step @param {number[]} picks @param {string} other @param {number} next */
 function withStep(d, step, picks, other, next) {
-  return { ...d, picks: d.picks.map((p, i) => (i === step ? picks : p)), other: d.other.map((o, i) => (i === step ? other : o)), step: next };
+  return {
+    ...d,
+    picks: d.picks.map((p, i) => (i === step ? picks : p)),
+    other: d.other.map((o, i) => (i === step ? other : o)),
+    step: next,
+  };
 }
 
 /**
@@ -267,7 +334,16 @@ function withStep(d, step, picks, other, next) {
  */
 export function pick(d, step, index) {
   if (!fits(d, step, index)) return d;
-  if (d.multi[step]) return d.picks[step].includes(index) ? d : withStep(d, step, [...d.picks[step], index].sort((a, b) => a - b), d.other[step], d.step);
+  if (d.multi[step])
+    return d.picks[step].includes(index)
+      ? d
+      : withStep(
+          d,
+          step,
+          [...d.picks[step], index].sort((a, b) => a - b),
+          d.other[step],
+          d.step,
+        );
   return withStep(d, step, [index], "", Math.min(step + 1, d.counts.length - 1));
 }
 

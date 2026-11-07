@@ -4,8 +4,17 @@ import { applyFeed, applyOlder, emptyFeed, expectation, olderFrom } from "../../
 import { BUBBLE, GUTTER, READ_W, columnWidth, markdownHeight, rowHeight, sizes } from "../../mods/bw-chat/estimate.js";
 import { codeBlockAt, splitBlocks, tableCells } from "../../mods/bw-chat/mdblocks.js";
 
-const log = (extra = {}) => ({ type: "log", agent: "claude", terminal: "t8", session: "s1", path: "/l/s1.jsonl",
-  start: 0, size: 100, cursor: "2.a.0.100.b.1", ...extra });
+const log = (extra = {}) => ({
+  type: "log",
+  agent: "claude",
+  terminal: "t8",
+  session: "s1",
+  path: "/l/s1.jsonl",
+  start: 0,
+  size: 100,
+  cursor: "2.a.0.100.b.1",
+  ...extra,
+});
 const row = (id, k = "assistant", extra = {}) => ({ type: "row", k, id, text: id, ...extra });
 const ok = (...lines) => ({ ok: true, lines });
 const ids = (state) => state.rows.map((r) => r.id);
@@ -23,8 +32,17 @@ describe("feedstate", () => {
     expect(s.terminal).toBe("t8");
     expect(applyFeed(s, ok(log({ model: "opus" }), { type: "splice", at: 0, count: 1 }, row("a")))).toBe(0);
     expect(ids(s)).toEqual(["a"]);
-    expect(s).toMatchObject({ path: "/l/s1.jsonl", session: "s1", agent: "claude", cursor: "2.a.0.100.b.1",
-      model: "opus", start: 0, loaded: true, error: null, waiting: null });
+    expect(s).toMatchObject({
+      path: "/l/s1.jsonl",
+      session: "s1",
+      agent: "claude",
+      cursor: "2.a.0.100.b.1",
+      model: "opus",
+      start: 0,
+      loaded: true,
+      error: null,
+      waiting: null,
+    });
   });
 
   test("splice replaces rows from at", () => {
@@ -80,7 +98,13 @@ describe("feedstate", () => {
   test("no log naming another session is a new conversation: rows go, the first message names that session", () => {
     const s = shown();
     expect(expectation(s, "claude")).toEqual({ session: "s1", path: "/l/s1.jsonl" });
-    const next = { type: "state", state: "no_log", agent: "claude", message: "no claude session log yet", session: "s2" };
+    const next = {
+      type: "state",
+      state: "no_log",
+      agent: "claude",
+      message: "no claude session log yet",
+      session: "s2",
+    };
     expect(applyFeed(s, ok(next))).toBe(0);
     expect(ids(s)).toEqual([]);
     expect([s.session, s.path, s.cursor, s.seen]).toEqual(["s2", null, null, true]);
@@ -164,7 +188,13 @@ describe("estimate", () => {
     const base = rowHeight(user, 600);
     const wide = { ...user, pics: [{ format: "png", width: 1200, height: 300 }] };
     expect(rowHeight(wide, 600)).toBe(base + 150 + 8);
-    const tall = { ...user, pics: [{ format: "png", width: 100, height: 1000 }, { format: "png", width: 600, height: 60 }] };
+    const tall = {
+      ...user,
+      pics: [
+        { format: "png", width: 100, height: 1000 },
+        { format: "png", width: 600, height: 60 },
+      ],
+    };
     expect(rowHeight(tall, 600)).toBe(base + (320 + 8) + (60 + 8));
     const unknown = { ...user, pics: [{ format: "png", width: 0, height: 0 }] };
     expect(rowHeight(unknown, 600)).toBe(base + 320 + 8);
@@ -182,7 +212,9 @@ describe("estimate", () => {
 
 describe("mdblocks", () => {
   test("splitBlocks finds fences and tables", () => {
-    const text = ["Intro", "", "```js", "let a = 1;", "```", "| a | b |", "|---|--:|", "| 1 | `x|y` |", "after"].join("\n");
+    const text = ["Intro", "", "```js", "let a = 1;", "```", "| a | b |", "|---|--:|", "| 1 | `x|y` |", "after"].join(
+      "\n",
+    );
     expect(splitBlocks(text)).toEqual([
       { k: "md", text: "Intro\n" },
       { k: "code", lang: "js", text: "let a = 1;" },
@@ -205,7 +237,9 @@ describe("mdblocks", () => {
     const tick = ["```js", ...body, "```"].join("\n");
     expect(splitBlocks(tilde)).toEqual(splitBlocks(tick));
     expect(markdownHeight(tilde, 736)).toBe(markdownHeight(tick, 736));
-    expect(rowHeight({ k: "assistant", id: "a", text: tilde }, 736)).toBe(rowHeight({ k: "assistant", id: "a", text: tick }, 736));
+    expect(rowHeight({ k: "assistant", id: "a", text: tilde }, 736)).toBe(
+      rowHeight({ k: "assistant", id: "a", text: tick }, 736),
+    );
     expect(codeBlockAt(tilde, 736, 50)).toBe(body.join("\n"));
     // A ``` line inside a ~~~ block is code, as mdblocks.js draws it.
     const mixed = ["~~~", "```", "x", "~~~"].join("\n");

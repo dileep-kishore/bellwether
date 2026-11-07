@@ -58,7 +58,9 @@ export function resolveTarget(id, mine, spaces, panes) {
   /** @type {Map<string, string | null>} */
   const machineOf = new Map();
   for (const sp of spaces) for (const t of sp.tabs) machineOf.set(t.id, sp.machine ?? null);
-  const chatTabs = [...new Set(panes.filter((p) => p.mod === "bw-chat").map((p) => p.tab))].filter((t) => machineOf.has(t));
+  const chatTabs = [...new Set(panes.filter((p) => p.mod === "bw-chat").map((p) => p.tab))].filter((t) =>
+    machineOf.has(t),
+  );
   /** @type {Found[]} */
   const found = [];
   /** @type {string[]} */
@@ -68,7 +70,8 @@ export function resolveTarget(id, mine, spaces, panes) {
     const terms = panes.filter((p) => p.tab === tab && !p.mod && isStr(p.terminal));
     if (!terms.length) orphans.push(tab);
     for (const p of terms) {
-      const local = machine !== null && p.terminal.startsWith(`${machine}/`) ? p.terminal.slice(machine.length + 1) : p.terminal;
+      const local =
+        machine !== null && p.terminal.startsWith(`${machine}/`) ? p.terminal.slice(machine.length + 1) : p.terminal;
       const kind = paneKind(p);
       if (local !== id.local || (kind !== null && kind !== id.kind)) continue;
       found.push({ machine, terminal: p.terminal, local, kind: id.kind, tab, pane: p.pane });
@@ -90,12 +93,18 @@ const where = (machine) => machine ?? "this Mac";
  */
 export function waitingText(state, agent, machine = null) {
   switch (state) {
-    case "no_core": return `Herdr's core on ${where(machine)} is not answering`;
-    case "no_terminal": return `${agent} exited`;
-    case "not_agent": return "This terminal runs no Claude or Codex";
-    case "no_log": return `Waiting for ${agent}'s session log`;
-    case "no_child": return "This sub-agent has no log yet";
-    default: return `${agent}'s conversation cannot be read (${state})`;
+    case "no_core":
+      return `Herdr's core on ${where(machine)} is not answering`;
+    case "no_terminal":
+      return `${agent} exited`;
+    case "not_agent":
+      return "This terminal runs no Claude or Codex";
+    case "no_log":
+      return `Waiting for ${agent}'s session log`;
+    case "no_child":
+      return "This sub-agent has no log yet";
+    default:
+      return `${agent}'s conversation cannot be read (${state})`;
   }
 }
 
@@ -105,15 +114,20 @@ export function waitingText(state, agent, machine = null) {
  */
 export function hooksText(state, machine) {
   switch (state) {
-    case "missing": return `Bellwether hooks are not set up on ${where(machine)}; requests show without who asked`;
-    case "outdated": return `Bellwether hooks on ${where(machine)} are out of date; requests show without who asked`;
-    case "untrusted": return `Codex hook not trusted on ${where(machine)}`;
-    default: return null;
+    case "missing":
+      return `Bellwether hooks are not set up on ${where(machine)}; requests show without who asked`;
+    case "outdated":
+      return `Bellwether hooks on ${where(machine)} are out of date; requests show without who asked`;
+    case "untrusted":
+      return `Codex hook not trusted on ${where(machine)}`;
+    default:
+      return null;
   }
 }
 
 /** The user's step to trust Bellwether's hook in Codex, from the phase 3 experiment's note. */
-export const TRUST_STEP = "Start Codex there and choose “Trust all and continue” (2, then Enter), or type /hooks and press t.";
+export const TRUST_STEP =
+  "Start Codex there and choose “Trust all and continue” (2, then Enter), or type /hooks and press t.";
 
 /**
  * The `hooks` state of a `cards` line for this chat's agent: the line may name one state or one per agent.
@@ -131,12 +145,18 @@ export function hooksState(hooks, kind) {
  */
 export function helperText(state, machine) {
   switch (state) {
-    case "installing": return `Setting up Bellwether on ${where(machine)}`;
-    case "missing": return `Bellwether's helper is missing on ${where(machine)}`;
-    case "outdated": return `Bellwether's helper on ${where(machine)} is out of date`;
-    case "unreachable": return `${machine ?? "This Mac"} is not answering`;
-    case "bad_output": return `Bellwether's helper on ${where(machine)} printed something unexpected`;
-    default: return `Bellwether's helper failed on ${where(machine)}`;
+    case "installing":
+      return `Setting up Bellwether on ${where(machine)}`;
+    case "missing":
+      return `Bellwether's helper is missing on ${where(machine)}`;
+    case "outdated":
+      return `Bellwether's helper on ${where(machine)} is out of date`;
+    case "unreachable":
+      return `${machine ?? "This Mac"} is not answering`;
+    case "bad_output":
+      return `Bellwether's helper on ${where(machine)} printed something unexpected`;
+    default:
+      return `Bellwether's helper failed on ${where(machine)}`;
   }
 }
 
@@ -148,11 +168,16 @@ export function helperText(state, machine) {
  */
 export function sendText(result, agent, message = "") {
   switch (result) {
-    case "sent": return "Sent.";
-    case "refused-prompt": return `Not sent: ${agent} is waiting on a prompt. Answer it in the terminal (⌘J).`;
-    case "refused-conversation": return "Not sent: this terminal now shows another conversation.";
-    case "unconfirmed": return "Sent, but Herdr did not confirm it in time. Check the terminal (⌘J).";
-    default: return `Not sent: ${message || "bw send gave no result"}`;
+    case "sent":
+      return "Sent.";
+    case "refused-prompt":
+      return `Not sent: ${agent} is waiting on a prompt. Answer it in the terminal (⌘J).`;
+    case "refused-conversation":
+      return "Not sent: this terminal now shows another conversation.";
+    case "unconfirmed":
+      return "Sent, but Herdr did not confirm it in time. Check the terminal (⌘J).";
+    default:
+      return `Not sent: ${message || "bw send gave no result"}`;
   }
 }
 

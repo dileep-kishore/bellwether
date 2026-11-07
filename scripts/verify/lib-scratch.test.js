@@ -7,7 +7,7 @@ const LIB = join(import.meta.dir, "lib-scratch.sh");
 
 // Runs one lib-scratch function in sh; root replaces /private/tmp so a broken guard deletes only test folders.
 function sh(fn, dir, root) {
-  const set = root === undefined ? "" : 'scratch_root=$3; ';
+  const set = root === undefined ? "" : "scratch_root=$3; ";
   const p = Bun.spawnSync(["sh", "-c", `. "$1"; ${set}${fn} "$2"`, "sh", LIB, dir, root ?? ""], {
     stdout: "pipe",
     stderr: "pipe",
@@ -106,7 +106,9 @@ describe("scratch_procs and scratch_rm_idle", () => {
   const stop = () => {
     for (const p of procs.splice(0)) {
       // The process-group test's leader forks a sleep that outlives a kill of the leader alone.
-      try { process.kill(-p.pid, 9); } catch {}
+      try {
+        process.kill(-p.pid, 9);
+      } catch {}
       p.kill(9);
     }
   };
@@ -125,10 +127,13 @@ describe("scratch_procs and scratch_rm_idle", () => {
   };
   /** Runs fn with dir and extra pids as arguments; the calling shell's own argv names dir. */
   const run = (fn, dir, root, pids = []) => {
-    const p = Bun.spawnSync(["sh", "-c", `. "$1"; scratch_root=$2; shift 2; ${fn} "$@"`, "sh", LIB, root, dir, ...pids.map(String)], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    const p = Bun.spawnSync(
+      ["sh", "-c", `. "$1"; scratch_root=$2; shift 2; ${fn} "$@"`, "sh", LIB, root, dir, ...pids.map(String)],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
     return { code: p.exitCode, out: p.stdout.toString().trim(), err: p.stderr.toString() };
   };
   const wait = () => Bun.sleepSync(300);

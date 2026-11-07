@@ -42,7 +42,8 @@ function parseArgs(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i += 2) {
     const [flag, value] = [argv[i], argv[i + 1] ?? ""];
-    if (flag === "--port" && /^\d{1,5}$/.test(value) && Number(value) >= 1 && Number(value) <= 65535) out.port = Number(value);
+    if (flag === "--port" && /^\d{1,5}$/.test(value) && Number(value) >= 1 && Number(value) <= 65535)
+      out.port = Number(value);
     else if (flag === "--who" && value) out.who = value;
     else if (flag === "--click" && /^[1-9]$/.test(value)) out.click = Number(value);
     else return null;
@@ -111,8 +112,22 @@ async function main({ port, who, click }) {
       throw new Error(`tab ${target.id} has no #b${click}`);
     }
     const { x, y } = point;
-    await cdp.call("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });
-    await cdp.call("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 });
+    await cdp.call("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x,
+      y,
+      button: "left",
+      buttons: 1,
+      clickCount: 1,
+    });
+    await cdp.call("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x,
+      y,
+      button: "left",
+      buttons: 0,
+      clickCount: 1,
+    });
     console.log(JSON.stringify({ type: "cdp-click", who, button: click, target: target.id, x, y }));
   } finally {
     cdp.close();

@@ -4,7 +4,16 @@ import { createSchedule, TIMES } from "./refresh-schedule.js";
 /** @returns {import("./refresh-schedule.js").Target} */
 function target(kind, path, over = {}) {
   const machine = over.machine ?? null;
-  return { key: `${kind}:${machine ?? ""}:${path}`, kind, machine, path, open: false, selected: false, wakeOn: [], ...over };
+  return {
+    key: `${kind}:${machine ?? ""}:${path}`,
+    kind,
+    machine,
+    path,
+    open: false,
+    selected: false,
+    wakeOn: [],
+    ...over,
+  };
 }
 const counts = (path, over) => target("counts", path, over);
 const list = (path, over) => target("list", path, over);
@@ -153,7 +162,7 @@ describe("refresh schedule", () => {
     expect(s.next(60_010)?.key).toBe(closed.key);
 
     const due = [];
-    for (let t; (t = s.next(10_000_000)); ) {
+    for (let t = s.next(10_000_000); t; t = s.next(10_000_000)) {
       due.push(t.key);
       s.start(t.key, 10_000_000);
       s.finish(t.key, 10_000_000);
@@ -267,7 +276,7 @@ describe("refresh schedule", () => {
     }
     s.event("/r/alpha", ["/r/alpha/.worktrees/nested/src/x.js"], 5000);
     const due = [];
-    for (let t; (t = s.next(5000)); ) {
+    for (let t = s.next(5000); t; t = s.next(5000)) {
       due.push(t.key);
       s.start(t.key, 5000);
       s.finish(t.key, 5000);
@@ -276,7 +285,7 @@ describe("refresh schedule", () => {
 
     s.event("/r/alpha", ["/r/alpha"], 10_000);
     const all = [];
-    for (let t; (t = s.next(10_000)); ) {
+    for (let t = s.next(10_000); t; t = s.next(10_000)) {
       all.push(t.key);
       s.start(t.key, 10_000);
       s.finish(t.key, 10_000);
@@ -287,7 +296,11 @@ describe("refresh schedule", () => {
   test("an ignored nested worktree refreshes from its own watch (Linux skips it in the parent's)", () => {
     const s = createSchedule();
     const main = counts("/r/alpha", { open: true, wakeOn: ["/r/alpha", "/r/alpha/.git"] });
-    const nested = counts("/r/alpha/.worktrees/nested", { open: true, selected: true, wakeOn: ["/r/alpha/.worktrees/nested", "/r/alpha/.git"] });
+    const nested = counts("/r/alpha/.worktrees/nested", {
+      open: true,
+      selected: true,
+      wakeOn: ["/r/alpha/.worktrees/nested", "/r/alpha/.git"],
+    });
     s.setTargets([main, nested], 0);
     for (const t of [nested, main]) {
       s.start(t.key, 0);

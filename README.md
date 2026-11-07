@@ -403,7 +403,9 @@ biome.jsonc               Biome's format and lint settings
 ```
 
 Run `bun install` once per checkout to put the pinned tools in
-`node_modules`, which Git and Syncthing both ignore.
+`node_modules`, which Git and Syncthing both ignore. `scripts/test.sh` runs
+`bunx biome ci --error-on-warnings .`, so a format or lint finding fails it;
+`bunx biome check --write .` fixes most of them.
 
 ## Install on a machine
 

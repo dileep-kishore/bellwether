@@ -75,7 +75,10 @@ export function createPoke() {
  * @param {RefresherOptions} opts
  * @returns {Promise<void>}
  */
-export async function runRefresher(cx, { schedule, run, onResult, watchFolder, now = Date.now, alive = () => true, poke = createPoke() }) {
+export async function runRefresher(
+  cx,
+  { schedule, run, onResult, watchFolder, now = Date.now, alive = () => true, poke = createPoke() },
+) {
   /** @type {[Target, unknown][]} */
   const finished = [];
   /** @type {Set<string>} */

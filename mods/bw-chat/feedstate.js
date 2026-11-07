@@ -38,14 +38,36 @@
 
 /** @param {string} terminal @returns {FeedState} */
 export function emptyFeed(terminal) {
-  return { terminal, rows: [], tail: [], older: [], start: null, olderStart: null, first: false,
-    cursor: null, path: null, session: null, agent: null, model: null, error: null, waiting: null, loaded: false, seen: false };
+  return {
+    terminal,
+    rows: [],
+    tail: [],
+    older: [],
+    start: null,
+    olderStart: null,
+    first: false,
+    cursor: null,
+    path: null,
+    session: null,
+    agent: null,
+    model: null,
+    error: null,
+    waiting: null,
+    loaded: false,
+    seen: false,
+  };
 }
 
 /** @param {FeedState} state */
-function join(state) { state.rows = state.older.concat(state.tail); }
+function join(state) {
+  state.rows = state.older.concat(state.tail);
+}
 /** @param {FeedState} state */
-function dropOlder(state) { state.older = []; state.olderStart = null; state.first = false; }
+function dropOlder(state) {
+  state.older = [];
+  state.olderStart = null;
+  state.first = false;
+}
 
 /**
  * Where the next `feed --before` reads up to; null when the log's first row is already shown.
@@ -69,7 +91,8 @@ export function applyOlder(state, answer, before) {
   const have = new Set(state.rows.map((r) => r.id));
   const add = /** @type {Row[]} */ (answer.lines.filter((l) => l.type === "row" && !have.has(l.id)));
   state.older = add.concat(state.older);
-  state.olderStart = head.start; state.first = head.start === 0;
+  state.olderStart = head.start;
+  state.first = head.start === 0;
   join(state);
   return add.length;
 }
@@ -83,44 +106,68 @@ export function applyFeed(state, answer) {
   if (!answer.ok) {
     // Rows stay: an offline machine or a helper being reinstalled says nothing about the log.
     const changed = !state.error || state.error.state !== answer.state || state.error.message !== answer.message;
-    state.error = { state: answer.state, message: answer.message }; state.loaded = true;
+    state.error = { state: answer.state, message: answer.message };
+    state.loaded = true;
     return changed ? 0 : -1;
   }
   const hadError = Boolean(state.error);
-  state.error = null; state.loaded = true;
-  let changedAt = -1, splice = null, waited = false;
+  state.error = null;
+  state.loaded = true;
+  let changedAt = -1,
+    splice = null,
+    waited = false;
   /** @type {Row[]} */
   const rows = [];
   for (const l of answer.lines) {
     if (l.type === "state") {
-      const w = { state: String(l.state), agent: l.agent ?? null, message: String(l.message ?? ""),
-        session: typeof l.session === "string" && l.session !== "" ? l.session : null };
+      const w = {
+        state: String(l.state),
+        agent: l.agent ?? null,
+        message: String(l.message ?? ""),
+        session: typeof l.session === "string" && l.session !== "" ? l.session : null,
+      };
       const was = state.waiting;
-      const same = was && was.state === w.state && was.agent === w.agent && was.message === w.message && was.session === w.session;
+      const same =
+        was && was.state === w.state && was.agent === w.agent && was.message === w.message && was.session === w.session;
       if (!same) changedAt = 0;
-      state.waiting = w; waited = true;
+      state.waiting = w;
+      waited = true;
       if (w.state === "no_log" && w.session !== null && w.session !== state.session) {
         // Claude /clear or Codex /new: the new conversation writes no log until its first message.
-        state.tail = []; dropOlder(state); state.start = null; state.path = null; state.cursor = null;
-        state.session = w.session; state.seen = true; changedAt = 0;
+        state.tail = [];
+        dropOlder(state);
+        state.start = null;
+        state.path = null;
+        state.cursor = null;
+        state.session = w.session;
+        state.seen = true;
+        changedAt = 0;
       }
     } else if (l.type === "log") {
-      const path = l.path ?? null, session = l.session ?? null;
+      const path = l.path ?? null,
+        session = l.session ?? null;
       if (path !== state.path || session !== state.session) {
-        state.tail = []; dropOlder(state); changedAt = 0;
+        state.tail = [];
+        dropOlder(state);
+        changedAt = 0;
       } else if ((l.start ?? null) !== state.start) {
         if (state.older.length) changedAt = 0;
         dropOlder(state);
       }
       state.start = l.start ?? null;
-      state.path = path; state.session = session;
+      state.path = path;
+      state.session = session;
       if (session) state.seen = true;
-      state.agent = l.agent ?? state.agent; state.cursor = l.cursor ?? null;
+      state.agent = l.agent ?? state.agent;
+      state.cursor = l.cursor ?? null;
       if (l.model) state.model = l.model;
     } else if (l.type === "splice") splice = l;
     else if (l.type === "row") rows.push(/** @type {Row} */ (l));
   }
-  if (!waited && state.waiting) { state.waiting = null; changedAt = 0; }
+  if (!waited && state.waiting) {
+    state.waiting = null;
+    changedAt = 0;
+  }
   if (splice) {
     const at = Math.max(0, Math.min(splice.at, state.tail.length));
     state.tail = state.tail.slice(0, at).concat(rows);
@@ -139,7 +186,14 @@ export function applyFeed(state, answer) {
  */
 export function freshChat(state, kind) {
   const w = state.waiting;
-  return !state.seen && !state.error && w !== null && w.state === "no_log" && w.session === null && (w.agent === null || w.agent === kind);
+  return (
+    !state.seen &&
+    !state.error &&
+    w !== null &&
+    w.state === "no_log" &&
+    w.session === null &&
+    (w.agent === null || w.agent === kind)
+  );
 }
 
 /**
@@ -150,8 +204,15 @@ export function freshChat(state, kind) {
  */
 export function newConversation(state, kind) {
   const w = state.waiting;
-  return !state.error && w !== null && w.state === "no_log" && w.session !== null && w.session === state.session
-    && state.path === null && (w.agent === null || w.agent === kind);
+  return (
+    !state.error &&
+    w !== null &&
+    w.state === "no_log" &&
+    w.session !== null &&
+    w.session === state.session &&
+    state.path === null &&
+    (w.agent === null || w.agent === kind)
+  );
 }
 
 /**

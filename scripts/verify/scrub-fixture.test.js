@@ -62,9 +62,7 @@ describe("scrubText", () => {
       "/private/tmp/claude-501/bw-rec/claude-picture/a.png " +
       "/tmp/claude-501/bw-rec/claude-picture " +
       "-private-tmp-claude-501-bw-rec-claude-picture";
-    expect(scrubText(text, ctx)).toBe(
-      "/scratch/claude-picture/a.png /scratch/claude-picture -scratch-claude-picture",
-    );
+    expect(scrubText(text, ctx)).toBe("/scratch/claude-picture/a.png /scratch/claude-picture -scratch-claude-picture");
   });
 
   test("rewrites the paths in Claude and Codex hook payloads and HC_* variables", () => {
@@ -149,7 +147,10 @@ describe("scrubJsonLine", () => {
         type: "message",
         role: "user",
         content: [
-          { type: "input_text", text: "# AGENTS.md instructions for /x\n\n<INSTRUCTIONS>\nsecret rules\n</INSTRUCTIONS>" },
+          {
+            type: "input_text",
+            text: "# AGENTS.md instructions for /x\n\n<INSTRUCTIONS>\nsecret rules\n</INSTRUCTIONS>",
+          },
           { type: "input_text", text: "make a file" },
         ],
       },

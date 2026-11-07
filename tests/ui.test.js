@@ -15,7 +15,11 @@ test("working spins at 900 in working colour", () => {
 });
 
 test("blocked, done and idle draw their icon in their colour", () => {
-  for (const [status, icon] of [["blocked", "question"], ["done", "check"], ["idle", "ring"]]) {
+  for (const [status, icon] of [
+    ["blocked", "question"],
+    ["done", "check"],
+    ["idle", "ring"],
+  ]) {
     const el = statusIcon(t, status, 11);
     expect(el.attrs).toMatchObject({ path: ICONS[icon], text_color: `#${status}`, size: 11 });
     expect(el.attrs.spin).toBeUndefined();
@@ -47,7 +51,10 @@ test("tinted program icon is an svg", () => {
 });
 
 test("untinted program icon is an image; no icon is the terminal glyph", () => {
-  expect(programIcon({ icon: "icons/claude.svg", tint: false }, t, 16)).toMatchObject({ tag: "image", attrs: { path: "icons/claude.svg", w: 16, h: 16 } });
+  expect(programIcon({ icon: "icons/claude.svg", tint: false }, t, 16)).toMatchObject({
+    tag: "image",
+    attrs: { path: "icons/claude.svg", w: 16, h: 16 },
+  });
   for (const p of [null, { icon: null, tint: false }]) {
     expect(programIcon(p, t).attrs).toMatchObject({ path: ICONS.terminal, text_color: "#muted" });
   }
@@ -60,7 +67,21 @@ test("machine tag is a small bordered label", () => {
 });
 
 test("every icon is a 16x16 one-colour svg in mods/bw-projects/icons", () => {
-  const names = ["ring", "ring-spin", "check", "question", "plus", "close", "branch", "server", "monitor", "chevron-right", "chevron-down", "more", "terminal"];
+  const names = [
+    "ring",
+    "ring-spin",
+    "check",
+    "question",
+    "plus",
+    "close",
+    "branch",
+    "server",
+    "monitor",
+    "chevron-right",
+    "chevron-down",
+    "more",
+    "terminal",
+  ];
   expect(Object.keys(ICONS).sort()).toEqual([...names].sort());
   for (const name of names) {
     expect(ICONS[name]).toBe(`mods/bw-projects/icons/${name}.svg`);

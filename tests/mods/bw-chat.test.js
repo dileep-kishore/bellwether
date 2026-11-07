@@ -15,19 +15,23 @@ const CLAUDE = { terminal: "t8", machine: null, kind: "claude" };
 const CODEX_REMOTE = { terminal: "macmini/t5", machine: "macmini", kind: "codex" };
 const CLAUDE_PATH = "/home/test/.claude/projects/-r-alpha/3833b375-e79d-47bf-8e7e-f66cf3faab4b.jsonl";
 const CLAUDE_SESSION = "3833b375-e79d-47bf-8e7e-f66cf3faab4b";
-const CODEX_PATH = "/home/u/.codex/sessions/2026/11/07/rollout-2026-11-07T06-11-54-01a1b4a2-6731-7140-87be-4960d8a7aefe.jsonl";
+const CODEX_PATH =
+  "/home/u/.codex/sessions/2026/11/07/rollout-2026-11-07T06-11-54-01a1b4a2-6731-7140-87be-4960d8a7aefe.jsonl";
 const CODEX_SESSION = "01a1b4a2-6731-7140-87be-4960d8a7aefe";
 const DIGEST = "c3ebbf21e766d2f1";
 const BW = "/home/test/.local/share/bellwether/helper/current/bw";
 
 /** @param {object[]} lines */
-const out = (lines) => ({ code: 0, stdout: lines.map((l) => JSON.stringify(l)).join("\n") + "\n", stderr: "" });
+const out = (lines) => ({ code: 0, stdout: `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`, stderr: "" });
 const VERSION = out([{ type: "version", protocol: PROTOCOL, version: HELPER_VERSION }]);
 
 /** A golden `bw feed` answer with the `log` line naming a terminal, a path and a cursor, as the helper prints it.
  * @param {string} name @param {string} terminal @param {string} path */
 function golden(name, terminal, path) {
-  const lines = readFileSync(join(repo, "tests/fixtures/feed", `${name}.jsonl`), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  const lines = readFileSync(join(repo, "tests/fixtures/feed", `${name}.jsonl`), "utf8")
+    .trim()
+    .split("\n")
+    .map((l) => JSON.parse(l));
   lines[0] = { ...lines[0], terminal, path, cursor: `2.fixture-${name}` };
   return lines;
 }
@@ -40,7 +44,8 @@ function bw(handlers) {
   return async (/** @type {string} */ cmd, /** @type {string[]} */ args, /** @type {any} */ opts) => {
     const on = opts?.on ?? null;
     if (cmd === BW && handlers.install) return handlers.install(args, on);
-    if (cmd !== "sh" || args[1] !== HELPER_SCRIPT || args[2] !== "bw") return { code: 127, stdout: "", stderr: "sh: no such fake" };
+    if (cmd !== "sh" || args[1] !== HELPER_SCRIPT || args[2] !== "bw")
+      return { code: 127, stdout: "", stderr: "sh: no such fake" };
     const sub = args[3];
     const h = handlers[sub] ?? (sub === "version" ? () => VERSION : null);
     if (!h) return out([{ type: "error", code: "stub", message: `no ${sub} answer` }]);
@@ -77,7 +82,12 @@ async function typeAndSend(m, text) {
 describe("target", () => {
   test("props name the terminal; local drops the machine; anything else is null", () => {
     expect(targetOf(CODEX_REMOTE)).toEqual({ machine: "macmini", terminal: "macmini/t5", local: "t5", kind: "codex" });
-    expect(targetOf({ terminal: "t5", machine: "macmini", kind: "codex" })).toEqual({ machine: "macmini", terminal: "macmini/t5", local: "t5", kind: "codex" });
+    expect(targetOf({ terminal: "t5", machine: "macmini", kind: "codex" })).toEqual({
+      machine: "macmini",
+      terminal: "macmini/t5",
+      local: "t5",
+      kind: "codex",
+    });
     expect(targetOf(CLAUDE)).toEqual({ machine: null, terminal: "t8", local: "t8", kind: "claude" });
     expect(targetOf({})).toBe(null);
     expect(targetOf({ terminal: "t8", kind: "vim" })).toBe(null);
@@ -90,9 +100,13 @@ describe("target", () => {
     expect(waitingText("no_core", "Codex", "macmini")).toBe("Herdr's core on macmini is not answering");
     expect(waitingText("not_agent", "Codex")).toBe("This terminal runs no Claude or Codex");
     expect(waitingText("no_log", "Codex")).toBe("Waiting for Codex's session log");
-    expect(sendText("refused-prompt", "Claude")).toBe("Not sent: Claude is waiting on a prompt. Answer it in the terminal (⌘J).");
+    expect(sendText("refused-prompt", "Claude")).toBe(
+      "Not sent: Claude is waiting on a prompt. Answer it in the terminal (⌘J).",
+    );
     expect(sendText("refused-conversation", "Claude")).toBe("Not sent: this terminal now shows another conversation.");
-    expect(sendText("unconfirmed", "Claude")).toBe("Sent, but Herdr did not confirm it in time. Check the terminal (⌘J).");
+    expect(sendText("unconfirmed", "Claude")).toBe(
+      "Sent, but Herdr did not confirm it in time. Check the terminal (⌘J).",
+    );
     expect(sendText("failed", "Claude", "terminal t8 is gone")).toBe("Not sent: terminal t8 is gone");
   });
 
@@ -109,12 +123,16 @@ function fromMacmini() {
   const data = live("chat-tab");
   const book = (/** @type {string | null} */ id) => (id === null ? null : `macbook/${id}`);
   const mini = (/** @type {string | null} */ id) => (id === null ? null : id.replace(/^macmini\//, ""));
-  data.spaces = data.spaces.map((sp) => sp.machine === "macmini"
-    ? { ...sp, id: mini(sp.id), machine: null, tabs: sp.tabs.map((t) => ({ ...t, id: mini(t.id) })) }
-    : { ...sp, id: book(sp.id), machine: "macbook", tabs: sp.tabs.map((t) => ({ ...t, id: book(t.id) })) });
-  data.panes = data.panes.map((p) => p.pane.startsWith("macmini/")
-    ? { ...p, pane: mini(p.pane), tab: mini(p.tab), terminal: mini(p.terminal) }
-    : { ...p, pane: book(p.pane), tab: book(p.tab), terminal: book(p.terminal) });
+  data.spaces = data.spaces.map((sp) =>
+    sp.machine === "macmini"
+      ? { ...sp, id: mini(sp.id), machine: null, tabs: sp.tabs.map((t) => ({ ...t, id: mini(t.id) })) }
+      : { ...sp, id: book(sp.id), machine: "macbook", tabs: sp.tabs.map((t) => ({ ...t, id: book(t.id) })) },
+  );
+  data.panes = data.panes.map((p) =>
+    p.pane.startsWith("macmini/")
+      ? { ...p, pane: mini(p.pane), tab: mini(p.tab), terminal: mini(p.terminal) }
+      : { ...p, pane: book(p.pane), tab: book(p.tab), terminal: book(p.terminal) },
+  );
   data.shared = { "bw.window-id": "w-mini" };
   return data;
 }
@@ -123,13 +141,19 @@ function fromMacmini() {
 function withLocalT5Chat(data) {
   const codex = data.panes.find((/** @type {any} */ p) => p.terminal === "macmini/t5");
   data.spaces[0].tabs.push({ ...data.spaces[0].tabs[0], id: "tb40", name: "Codex", active: false });
-  data.panes.push({ ...codex, pane: "p40", tab: "tb40", terminal: "t5" }, { pane: "p41", terminal: null, mod: "bw-chat", tab: "tb40", title: "bw-chat", focused: false, zoomed: false });
+  data.panes.push(
+    { ...codex, pane: "p40", tab: "tb40", terminal: "t5" },
+    { pane: "p41", terminal: null, mod: "bw-chat", tab: "tb40", title: "bw-chat", focused: false, zoomed: false },
+  );
   return data;
 }
 
 /** @param {Record<string, any>} data */
 const recording = (data) => {
-  data.exec = bw({ feed: () => out([{ type: "state", state: "no_log", agent: null, message: "" }]), send: () => out([{ type: "send", result: "sent", message: "" }]) });
+  data.exec = bw({
+    feed: () => out([{ type: "state", state: "no_log", agent: null, message: "" }]),
+    send: () => out([{ type: "send", result: "sent", message: "" }]),
+  });
   return data;
 };
 /** Where the chat read its feed: [on, --terminal]. @param {any} m */
@@ -140,7 +164,10 @@ describe("chat target", () => {
   test("the window that made the chat: its props name the terminal, even when machines reuse the address", async () => {
     const data = recording(withLocalT5Chat(live("chat-tab")));
     data.shared["bw.window-id"] = BOOK;
-    const local = await mount("bw-chat", { props: { terminal: "t5", machine: null, kind: "codex", window: BOOK }, live: data });
+    const local = await mount("bw-chat", {
+      props: { terminal: "t5", machine: null, kind: "codex", window: BOOK },
+      live: data,
+    });
     expect(fedFrom(local)).toEqual([[null, "t5"]]);
     await typeAndSend(local, "hi");
     expect(calls(local, "send").map(([, a, o]) => [o.on, a[5]])).toEqual([[null, "t5"]]);
@@ -170,13 +197,26 @@ describe("chat target", () => {
     // macmini made this Codex chat in its own space; this Mac sees it as macmini/t5 and has its own t5.
     const data = recording(live("chat-remote"));
     data.spaces[0].tabs.push({ ...data.spaces[0].tabs[0], id: "tb40", active: false });
-    data.panes.push({ ...data.panes.find((/** @type {any} */ p) => p.terminal === "macmini/t5"), pane: "p40", tab: "tb40", terminal: "t5" });
-    const m = await mount("bw-chat", { props: { terminal: "t5", machine: null, kind: "codex", window: "w-mini" }, live: data });
+    data.panes.push({
+      ...data.panes.find((/** @type {any} */ p) => p.terminal === "macmini/t5"),
+      pane: "p40",
+      tab: "tb40",
+      terminal: "t5",
+    });
+    const m = await mount("bw-chat", {
+      props: { terminal: "t5", machine: null, kind: "codex", window: "w-mini" },
+      live: data,
+    });
     expect(fedFrom(m)).toEqual([["macmini", "t5"]]);
 
     const unrelated = fromMacmini();
     unrelated.spaces[0].tabs.push({ ...unrelated.spaces[0].tabs[0], id: "tb40", active: false });
-    unrelated.panes.push({ ...unrelated.panes.find((/** @type {any} */ p) => p.terminal === "macbook/t8"), pane: "p40", tab: "tb40", terminal: "t8" });
+    unrelated.panes.push({
+      ...unrelated.panes.find((/** @type {any} */ p) => p.terminal === "macbook/t8"),
+      pane: "p40",
+      tab: "tb40",
+      terminal: "t8",
+    });
     const n = await mount("bw-chat", { props: { ...CLAUDE, window: BOOK }, live: recording(unrelated) });
     expect(fedFrom(n)).toEqual([["macbook", "t8"]]);
   });
@@ -185,9 +225,27 @@ describe("chat target", () => {
     // Seen from macmini, this Mac's Codex chat on t5 and macmini's own on t5 both match.
     const data = fromMacmini();
     data.spaces[0].tabs.push({ ...data.spaces[0].tabs[0], id: "macbook/tb40", active: false });
-    data.panes.push({ ...data.panes.find((/** @type {any} */ p) => p.terminal === "t5"), pane: "macbook/p40", tab: "macbook/tb40", terminal: "macbook/t5" },
-      { pane: "macbook/p41", terminal: null, mod: "bw-chat", tab: "macbook/tb40", title: "bw-chat", focused: false, zoomed: false });
-    const m = await mount("bw-chat", { props: { terminal: "t5", machine: null, kind: "codex", window: BOOK }, live: recording(data) });
+    data.panes.push(
+      {
+        ...data.panes.find((/** @type {any} */ p) => p.terminal === "t5"),
+        pane: "macbook/p40",
+        tab: "macbook/tb40",
+        terminal: "macbook/t5",
+      },
+      {
+        pane: "macbook/p41",
+        terminal: null,
+        mod: "bw-chat",
+        tab: "macbook/tb40",
+        title: "bw-chat",
+        focused: false,
+        zoomed: false,
+      },
+    );
+    const m = await mount("bw-chat", {
+      props: { terminal: "t5", machine: null, kind: "codex", window: BOOK },
+      live: recording(data),
+    });
     expect(textOf(byId(m.el, "chat-state"))).toContain("Chat target not found");
     expect(textarea(m).attrs.disabled).toBe(true);
     await typeAndSend(m, "hi");
@@ -205,8 +263,21 @@ describe("chat target", () => {
 });
 
 describe("pictures", () => {
-  const rows = [{ k: "tools", id: "r1", pics: [{ digest: "a".repeat(16), format: "png", width: 2, height: 1, offset: 9, index: 0 }] },
-    { k: "user", id: "r2", pics: [{ digest: "b".repeat(16), format: "jpeg", width: 1, height: 1, offset: 20, index: 1 }, { digest: "a".repeat(16), format: "png", width: 2, height: 1, offset: 9, index: 0 }] }];
+  const rows = [
+    {
+      k: "tools",
+      id: "r1",
+      pics: [{ digest: "a".repeat(16), format: "png", width: 2, height: 1, offset: 9, index: 0 }],
+    },
+    {
+      k: "user",
+      id: "r2",
+      pics: [
+        { digest: "b".repeat(16), format: "jpeg", width: 1, height: 1, offset: 20, index: 1 },
+        { digest: "a".repeat(16), format: "png", width: 2, height: 1, offset: 9, index: 0 },
+      ],
+    },
+  ];
 
   test("newest first, one in flight, one try per digest", () => {
     const p = createPictures();
@@ -218,7 +289,12 @@ describe("pictures", () => {
     expect(p.stateOf("b".repeat(16))).toBe("failed");
     expect(p.wanted(rows).map((x) => x.digest)).toEqual(["a".repeat(16)]);
     p.start("a".repeat(16));
-    p.done("a".repeat(16), { ok: true, lines: [{ type: "picture", digest: "a".repeat(16), file: `data/bellwether/pictures/${"a".repeat(16)}.png`, bytes: 10 }] });
+    p.done("a".repeat(16), {
+      ok: true,
+      lines: [
+        { type: "picture", digest: "a".repeat(16), file: `data/bellwether/pictures/${"a".repeat(16)}.png`, bytes: 10 },
+      ],
+    });
     expect(p.fileOf("a".repeat(16))).toBe(`data/bellwether/pictures/${"a".repeat(16)}.png`);
     expect(p.wanted(rows)).toEqual([]);
   });
@@ -238,8 +314,9 @@ describe("pictures", () => {
 
 describe("bw-chat", () => {
   test("the fixtures' feed answers are the goldens", () => {
-    const answer = (/** @type {any} */ data, /** @type {string} */ t) => data.exec.find((e) => e.argsInclude.includes("feed") && e.argsInclude.includes(t)).result.stdout;
-    const text = (/** @type {object[]} */ lines) => lines.map((l) => JSON.stringify(l)).join("\n") + "\n";
+    const answer = (/** @type {any} */ data, /** @type {string} */ t) =>
+      data.exec.find((e) => e.argsInclude.includes("feed") && e.argsInclude.includes(t)).result.stdout;
+    const text = (/** @type {object[]} */ lines) => `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`;
     expect(answer(live("chat-tab"), "t8")).toBe(text(golden("claude-picture", "t8", CLAUDE_PATH)));
     expect(answer(live("chat-tab"), "t5")).toBe(text(golden("codex-question", "t5", CODEX_PATH)));
     expect(answer(live("chat-remote"), "t5")).toBe(text(golden("codex-question", "t5", CODEX_PATH)));
@@ -305,10 +382,29 @@ describe("bw-chat", () => {
     expect(sends).toHaveLength(1);
     // hc wraps text sent from another core as `<hc from=…>`, so the send runs in macmini's own core.
     expect(sends[0][2]).toEqual({ on: "macmini" });
-    expect(sends[0][1].slice(4)).toEqual(["--terminal", "t5", "--expect-kind", "codex", "--expect-session", CODEX_SESSION, "--expect-path", CODEX_PATH, "--text", "hi"]);
+    expect(sends[0][1].slice(4)).toEqual([
+      "--terminal",
+      "t5",
+      "--expect-kind",
+      "codex",
+      "--expect-session",
+      CODEX_SESSION,
+      "--expect-path",
+      CODEX_PATH,
+      "--text",
+      "hi",
+    ]);
     expect(inspect(textarea(m).attrs.state).value).toBe("");
     await nextPoll(m);
-    expect(calls(m, "feed").at(-1)[1].slice(4)).toEqual(["--terminal", "t5", "--pictures", "--tree", "--cards", "--cursor", "2.fixture-codex-question"]);
+    expect(calls(m, "feed").at(-1)[1].slice(4)).toEqual([
+      "--terminal",
+      "t5",
+      "--pictures",
+      "--tree",
+      "--cards",
+      "--cursor",
+      "2.fixture-codex-question",
+    ]);
   });
 
   test("named send results; text kept on refusal; slash commands go as typed", async () => {
@@ -320,7 +416,11 @@ describe("bw-chat", () => {
       out([{ type: "send", result: "sent", message: "" }]),
     ];
     const data = live("chat-tab");
-    data.exec = bw({ feed: () => out(golden("claude-picture", "t8", CLAUDE_PATH)), picture: () => out([{ type: "picture", digest: DIGEST, state: "gone" }]), send: () => results.shift() });
+    data.exec = bw({
+      feed: () => out(golden("claude-picture", "t8", CLAUDE_PATH)),
+      picture: () => out([{ type: "picture", digest: DIGEST, state: "gone" }]),
+      send: () => results.shift(),
+    });
     const m = await mount("bw-chat", { props: CLAUDE, live: data });
     const value = () => inspect(textarea(m).attrs.state).value;
     const note = () => textOf(byId(m.el, "send-note"));
@@ -339,7 +439,14 @@ describe("bw-chat", () => {
     expect(value()).toBe("");
     await typeAndSend(m, "/compact keep the tests");
     expect(calls(m, "send").at(-1)[1].at(-1)).toBe("/compact keep the tests");
-    expect(calls(m, "send").at(-1)[1].slice(4, 10)).toEqual(["--terminal", "t8", "--expect-kind", "claude", "--expect-session", CLAUDE_SESSION]);
+    expect(calls(m, "send").at(-1)[1].slice(4, 10)).toEqual([
+      "--terminal",
+      "t8",
+      "--expect-kind",
+      "claude",
+      "--expect-session",
+      CLAUDE_SESSION,
+    ]);
     expect(value()).toBe("");
     expect(calls(m, "send")).toHaveLength(5);
   });
@@ -362,7 +469,13 @@ describe("bw-chat", () => {
     expect(ms()).toBeLessThanOrEqual(2000);
 
     // ⌘J: the terminal zoomed over the chat, which now counts as hidden.
-    fake.panes = fake.panes.map((p) => (p.pane === "p9" ? { ...p, zoomed: false, focused: false } : p.pane === "p8" ? { ...p, zoomed: true, focused: true } : p));
+    fake.panes = fake.panes.map((p) =>
+      p.pane === "p9"
+        ? { ...p, zoomed: false, focused: false }
+        : p.pane === "p8"
+          ? { ...p, zoomed: true, focused: true }
+          : p,
+    );
     m.render();
     await m.cx.flush();
     expect(calls(m, "feed")).toHaveLength(2);
@@ -372,7 +485,9 @@ describe("bw-chat", () => {
     await m.cx.flush();
     expect(calls(m, "feed")).toHaveLength(2);
 
-    fake.panes = fake.panes.map((p) => (p.pane === "p9" ? { ...p, zoomed: true } : p.pane === "p8" ? { ...p, zoomed: false } : p));
+    fake.panes = fake.panes.map((p) =>
+      p.pane === "p9" ? { ...p, zoomed: true } : p.pane === "p8" ? { ...p, zoomed: false } : p,
+    );
     m.render();
     await m.cx.flush();
     expect(calls(m, "feed")).toHaveLength(3);
@@ -413,14 +528,30 @@ describe("bw-chat", () => {
     const sends = calls(m, "send");
     expect(sends).toHaveLength(1);
     expect(sends[0][2]).toEqual({ on: "macmini" });
-    expect(sends[0][1].slice(4)).toEqual(["--terminal", "t5", "--expect-kind", "codex", "--expect-session", "none", "--expect-path", "none", "--text", "--first"]);
+    expect(sends[0][1].slice(4)).toEqual([
+      "--terminal",
+      "t5",
+      "--expect-kind",
+      "codex",
+      "--expect-session",
+      "none",
+      "--expect-path",
+      "none",
+      "--text",
+      "--first",
+    ]);
 
     answer = out(golden("codex-question", "t5", CODEX_PATH));
     await nextPoll(m);
     expect(byId(m.el, "chat-state")).toBe(null);
     expect(textarea(m).attrs.disabled).toBe(false);
     await typeAndSend(m, "next");
-    expect(calls(m, "send").at(-1)[1].slice(8, 12)).toEqual(["--expect-session", CODEX_SESSION, "--expect-path", CODEX_PATH]);
+    expect(calls(m, "send").at(-1)[1].slice(8, 12)).toEqual([
+      "--expect-session",
+      CODEX_SESSION,
+      "--expect-path",
+      CODEX_PATH,
+    ]);
   });
 
   test("once a conversation was shown, no log disables the composer and nothing sends with none", async () => {
@@ -443,9 +574,16 @@ describe("bw-chat", () => {
     data.exec = bw({ feed: () => answer, send: () => out([{ type: "send", result: "sent", message: "" }]) });
     const m = await mount("bw-chat", { props: CODEX_REMOTE, live: data });
     await typeAndSend(m, "/new");
-    expect(calls(m, "send").at(-1)[1].slice(8, 12)).toEqual(["--expect-session", CODEX_SESSION, "--expect-path", CODEX_PATH]);
+    expect(calls(m, "send").at(-1)[1].slice(8, 12)).toEqual([
+      "--expect-session",
+      CODEX_SESSION,
+      "--expect-path",
+      CODEX_PATH,
+    ]);
     const NEXT = "019a0000-0000-7000-8000-000000000002";
-    answer = out([{ type: "state", state: "no_log", agent: "codex", message: "no codex session log yet", session: NEXT }]);
+    answer = out([
+      { type: "state", state: "no_log", agent: "codex", message: "no codex session log yet", session: NEXT },
+    ]);
     await nextPoll(m);
     expect(textOf(m.el)).not.toContain("Wrote `blue` to colour.txt.");
     expect(textOf(m.el)).toContain("No messages yet. Send the first one below.");
@@ -453,12 +591,26 @@ describe("bw-chat", () => {
     expect(textarea(m).attrs.disabled).toBe(false);
     await typeAndSend(m, "first of the new one");
     expect(calls(m, "send")).toHaveLength(2);
-    expect(calls(m, "send").at(-1)[1].slice(4)).toEqual(["--terminal", "t5", "--expect-kind", "codex", "--expect-session", NEXT, "--expect-path", "none", "--text", "first of the new one"]);
+    expect(calls(m, "send").at(-1)[1].slice(4)).toEqual([
+      "--terminal",
+      "t5",
+      "--expect-kind",
+      "codex",
+      "--expect-session",
+      NEXT,
+      "--expect-path",
+      "none",
+      "--text",
+      "first of the new one",
+    ]);
     expect(calls(m, "feed").at(-1)[1].slice(4)).toEqual(["--terminal", "t5", "--pictures", "--tree", "--cards"]);
   });
 
   test("a feed state other than no log names the wait and disables the composer", async () => {
-    for (const [state, agent, shown] of [["not_agent", null, "This terminal runs no Claude or Codex"], ["no_log", "claude", "Waiting for Codex's session log"]]) {
+    for (const [state, agent, shown] of [
+      ["not_agent", null, "This terminal runs no Claude or Codex"],
+      ["no_log", "claude", "Waiting for Codex's session log"],
+    ]) {
       const data = live("chat-remote");
       data.exec = bw({ feed: () => out([{ type: "state", state, agent, message: "" }]) });
       const m = await mount("bw-chat", { props: CODEX_REMOTE, live: data });
@@ -484,7 +636,10 @@ describe("bw-chat", () => {
     const remote = live("chat-remote");
     remote.exec = bw({
       version: (_a, on) => (on === "macmini" && !installed ? { code: 127, stdout: "", stderr: "" } : VERSION),
-      install: () => new Promise((r) => { finish = r; }),
+      install: () =>
+        new Promise((r) => {
+          finish = r;
+        }),
       feed: () => out(golden("codex-question", "t5", CODEX_PATH)),
     });
     const n = await mount("bw-chat", { props: CODEX_REMOTE, live: remote });
@@ -515,7 +670,13 @@ describe("bw-chat", () => {
     /** @type {(r: unknown) => void} */
     let finish = () => {};
     const data = live("chat-tab");
-    data.exec = bw({ feed: () => out(golden("claude-picture", "t8", CLAUDE_PATH)), picture: () => new Promise((r) => { finish = r; }) });
+    data.exec = bw({
+      feed: () => out(golden("claude-picture", "t8", CLAUDE_PATH)),
+      picture: () =>
+        new Promise((r) => {
+          finish = r;
+        }),
+    });
     const m = await mount("bw-chat", { props: CLAUDE, live: data });
     const pics = calls(m, "picture");
     expect(pics).toHaveLength(1);
@@ -550,7 +711,19 @@ describe("bw-chat", () => {
   });
 
   test("a running call is a neutral line; a call the agent waits on names it, with no answer button", async () => {
-    const perm = { type: "row", k: "perm", id: "perm-tu1", text: "Wants to run a command", perm: { title: "Wants to run a command", command: "rm -rf build", tool: "Bash", toolUseId: "tu1", state: "pending" } };
+    const perm = {
+      type: "row",
+      k: "perm",
+      id: "perm-tu1",
+      text: "Wants to run a command",
+      perm: {
+        title: "Wants to run a command",
+        command: "rm -rf build",
+        tool: "Bash",
+        toolUseId: "tu1",
+        state: "pending",
+      },
+    };
     const lines = [...golden("claude-approval", "t8", CLAUDE_PATH).filter((l) => l.k !== "footer"), perm];
     lines[1] = { ...lines[1], count: lines.length - 2 };
     const data = live("chat-tab");
@@ -572,9 +745,13 @@ describe("bw-chat", () => {
     head[0] = { ...head[0], start: 4096 };
     const data = live("chat-tab");
     data.exec = bw({
-      feed: (args) => (args.includes("--before")
-        ? out([{ type: "older", path: CLAUDE_PATH, start: 0, count: 1 }, { type: "row", k: "user", id: "old-1", text: "An older question", ts: 1 }])
-        : out(head)),
+      feed: (args) =>
+        args.includes("--before")
+          ? out([
+              { type: "older", path: CLAUDE_PATH, start: 0, count: 1 },
+              { type: "row", k: "user", id: "old-1", text: "An older question", ts: 1 },
+            ])
+          : out(head),
     });
     const m = await mount("bw-chat", { props: CLAUDE, live: data });
     expect(textOf(m.el)).not.toContain("An older question");

@@ -7,7 +7,19 @@ export default class Good extends View {
   init(_props, cx) {
     this.top = null;
     cx.spawn(async (cx) => {
-      const r = await exec("git", ["-C", "/r/alpha", "--no-optional-locks", "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"], { on: null });
+      const r = await exec(
+        "git",
+        [
+          "-C",
+          "/r/alpha",
+          "--no-optional-locks",
+          "rev-parse",
+          "--path-format=absolute",
+          "--git-common-dir",
+          "--show-toplevel",
+        ],
+        { on: null },
+      );
       this.top = r.stdout.split("\n")[1] || null;
       cx.notify();
     });
@@ -30,6 +42,10 @@ export default class Good extends View {
           .hover((el) => el.bg(t.hover))
           .on_click(() => active && run("space.select", { id: active.id })),
       )
-      .child(div().id("top").child(this.top ?? "…"));
+      .child(
+        div()
+          .id("top")
+          .child(this.top ?? "…"),
+      );
   }
 }

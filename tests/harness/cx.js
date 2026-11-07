@@ -13,7 +13,14 @@ const MAX_TURNS = 100;
 
 function makeTask() {
   /** @type {Task} */
-  const task = { cancelled: false, done: false, cancel() { task.cancelled = true; }, is_done: () => task.done };
+  const task = {
+    cancelled: false,
+    done: false,
+    cancel() {
+      task.cancelled = true;
+    },
+    is_done: () => task.done,
+  };
   return task;
 }
 
@@ -26,7 +33,10 @@ export function makeCx() {
     /** @type {TimerEntry[]} */ timers: [],
     /** @type {TimerEntry[]} */ afters: [],
     /** @type {Sleep[]} */ sleeps: [],
-    notify() { touch(); cx.notified++; },
+    notify() {
+      touch();
+      cx.notified++;
+    },
     /** @param {(cx: any) => unknown} body */
     spawn(body) {
       touch();
@@ -37,7 +47,15 @@ export function makeCx() {
     /** @param {number} [ms] @returns {Promise<void>} */
     sleep(ms = 0) {
       touch();
-      return new Promise((resolve) => cx.sleeps.push({ ms, wake: () => { touch(); resolve(); } }));
+      return new Promise((resolve) =>
+        cx.sleeps.push({
+          ms,
+          wake: () => {
+            touch();
+            resolve();
+          },
+        }),
+      );
     },
     timer: {
       /** @param {number} ms @param {(cx: any) => unknown} fn */
@@ -54,8 +72,12 @@ export function makeCx() {
         return makeTask();
       },
     },
-    focus_handle() { return { focus() {}, is_focused: () => false }; },
-    stop_propagation() { cx.stopped++; },
+    focus_handle() {
+      return { focus() {}, is_focused: () => false };
+    },
+    stop_propagation() {
+      cx.stopped++;
+    },
     propagate() {},
     /** Starts queued bodies with phase "task" and lets them run until a turn passes with no stub call. */
     async flush() {
@@ -65,8 +87,13 @@ export function makeCx() {
         for (const { body, task } of fresh) {
           if (task.cancelled) continue;
           inPhase("task", async () => body(cx)).then(
-            () => { task.done = true; },
-            (e) => { task.done = true; if (!violations.includes(e)) violations.push(e); },
+            () => {
+              task.done = true;
+            },
+            (e) => {
+              task.done = true;
+              if (!violations.includes(e)) violations.push(e);
+            },
           );
         }
         await new Promise((r) => setImmediate(r));

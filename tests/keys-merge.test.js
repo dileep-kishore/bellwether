@@ -81,7 +81,9 @@ describe("keys/bellwether.json", () => {
   });
 
   test("binds no key twice, however spelled", () => {
-    const ids = Object.entries(FILE).flatMap(([name, bindings]) => Object.keys(bindings).map((k) => `${name} ${keyId(k)}`));
+    const ids = Object.entries(FILE).flatMap(([name, bindings]) =>
+      Object.keys(bindings).map((k) => `${name} ${keyId(k)}`),
+    );
     expect(new Set(ids).size).toBe(ids.length);
   });
 
@@ -112,7 +114,8 @@ describe("keys-merge.js", () => {
   function home(keys) {
     const dir = join(base, `home-${n++}`);
     mkdirSync(dir);
-    if (keys !== undefined) writeFileSync(join(dir, "keys.json"), typeof keys === "string" ? keys : JSON.stringify(keys, null, 2));
+    if (keys !== undefined)
+      writeFileSync(join(dir, "keys.json"), typeof keys === "string" ? keys : JSON.stringify(keys, null, 2));
     return dir;
   }
 

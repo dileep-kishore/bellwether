@@ -6,20 +6,47 @@ import { moveIndex, tabItems } from "../../mods/bw-tabs/model.js";
 
 const MODS = { shift: false, control: false, alt: false, platform: false, function: false };
 const press = (button = "left") => ({ button, click_count: 1, position: { x: 0, y: 0 }, modifiers: MODS });
-const program = (key, name, agent) => ({ key, name, icon: `icons/${key}.svg`, tint: false, tile: null, color: null, shell: !agent, agent });
-const tab = (id, index, extra = {}) => ({ id, index, name: String(index), named: false, active: false, status: null, settled: false, ...extra });
+const program = (key, name, agent) => ({
+  key,
+  name,
+  icon: `icons/${key}.svg`,
+  tint: false,
+  tile: null,
+  color: null,
+  shell: !agent,
+  agent,
+});
+const tab = (id, index, extra = {}) => ({
+  id,
+  index,
+  name: String(index),
+  named: false,
+  active: false,
+  status: null,
+  settled: false,
+  ...extra,
+});
 
 /** @param {(node: any) => void} edit */
 function withLayout(edit, data = live("two-machines")) {
   const layout = structuredClone(fake.layout);
-  const walk = (n) => { edit(n); for (const c of n.children ?? []) walk(c); };
+  const walk = (n) => {
+    edit(n);
+    for (const c of n.children ?? []) walk(c);
+  };
   walk(layout);
   return { ...data, layout };
 }
 
 describe("model", () => {
   test("tab items: named title, else program name, agent pane's icon", () => {
-    const space = { tabs: [tab("a", 1, { named: true, name: "fix login", active: true, status: "blocked" }), tab("b", 2, { settled: true }), tab("c", 3)] };
+    const space = {
+      tabs: [
+        tab("a", 1, { named: true, name: "fix login", active: true, status: "blocked" }),
+        tab("b", 2, { settled: true }),
+        tab("c", 3),
+      ],
+    };
     const panes = [
       { tab: "a", program: program("shell", "zsh", false) },
       { tab: "b", program: program("shell", "zsh", false) },
@@ -54,7 +81,11 @@ describe("bw-tabs", () => {
     const m = await mount("bw-tabs", { live: live("two-machines") });
     expect(m.el.attrs.h).toBe(32);
     expect(m.el.attrs.bg).toBe("#chrome");
-    expect(["tb1", "tb2", "tb7"].map((id) => textOf(byId(m.el, `tab-${id}`)))).toEqual(["Claude Code", "fix login", "zsh"]);
+    expect(["tb1", "tb2", "tb7"].map((id) => textOf(byId(m.el, `tab-${id}`)))).toEqual([
+      "Claude Code",
+      "fix login",
+      "zsh",
+    ]);
     expect(byId(m.el, "tab-tb3")).toBe(null);
     expect(textOf(m.el)).not.toContain("macmini");
   });
@@ -63,7 +94,9 @@ describe("bw-tabs", () => {
     const m = await mount("bw-tabs", { live: live("two-machines") });
     const spin = findAll(byId(m.el, "tab-tb1"), (e) => e.tag === "svg" && e.attrs.spin === 900);
     expect(spin.map((e) => e.attrs.text_color)).toEqual(["#working"]);
-    expect(findAll(byId(m.el, "tab-tb2"), (e) => e.attrs.path === "mods/bw-projects/icons/question.svg")).toHaveLength(1);
+    expect(findAll(byId(m.el, "tab-tb2"), (e) => e.attrs.path === "mods/bw-projects/icons/question.svg")).toHaveLength(
+      1,
+    );
   });
 
   test("a plain click selects the tab", async () => {
@@ -76,7 +109,12 @@ describe("bw-tabs", () => {
     const m = await mount("bw-tabs", { live: live("two-machines") });
     await fire(byId(m.el, "tab-tb1"), "on_mouse_down:left", press(), m.cx);
     m.render();
-    await fire(byId(m.el, "tab-tb7"), "on_mouse_move", { position: { x: 0, y: 0 }, local_position: { x: 0, y: 0 }, modifiers: MODS }, m.cx);
+    await fire(
+      byId(m.el, "tab-tb7"),
+      "on_mouse_move",
+      { position: { x: 0, y: 0 }, local_position: { x: 0, y: 0 }, modifiers: MODS },
+      m.cx,
+    );
     m.render();
     await fire(byId(m.el, "tab-tb7"), "on_mouse_up:left", press(), m.cx);
     await fire(m.el, "on_mouse_up:left", press(), m.cx);
@@ -110,7 +148,8 @@ describe("bw-tabs", () => {
 
   test("every control stops the window drag on mouse down", async () => {
     const m = await mount("bw-tabs", { live: live("two-machines") });
-    for (const id of ["tab-tb1", "tab-tb2", "close-tb1", "tab-new"]) await fire(byId(m.el, id), "on_mouse_down:left", press(), m.cx);
+    for (const id of ["tab-tb1", "tab-tb2", "close-tb1", "tab-new"])
+      await fire(byId(m.el, id), "on_mouse_down:left", press(), m.cx);
     expect(m.cx.stopped).toBe(4);
     await fire(m.el, "on_mouse_down:left", press(), m.cx);
     expect(m.cx.stopped).toBe(4);
@@ -149,17 +188,36 @@ describe("bw-tabs", () => {
 
   test("+ with no space opens bw-new on this Mac's home", async () => {
     const m = await mount("bw-tabs", { live: live("empty") });
-    expect(findAll(m.el, (e) => typeof e.attrs.id === "string" && e.attrs.id.startsWith("tab-") && e.attrs.id !== "tab-new" && e.attrs.id !== "tab-scroll")).toEqual([]);
+    expect(
+      findAll(
+        m.el,
+        (e) =>
+          typeof e.attrs.id === "string" &&
+          e.attrs.id.startsWith("tab-") &&
+          e.attrs.id !== "tab-new" &&
+          e.attrs.id !== "tab-scroll",
+      ),
+    ).toEqual([]);
     await m.click("tab-new");
-    expect(m.log.overlays).toEqual([{ mod: "bw-new", kind: "popup", width: 232, height: 300, props: { machine: null, folder: "/home/test" } }]);
+    expect(m.log.overlays).toEqual([
+      { mod: "bw-new", kind: "popup", width: 232, height: 300, props: { machine: null, folder: "/home/test" } },
+    ]);
   });
 
   test("left padding clears the traffic lights only when the sidebar is hidden", async () => {
     expect((await mount("bw-tabs", { live: live("two-machines") })).el.attrs.pl).toBe(8);
-    const hidden = withLayout((n) => { if (n.id === "sidebar") n.hidden = true; });
+    const hidden = withLayout((n) => {
+      if (n.id === "sidebar") n.hidden = true;
+    });
     expect((await mount("bw-tabs", { live: hidden })).el.attrs.pl).toBe(76);
-    expect((await mount("bw-tabs", { live: { ...hidden, window: { ...fake.window, fullscreen: true } } })).el.attrs.pl).toBe(8);
-    expect((await mount("bw-tabs", { live: { ...hidden, window: { ...fake.window, titlebar: "system" } } })).el.attrs.pl).toBe(8);
-    expect((await mount("bw-tabs", { live: { ...hidden, window: { ...fake.window, platform: "linux" } } })).el.attrs.pl).toBe(8);
+    expect(
+      (await mount("bw-tabs", { live: { ...hidden, window: { ...fake.window, fullscreen: true } } })).el.attrs.pl,
+    ).toBe(8);
+    expect(
+      (await mount("bw-tabs", { live: { ...hidden, window: { ...fake.window, titlebar: "system" } } })).el.attrs.pl,
+    ).toBe(8);
+    expect(
+      (await mount("bw-tabs", { live: { ...hidden, window: { ...fake.window, platform: "linux" } } })).el.attrs.pl,
+    ).toBe(8);
   });
 });

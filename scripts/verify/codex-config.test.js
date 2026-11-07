@@ -44,7 +44,8 @@ describe("setDeveloperInstructions", () => {
   });
 
   test("replaces a multi-line basic string and every line it spans", () => {
-    const input = 'developer_instructions = """\nline one\n[not a table]\nline "two" \\"""\n"""\nmodel = "gpt"\n[tui]\nx = 1\n';
+    const input =
+      'developer_instructions = """\nline one\n[not a table]\nline "two" \\"""\n"""\nmodel = "gpt"\n[tui]\nx = 1\n';
     const out = check(input);
     for (const s of ["line one", "not a table", "two"]) expect(out).not.toContain(s);
   });
@@ -67,7 +68,7 @@ describe("setDeveloperInstructions", () => {
   });
 
   test("writes values with quotes, backslashes and newlines", () => {
-    check('[tui]\nx = 1\n', 'a "b" \\c\nd');
+    check("[tui]\nx = 1\n", 'a "b" \\c\nd');
   });
 });
 

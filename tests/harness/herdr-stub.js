@@ -17,11 +17,17 @@ const phases = new AsyncLocalStorage();
 let fallbackPhase = "init";
 
 /** @param {Phase} p */
-export function setPhase(p) { fallbackPhase = p; }
+export function setPhase(p) {
+  fallbackPhase = p;
+}
 /** @returns {Phase} */
-export function phase() { return phases.getStore() ?? fallbackPhase; }
+export function phase() {
+  return phases.getStore() ?? fallbackPhase;
+}
 /** @template T @param {Phase} p @param {() => T} fn @returns {T} */
-export function inPhase(p, fn) { return phases.run(p, fn); }
+export function inPhase(p, fn) {
+  return phases.run(p, fn);
+}
 
 /** Rule breaks seen since the last reset; mount throws the first after each step, so a mod that
  * catches the immediate throw still fails. @type {Error[]} */
@@ -36,7 +42,9 @@ export function refuse(message) {
 let activityCount = 0;
 /** A counter every stub call bumps, so cx.flush can tell when tasks stop making progress. */
 export const activity = () => activityCount;
-export function touch() { activityCount++; }
+export function touch() {
+  activityCount++;
+}
 
 const LAYOUT = JSON.parse(readFileSync(join(repo, "layouts/bellwether.json"), "utf8"));
 const LIVE_REFUSED = new Set(["agents", "spaces", "panes", "terminals", "focused"]);
@@ -102,12 +110,24 @@ export const log = {
 
 class MemoryStorage {
   #m = new Map();
-  get length() { return this.#m.size; }
-  /** @param {number} i */ key(i) { return [...this.#m.keys()][i] ?? null; }
-  /** @param {string} k */ getItem(k) { return this.#m.has(k) ? this.#m.get(k) : null; }
-  /** @param {string} k @param {unknown} v */ setItem(k, v) { this.#m.set(String(k), String(v)); }
-  /** @param {string} k */ removeItem(k) { this.#m.delete(k); }
-  clear() { this.#m.clear(); }
+  get length() {
+    return this.#m.size;
+  }
+  /** @param {number} i */ key(i) {
+    return [...this.#m.keys()][i] ?? null;
+  }
+  /** @param {string} k */ getItem(k) {
+    return this.#m.has(k) ? this.#m.get(k) : null;
+  }
+  /** @param {string} k @param {unknown} v */ setItem(k, v) {
+    this.#m.set(String(k), String(v));
+  }
+  /** @param {string} k */ removeItem(k) {
+    this.#m.delete(k);
+  }
+  clear() {
+    this.#m.clear();
+  }
 }
 if (typeof globalThis.localStorage === "undefined") globalThis.localStorage = /** @type {any} */ (new MemoryStorage());
 
@@ -146,7 +166,10 @@ async function answerExec(cmd, args, opts) {
   if (typeof fake.exec === "function") return fake.exec(cmd, args, opts);
   const on = opts?.on ?? null;
   // Arguments match by whole element, so "/r/alpha" never matches "/r/alpha-wt/feat".
-  const hit = fake.exec.find((e) => e.cmd === cmd && (!("on" in e) || (e.on ?? null) === on) && (e.argsInclude ?? []).every((a) => args.includes(a)));
+  const hit = fake.exec.find(
+    (e) =>
+      e.cmd === cmd && (!("on" in e) || (e.on ?? null) === on) && (e.argsInclude ?? []).every((a) => args.includes(a)),
+  );
   if (!hit) return { code: 127, stdout: "", stderr: `stub: no fixture answer for ${cmd} ${args.join(" ")}` };
   if (hit.result === "reject") throw new Error(`stub: exec ${cmd} on ${on ?? "this machine"} rejected`);
   return { ...hit.result };
@@ -173,10 +196,18 @@ const impl = {
   themes: () => [],
   fonts: () => [],
   layouts: () => ["main", "bellwether"],
-  commands: () => Object.entries(api.commands).map(([name, c]) => ({ name, args: c.args.map((a) => ({ name: a, required: c.required.includes(a) })), about: "" })),
+  commands: () =>
+    Object.entries(api.commands).map(([name, c]) => ({
+      name,
+      args: c.args.map((a) => ({ name: a, required: c.required.includes(a) })),
+      about: "",
+    })),
   home: () => fake.home,
   appHome: () => fake.appHome,
-  shared: (/** @type {string} */ k) => { touch(); return structuredClone(fake.shared[k]); },
+  shared: (/** @type {string} */ k) => {
+    touch();
+    return structuredClone(fake.shared[k]);
+  },
   setShared: (/** @type {string} */ k, /** @type {unknown} */ v) => {
     touch();
     fake.shared[k] = structuredClone(v);
@@ -189,11 +220,30 @@ const impl = {
     log.run.push(args === undefined ? [name] : [name, structuredClone(args)]);
     return null;
   },
-  setAgentOrder: (/** @type {string[]} */ list) => { touch(); log.order = [...list]; return null; },
-  openOverlay: (/** @type {unknown} */ spec) => { touch(); log.overlays.push(structuredClone(spec)); return `o${++overlayCount}`; },
-  closeOverlay: (/** @type {string} */ id) => { touch(); log.closed.push(id); return null; },
-  notify: (/** @type {unknown} */ n) => { touch(); log.notify.push(structuredClone(n)); return `n${++notifyCount}`; },
-  playSound: (/** @type {string} */ s) => { log.sounds.push(s); return null; },
+  setAgentOrder: (/** @type {string[]} */ list) => {
+    touch();
+    log.order = [...list];
+    return null;
+  },
+  openOverlay: (/** @type {unknown} */ spec) => {
+    touch();
+    log.overlays.push(structuredClone(spec));
+    return `o${++overlayCount}`;
+  },
+  closeOverlay: (/** @type {string} */ id) => {
+    touch();
+    log.closed.push(id);
+    return null;
+  },
+  notify: (/** @type {unknown} */ n) => {
+    touch();
+    log.notify.push(structuredClone(n));
+    return `n${++notifyCount}`;
+  },
+  playSound: (/** @type {string} */ s) => {
+    log.sounds.push(s);
+    return null;
+  },
   exec: async (/** @type {string} */ cmd, /** @type {string[]} */ args = [], /** @type {any} */ opts) => {
     touch();
     log.exec.push([cmd, [...args], opts]);
@@ -215,13 +265,18 @@ const impl = {
     log.watch.push(dir);
     return fake.watchFolder ? fake.watchFolder(dir) : never();
   },
-  pickFolder: async (/** @type {any} */ opts) => (typeof fake.pickFolder === "function" ? fake.pickFolder(opts) : fake.pickFolder),
+  pickFolder: async (/** @type {any} */ opts) =>
+    typeof fake.pickFolder === "function" ? fake.pickFolder(opts) : fake.pickFolder,
   readTextFile: async (/** @type {string} */ path, /** @type {any} */ opts) => {
     const r = fake.readTextFile;
     if (typeof r === "function") return r(path, opts);
     return r?.[path] ?? null;
   },
-  writeTextFile: async (/** @type {string} */ path, /** @type {string} */ text, /** @type {string | null} */ expected) => {
+  writeTextFile: async (
+    /** @type {string} */ path,
+    /** @type {string} */ text,
+    /** @type {string | null} */ expected,
+  ) => {
     log.writes.push([path, text, expected]);
     return fake.writeTextFile ? fake.writeTextFile(path, text, expected) : null;
   },
@@ -229,7 +284,9 @@ const impl = {
 };
 
 /** @param {string} name */
-const unfaked = (name) => () => { throw new Error(`stub: ${name} not faked`); };
+const unfaked = (name) => () => {
+  throw new Error(`stub: ${name} not faked`);
+};
 
 /** The namespace the preload hands Bun for `import … from "herdr"`: every declared name, nothing else. */
 export const herdrModule = Object.fromEntries(api.herdr.map((n) => [n, impl[n] ?? unfaked(n)]));
