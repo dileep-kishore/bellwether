@@ -85,6 +85,6 @@ test("node ids are unique and Herdr's dropped blocks are gone", () => {
 });
 
 test("keys file binds cmd-alt-b to toggle the layout's right column", () => {
-  expect(readKeys()).toEqual({ "layout:bellwether": { "cmd-alt-b": "layout.toggle:right" } });
+  expect(readKeys()["layout:bellwether"]["cmd-alt-b"]).toBe("layout.toggle:right");
   expect(node(readLayout(), "right").type).toBe("column");
 });

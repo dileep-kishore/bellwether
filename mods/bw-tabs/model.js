@@ -21,7 +21,8 @@
 export function tabItems(space, panes) {
   return (space?.tabs ?? []).map((tab) => {
     const own = panes.filter((p) => p.tab === tab.id);
-    const program = own.find((p) => p.program?.agent)?.program ?? own[0]?.program ?? null;
+    // A mod pane (a chat) has no program, so a chat tab takes its terminal pane's.
+    const program = own.find((p) => p.program?.agent)?.program ?? own.find((p) => p.program)?.program ?? null;
     // An unnamed tab's `name` is only its position, which says nothing a person can use.
     const title = tab.named ? tab.name : (program?.name ?? "Terminal");
     return { id: tab.id, index: tab.index, title, program, status: tab.status ?? null, active: Boolean(tab.active), settled: Boolean(tab.settled) };

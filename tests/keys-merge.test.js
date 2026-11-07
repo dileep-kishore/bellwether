@@ -2,10 +2,12 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mergeKeys } from "../scripts/keys-merge.js";
+import { keyId, mergeKeys } from "../scripts/keys-merge.js";
 
 const CLI = join(import.meta.dir, "../scripts/keys-merge.js");
 const OURS = { "layout:bellwether": { "cmd-alt-b": "layout.toggle:right" } };
+// What the CLI merges: the repository's keys file.
+const FILE = JSON.parse(readFileSync(join(import.meta.dir, "../keys/bellwether.json"), "utf8"));
 
 describe("mergeKeys", () => {
   test("merge adds our section into an empty file", () => {
@@ -73,6 +75,35 @@ describe("mergeKeys", () => {
   });
 });
 
+describe("keys/bellwether.json", () => {
+  test("binds cmd-alt-b and cmd-j in layout:bellwether", () => {
+    expect(FILE).toEqual({ "layout:bellwether": { "cmd-alt-b": "layout.toggle:right", "cmd-j": "bw-tabs.chat-flip" } });
+  });
+
+  test("binds no key twice, however spelled", () => {
+    const ids = Object.entries(FILE).flatMap(([name, bindings]) => Object.keys(bindings).map((k) => `${name} ${keyId(k)}`));
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  test("keys: cmd-j merges into an empty file and conflicts with a user's cmd-j", () => {
+    const empty = mergeKeys(null, FILE);
+    expect(empty.added).toContainEqual(["layout:bellwether", "cmd-j", "bw-tabs.chat-flip"]);
+    expect(empty.conflicts).toEqual([]);
+    expect(empty.merged).toEqual(FILE);
+
+    const layout = mergeKeys({ "layout:bellwether": { "cmd-j": "space.next" } }, FILE);
+    expect(layout.conflicts).toEqual([["layout:bellwether", "cmd-j", "space.next", "bw-tabs.chat-flip"]]);
+    expect(layout.added).toEqual([["layout:bellwether", "cmd-alt-b", "layout.toggle:right"]]);
+
+    const global = mergeKeys({ global: { "Cmd-J": "app.palette" } }, FILE);
+    expect(global.conflicts).toEqual([["global", "Cmd-J", "app.palette", "bw-tabs.chat-flip"]]);
+
+    const terminal = mergeKeys({ terminal: { "cmd-j": "terminal" } }, FILE);
+    expect(terminal.shadowed).toEqual([["layout:bellwether", "cmd-j", "terminal"]]);
+    expect(terminal.conflicts).toEqual([]);
+  });
+});
+
 describe("keys-merge.js", () => {
   const base = mkdtempSync(join(tmpdir(), "bw-keys-merge-"));
   afterAll(() => rmSync(base, { recursive: true, force: true }));
@@ -108,7 +139,7 @@ describe("keys-merge.js", () => {
     const dir = home(user);
     const r = run(dir, "--apply");
     expect(r.code).toBe(0);
-    expect(JSON.parse(readFileSync(join(dir, "keys.json"), "utf8"))).toEqual({ ...user, ...OURS });
+    expect(JSON.parse(readFileSync(join(dir, "keys.json"), "utf8"))).toEqual({ ...user, ...FILE });
     const backups = readdirSync(dir).filter((f) => /^keys\.json\.bw-\d+$/.test(f));
     expect(backups.length).toBe(1);
     expect(JSON.parse(readFileSync(join(dir, backups[0]), "utf8"))).toEqual(user);
@@ -126,7 +157,7 @@ describe("keys-merge.js", () => {
   });
 
   test("an already merged file is left alone", () => {
-    const dir = home({ ...OURS });
+    const dir = home({ ...FILE });
     const text = readFileSync(join(dir, "keys.json"), "utf8");
     const r = run(dir, "--apply");
     expect(r.code).toBe(0);
