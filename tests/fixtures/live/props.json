@@ -1,1 +1,3 @@
-{}
+{
+  "bw-right": [{}, { "panel": "changes" }, { "panel": "issues" }, { "panel": "browser" }]
+}
