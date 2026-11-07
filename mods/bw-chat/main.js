@@ -182,8 +182,7 @@ export default class Chat extends View {
           const started = Date.now();
           try {
             if (this.target) {
-              // A poke made while a read runs can be lost (createPoke), so the parent is read again here.
-              if (await this.readFeed(cx)) await this.readFeed(cx);
+              await this.readFeed(cx);
               if (this.wantOlder) await this.readOlder(cx);
               this.startPictures(cx);
             }
@@ -197,7 +196,7 @@ export default class Chat extends View {
           if (this.drawnGuarded && !isGuarded(this.guard, now)) cx.notify();
           let wait = Math.max(0, pollMs(this.shown) - (now - started));
           if (this.answerable() && isGuarded(this.guard, now)) wait = Math.max(1000, Math.min(wait, guardedUntil(this.guard) - now));
-          await Promise.race([cx.sleep(wait), this.poke.wait()]);
+          await this.poke.wait(cx.sleep(wait));
         }
       } finally {
         loopCx = null;
@@ -334,8 +333,8 @@ export default class Chat extends View {
     return changed;
   }
 
-  /** Reads the view's feed. Returns true when the root ended and the parent's view must be read now.
-   * @param {any} cx @returns {Promise<boolean>} */
+  /** Reads the view's feed. When the root ended it shows the parent, whose read the poke in `setView` starts.
+   * @param {any} cx @returns {Promise<void>} */
   async readFeed(cx) {
     const t = /** @type {Found} */ (this.target);
     const view = this.view;
@@ -348,7 +347,7 @@ export default class Chat extends View {
     if (view.child) args.push("--session", view.child);
     if (feed.cursor) args.push("--cursor", feed.cursor);
     const answer = await this.helper.call(t.machine, args);
-    if (this.view !== view || this.viewFeed() !== feed) return false;
+    if (this.view !== view || this.viewFeed() !== feed) return;
     const installed = this.installing !== null;
     this.installing = null;
     if (view.child && answer.ok && this.rootEnded(answer.lines)) {
@@ -356,7 +355,7 @@ export default class Chat extends View {
       this.viewNote = ROOT_ENDED;
       this.tree = null;
       cx.notify();
-      return true;
+      return;
     }
     const at = applyFeed(feed, answer);
     const side = answer.ok && this.applySide(answer.lines, !own);
@@ -364,7 +363,6 @@ export default class Chat extends View {
       if (this.follow) this.toNewest();
       cx.notify();
     } else if (side) cx.notify();
-    return false;
   }
 
   /** The first row is on screen and the log goes back further: read the part before and put it on top.

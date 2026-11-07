@@ -132,6 +132,45 @@ describe("refresh driver", () => {
     expect(late).toBe(false);
   });
 
+  test("a poke made after a timer woke the loop is kept for the next wait", async () => {
+    const p = createPoke();
+    /** @type {() => void} */
+    let fire = () => {};
+    const timer = new Promise((r) => (fire = () => r(undefined)));
+    let woke = false;
+    Promise.race([timer, p.wait(timer)]).then(() => (woke = true));
+    fire();
+    await settle();
+    expect(woke).toBe(true);
+    // The loop is now reading; this poke must not go to the waiter the timer beat.
+    p.poke();
+    let early = false;
+    p.wait(new Promise(() => {})).then(() => (early = true));
+    await settle();
+    expect(early).toBe(true);
+    let late = false;
+    p.wait(new Promise(() => {})).then(() => (late = true));
+    await settle();
+    expect(late).toBe(false);
+  });
+
+  test("a timer from an earlier wait does not drop the current waiter", async () => {
+    const p = createPoke();
+    /** @type {() => void} */
+    let fireOld = () => {};
+    const old = new Promise((r) => (fireOld = () => r(undefined)));
+    p.wait(old);
+    p.poke();
+    await settle();
+    let woke = false;
+    p.wait(new Promise(() => {})).then(() => (woke = true));
+    fireOld();
+    await settle();
+    p.poke();
+    await settle();
+    expect(woke).toBe(true);
+  });
+
   test("starts due targets and stops when not alive", async () => {
     const w = world();
     const r = start(w, [target("place", "/r/alpha"), target("helper", "", { machine: "macmini" })]);
