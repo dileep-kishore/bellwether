@@ -54,7 +54,7 @@ describe("entries", () => {
     const { spaces } = live("two-machines");
     expect(chatLaunch({ kind: "codex", name: "Codex", argv: ["codex"] }, REMOTE, spaces)).toEqual({
       pending: { kind: "codex", machine: "macmini", space: "macmini/s3", folder: "/home/u/gamma", beforeTabs: ["macmini/tb5"], beforeSpaces: ["s1", "s2", "macmini/s3"], name: "Codex" },
-      command: ["tab.new", { space: "macmini/s3", name: "Codex", argv: ["codex"] }],
+      command: ["tab.new", { space: "macmini/s3", folder: "/home/u/gamma", name: "Codex", argv: ["codex"] }],
     });
   });
 
@@ -175,7 +175,7 @@ describe("bw-new", () => {
     expect(m.log.shared).toEqual([["bw.known-agents", { macmini: [codex(true)], "": [claude(true)] }]]);
     await m.click("row-codex");
     expect(m.log.closed).toEqual(["o3"]);
-    expect(m.log.run).toEqual([["tab.new", { space: "macmini/s3", name: "Codex", argv: ["codex"] }]]);
+    expect(m.log.run).toEqual([["tab.new", { space: "macmini/s3", folder: "/home/u/gamma", name: "Codex", argv: ["codex"] }]]);
   });
 
   test("this Mac asks knownAgents with on null and says checking until it answers", async () => {
@@ -213,7 +213,7 @@ describe("bw-new", () => {
     expect(value.pending).toHaveLength(1);
     expect(value.pending[0]).toMatchObject({ kind: "codex", machine: "macmini", space: "macmini/s3", folder: "/home/u/gamma", beforeTabs: ["macmini/tb5"], name: "Codex" });
     expect(value.pending[0].at).toBeGreaterThanOrEqual(before);
-    expect(m.log.run).toEqual([["tab.new", { space: "macmini/s3", name: "Codex", argv: ["codex"] }]]);
+    expect(m.log.run).toEqual([["tab.new", { space: "macmini/s3", folder: "/home/u/gamma", name: "Codex", argv: ["codex"] }]]);
   });
 
   test("a second chat click keeps the first pending chat", async () => {

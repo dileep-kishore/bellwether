@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { live, mount } from "../harness/mount.js";
 import { byId, textOf } from "../harness/kit-stub.js";
 import { HELPER_SCRIPT, HELPER_VERSION, PROTOCOL } from "../../shared/helper.js";
-import { argsRequest, extrasFrom } from "../../mods/bw-new/entries.js";
+import { argsRequest, extrasFrom, launchFolder } from "../../mods/bw-new/entries.js";
 
 const EXTRAS = ["--mcp-config", "/h/.local/share/bellwether/agent/claude-mcp-mac.json", "--allowedTools", "mcp__bw-browser"];
 const WARNING = "Started without the browser";
@@ -92,7 +92,7 @@ describe("bw-new: browser additions", () => {
   test("extras land after run in tab.new argv", async () => {
     const m = await mount("bw-new", { props: { space: "macmini/s3", overlay: "o1" }, live: data(() => out([argsLine({ kind: "codex" })])) });
     await m.click("row-chat-codex");
-    expect(m.log.run).toEqual([["tab.new", { space: "macmini/s3", name: "Codex", argv: ["codex", ...EXTRAS] }]]);
+    expect(m.log.run).toEqual([["tab.new", { space: "macmini/s3", folder: "/home/u/gamma", name: "Codex", argv: ["codex", ...EXTRAS] }]]);
     expect(m.log.closed).toEqual(["o1"]);
     expect(m.log.notify).toEqual([]);
   });
@@ -107,7 +107,7 @@ describe("bw-new: browser additions", () => {
     const m = await mount("bw-new", { props: { space: "s1", overlay: "o2" }, live: data(() => out([argsLine()])) });
     await m.click("row-claude");
     expect(argsCalls(m)[0][1].slice(3)).toEqual(["browser", "agent-args", "--kind", "claude", "--machine", "", "--cwd", "/r/alpha"]);
-    expect(m.log.run).toEqual([["tab.new", { space: "s1", name: "Claude Code", argv: ["claude", ...EXTRAS] }]]);
+    expect(m.log.run).toEqual([["tab.new", { space: "s1", folder: "/r/alpha", name: "Claude Code", argv: ["claude", ...EXTRAS] }]]);
     expect(m.log.closed).toEqual(["o2"]);
     expect(chatWrites(m)).toEqual([]);
   });
@@ -133,7 +133,7 @@ describe("bw-new: browser additions", () => {
     for (const [answer, body] of /** @type {[() => unknown, string][]} */ (cases)) {
       const m = await mount("bw-new", { props: { space: "macmini/s3", overlay: "o1" }, live: data(answer) });
       await m.click("row-chat-codex");
-      expect(m.log.run).toEqual([["tab.new", { space: "macmini/s3", name: "Codex", argv: ["codex"] }]]);
+      expect(m.log.run).toEqual([["tab.new", { space: "macmini/s3", folder: "/home/u/gamma", name: "Codex", argv: ["codex"] }]]);
       expect(m.log.notify).toEqual([{ title: WARNING, body, level: "warning" }]);
       expect(chatWrites(m)).toHaveLength(1);
     }
@@ -144,7 +144,7 @@ describe("bw-new: browser additions", () => {
     d.exec = () => ({ code: 127, stdout: "", stderr: "sh: bw: not found" });
     const m = await mount("bw-new", { props: { space: "s1", overlay: "o1" }, live: d });
     await m.click("row-codex");
-    expect(m.log.run).toEqual([["tab.new", { space: "s1", name: "Codex", argv: ["codex"] }]]);
+    expect(m.log.run).toEqual([["tab.new", { space: "s1", folder: "/r/alpha", name: "Codex", argv: ["codex"] }]]);
     expect(m.log.notify).toHaveLength(1);
     expect(m.log.notify[0]).toMatchObject({ title: WARNING, level: "warning" });
     expect(String(/** @type {any} */ (m.log.notify[0]).body)).toContain("bw is not installed");
@@ -159,7 +159,7 @@ describe("bw-new: browser additions", () => {
     expect(budget).toHaveLength(1);
     budget[0].wake();
     await m.cx.flush();
-    expect(m.log.run).toEqual([["tab.new", { space: "macmini/s3", name: "Codex", argv: ["codex"] }]]);
+    expect(m.log.run).toEqual([["tab.new", { space: "macmini/s3", folder: "/home/u/gamma", name: "Codex", argv: ["codex"] }]]);
     expect(m.log.notify).toHaveLength(1);
     expect(m.log.notify[0]).toMatchObject({ title: WARNING, level: "warning" });
     expect(String(/** @type {any} */ (m.log.notify[0]).body)).toContain("20 s");
@@ -187,7 +187,7 @@ describe("bw-new: browser additions", () => {
     expect(m.log.closed).toEqual([]);
     h.resolve(out([argsLine()]));
     await m.cx.flush();
-    expect(m.log.run).toEqual([["tab.new", { space: "s1", name: "Claude Code", argv: ["claude", ...EXTRAS] }]]);
+    expect(m.log.run).toEqual([["tab.new", { space: "s1", folder: "/r/alpha", name: "Claude Code", argv: ["claude", ...EXTRAS] }]]);
     expect(m.log.closed).toEqual(["o1"]);
   });
 
@@ -211,7 +211,7 @@ describe("bw-new: browser additions", () => {
     m.render();
     await m.click("row-chat-codex");
     expect(argsCalls(m)[0][1].slice(3)).toEqual(["browser", "agent-args", "--kind", "codex", "--machine", "", "--cwd", "/r/alpha", "--profile", "work"]);
-    expect(m.log.run).toEqual([["tab.new", { space: "s1", name: "Codex", argv: ["codex", "-p", "work", ...EXTRAS] }]]);
+    expect(m.log.run).toEqual([["tab.new", { space: "s1", folder: "/r/alpha", name: "Codex", argv: ["codex", "-p", "work", ...EXTRAS] }]]);
   });
 
   test("pending chat is recorded only after the args arrive", async () => {
@@ -230,6 +230,62 @@ describe("bw-new: browser additions", () => {
     expect(pending[0]).toMatchObject({ kind: "codex", machine: "macmini", space: "macmini/s3", beforeTabs: ["macmini/tb5"], name: "Codex" });
     expect(pending[0].at).toBeGreaterThanOrEqual(before);
     expect(m.log.closed).toEqual(["o1"]);
-    expect(m.log.run).toEqual([["tab.new", { space: "macmini/s3", name: "Codex", argv: ["codex", ...EXTRAS] }]]);
+    expect(m.log.run).toEqual([["tab.new", { space: "macmini/s3", folder: "/home/u/gamma", name: "Codex", argv: ["codex", ...EXTRAS] }]]);
+  });
+});
+
+describe("bw-new: the folder an agent starts in", () => {
+  /**
+   * s1's first pane sits at the repository root and its focused pane in a subfolder that can
+   * hold its own Codex config, so agent-args must be asked about the subfolder.
+   * @param {(args: string[]) => unknown} answer
+   */
+  function twoFolders(answer) {
+    const d = data(answer);
+    d.spaces.find((/** @type {any} */ s) => s.id === "s1").folder = "/repo/root";
+    for (const p of d.panes) {
+      if (p.pane === "p1") Object.assign(p, { cwd: "/repo/root", focused: false });
+      if (p.pane === "p2") Object.assign(p, { cwd: "/repo/root/service", focused: true });
+    }
+    d.knownAgents = { "": [{ key: "codex", name: "Codex", icon: null, tint: true, run: ["codex"], installed: true }] };
+    return d;
+  }
+
+  test("launchFolder takes the space's focused terminal, else its first pane's folder", () => {
+    const d = twoFolders(() => null);
+    const s1 = { space: "s1", machine: null, folder: "/repo/root" };
+    expect(launchFolder(s1, d.spaces, d.panes)).toBe("/repo/root/service");
+    expect(launchFolder(REMOTE, d.spaces, d.panes)).toBe("/home/u/gamma");
+    // A focused pane in another space does not count.
+    expect(launchFolder({ space: "s2", machine: null, folder: "/r/alpha-wt/feat" }, d.spaces, d.panes)).toBe("/r/alpha-wt/feat");
+    expect(launchFolder({ space: null, machine: null, folder: "/r/beta" }, d.spaces, d.panes)).toBe("/r/beta");
+    expect(launchFolder({ space: null, machine: null, folder: null }, d.spaces, d.panes)).toBeNull();
+  });
+
+  test("New chat Codex asks and starts in the focused terminal's folder", async () => {
+    const m = await mount("bw-new", { props: { space: "s1", overlay: "o1" }, live: twoFolders(() => out([argsLine({ kind: "codex" })])) });
+    await m.cx.flush();
+    m.render();
+    await m.click("row-chat-codex");
+    expect(argsCalls(m)[0][1].slice(3)).toEqual(["browser", "agent-args", "--kind", "codex", "--machine", "", "--cwd", "/repo/root/service"]);
+    expect(m.log.run).toEqual([["tab.new", { space: "s1", folder: "/repo/root/service", name: "Codex", argv: ["codex", ...EXTRAS] }]]);
+    expect(/** @type {any} */ (chatWrites(m)[0][1]).pending[0].folder).toBe("/repo/root/service");
+  });
+
+  test("New terminal Codex asks and starts in the focused terminal's folder", async () => {
+    const m = await mount("bw-new", { props: { space: "s1", overlay: "o1" }, live: twoFolders(() => out([argsLine({ kind: "codex" })])) });
+    await m.cx.flush();
+    m.render();
+    await m.click("row-codex");
+    expect(argsCalls(m)[0][1].slice(3)).toEqual(["browser", "agent-args", "--kind", "codex", "--machine", "", "--cwd", "/repo/root/service"]);
+    expect(m.log.run).toEqual([["tab.new", { space: "s1", folder: "/repo/root/service", name: "Codex", argv: ["codex", ...EXTRAS] }]]);
+  });
+
+  test("a plain start after a failure still names the folder", async () => {
+    const m = await mount("bw-new", { props: { space: "s1", overlay: "o1" }, live: twoFolders(() => ({ code: 1, stdout: "", stderr: "boom" })) });
+    await m.cx.flush();
+    m.render();
+    await m.click("row-chat-codex");
+    expect(m.log.run).toEqual([["tab.new", { space: "s1", folder: "/repo/root/service", name: "Codex", argv: ["codex"] }]]);
   });
 });

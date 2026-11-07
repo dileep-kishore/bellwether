@@ -36,6 +36,21 @@ export function contextOf(props, spaces, panes) {
 }
 
 /**
+ * The folder an agent started in `ctx` runs in: the space's focused terminal's, else where the
+ * space is now. "+" names it to both agent-args and `tab.new`, whose own default could differ.
+ * @param {MenuContext} ctx
+ * @param {any[]} spaces SpaceInfo[]
+ * @param {any[]} panes PaneInfo[]
+ * @returns {string | null}
+ */
+export function launchFolder(ctx, spaces, panes) {
+  if (!ctx.space) return ctx.folder;
+  const tabs = new Set((spaces.find((s) => s.id === ctx.space)?.tabs ?? []).map((/** @type {any} */ t) => t.id));
+  const pane = panes.find((p) => p.focused && p.terminal && p.cwd && tabs.has(p.tab));
+  return pane?.cwd ?? ctx.folder;
+}
+
+/**
  * @param {{ agents: KnownAgent[] | null, failed: boolean, ctx: MenuContext }} input
  * @returns {Row[]}
  */
@@ -89,8 +104,20 @@ export function chatLaunch({ kind, name, argv }, ctx, spaces) {
   const { space, machine, folder } = ctx;
   const beforeTabs = space ? (spaces.find((s) => s.id === space)?.tabs ?? []).map((/** @type {any} */ t) => t.id) : [];
   const pending = { kind, machine, space, folder, beforeTabs, beforeSpaces: spaces.map((s) => s.id), name };
-  if (space) return { pending, command: ["tab.new", { space, name, argv }] };
+  if (space) return { pending, command: ["tab.new", { space, ...(folder ? { folder } : {}), name, argv }] };
   return { pending, command: ["space.new", { ...(folder ? { folder } : {}), machine: machine ?? "", tab: name, argv }] };
+}
+
+/**
+ * The command a "New terminal" agent row runs once its argv is complete, in `ctx.folder`.
+ * @param {["run", string, Record<string, unknown>]} action the row's action
+ * @param {MenuContext} ctx
+ * @param {string[]} argv
+ * @returns {[string, Record<string, unknown>]}
+ */
+export function terminalLaunch(action, ctx, argv) {
+  const folder = action[1] === "tab.new" && ctx.folder ? { folder: ctx.folder } : {};
+  return [action[1], { ...action[2], ...folder, argv }];
 }
 
 /**

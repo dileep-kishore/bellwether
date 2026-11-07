@@ -3,7 +3,7 @@ import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { closeOverlay, exec, knownAgents, notify, openOverlay, panes, props, run, setShared, shared, spaces, theme } from "herdr";
 import { addPending, chatArgv } from "./chat-tabs.js";
-import { argsRequest, chatLaunch, contextOf, extrasFrom, menuEntries } from "./entries.js";
+import { argsRequest, chatLaunch, contextOf, extrasFrom, launchFolder, menuEntries, terminalLaunch } from "./entries.js";
 import { createHelper } from "./helper.js";
 import { ICONS, programIcon } from "./ui.js";
 
@@ -74,7 +74,8 @@ export default class NewMenu extends View {
         setShared(CHAT_TABS, addPending(shared(CHAT_TABS), pending, Date.now()));
         run(command[0], command[1]);
       } else {
-        run(action[1], { ...action[2], argv });
+        const [name, args] = terminalLaunch(action, ctx, argv);
+        run(name, args);
       }
       if (notice) notify({ title: "Started without the browser", body: notice, level: "warning" });
       this.preparing = null;
@@ -102,11 +103,12 @@ export default class NewMenu extends View {
           if (!r.enabled || this.preparing !== null) return;
           // The space can close after this render drew the row.
           const all = spaces();
-          const ctx = contextOf(props() ?? {}, all, panes());
+          const live = panes();
+          const ctx = contextOf(props() ?? {}, all, live);
           if (ctx.closed) return;
           const overlay = typeof p.overlay === "string" ? p.overlay : null;
           if (r.kind !== null && r.action[0] !== "overlay") {
-            this.prepare(r, ctx, all, overlay, cx);
+            this.prepare(r, { ...ctx, folder: launchFolder(ctx, all, live) }, all, overlay, cx);
             return;
           }
           if (overlay) closeOverlay(overlay);

@@ -238,7 +238,9 @@ with the launcher, `default_tools_approval_mode="approve"`,
 Codex's effective `developer_instructions` followed by `browser-codex.md`.
 Codex's effective value comes from the top-level `config.toml`, then the
 profile file a `--profile` or `-p` names, then a trusted project's
-`.codex/config.toml`.
+`.codex/config.toml`. "+" reads that project file in the folder the agent
+starts in: the space's focused terminal's folder, else the folder of the
+space's first pane. It names the same folder to `tab.new`.
 
 These additions last for that session only. No user setting is written.
 Claude never gets `--strict-mcp-config`, so your own MCP servers stay. When
