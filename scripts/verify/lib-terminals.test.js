@@ -17,13 +17,17 @@ const ls = (rows) => JSON.stringify({ terminals: rows.map(([address, name, state
 
 describe("bw_slug and run_names", () => {
   test("names the forward and the warm as bw does", () => {
-    expect(sh("bw_slug", ["bwloop"]).out).toBe("bwloop");
-    expect(sh("bw_slug", ["Mac Mini.local"]).out).toBe("mac-mini-local");
-    expect(sh("bw_slug", [""]).out).toBe("machine");
-    expect(sh("bw_slug", ["a".repeat(40)]).out).toBe("a".repeat(25));
-    expect(sh("run_names", ["bwloop"]).out.split("\n")).toEqual(["bw-fwd-bwloop", "bw-warm-bwloop"]);
+    // The values crates/bw/src/browser/forward.rs pins in slug_and_terminal_names_fit_32 and the forward tests.
+    expect(sh("bw_slug", ["macmini"]).out).toBe("macmini-c27a57");
+    expect(sh("bw_slug", ["mac2"]).out).toBe("mac2-a9deae");
+    expect(sh("bw_slug", ["Mac Mini.local"]).out).toBe("mac-mini-local-ba0f9a");
+    expect(sh("bw_slug", [""]).out).toBe("machine-222325");
+    expect(sh("bw_slug", ["a".repeat(40)]).out).toMatch(/^a{18}-[0-9a-f]{6}$/);
+    expect(sh("run_names", ["macmini"]).out.split("\n")).toEqual(["bw-fwd-macmini-c27a57", "bw-warm-macmini-c27a57"]);
     // hc names hold at most 32 characters, so bw cuts the warm's name.
-    expect(sh("run_names", ["b".repeat(30)]).out.split("\n")).toEqual([`bw-fwd-${"b".repeat(25)}`, `bw-warm-${"b".repeat(24)}`]);
+    const [fwd, warm] = sh("run_names", ["b".repeat(30)]).out.split("\n");
+    expect(fwd).toMatch(/^bw-fwd-b{18}-[0-9a-f]{6}$/);
+    expect(warm).toBe(`bw-warm-${fwd.slice("bw-fwd-".length)}`.slice(0, 32));
   });
 });
 

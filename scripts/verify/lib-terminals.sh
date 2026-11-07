@@ -1,10 +1,16 @@
 # The terminals a verify run starts in the user's own hc core, where Bellwether's own launches start theirs
 # under the same names; sourced, not run.
 
-# bw_slug <machine>: the slug in bw's terminal names for that machine (crates/bw/src/browser/forward.rs slug).
+# bw_slug <machine>: the slug in bw's terminal names for that machine (crates/bw/src/browser/forward.rs slug):
+# up to 18 readable characters, then 6 hex of the whole name's FNV-1a, so similar names never share one.
 bw_slug() {
-  _ts=$(printf '%s' "$1" | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g' | cut -c1-25)
-  printf '%s\n' "${_ts:-machine}"
+  bun -e '
+    const m = process.argv[1];
+    let h = 0xcbf29ce484222325n;
+    for (const b of Buffer.from(m)) h = BigInt.asUintN(64, (h ^ BigInt(b)) * 0x100000001b3n);
+    const r = [...m].map((c) => { c = c.toLowerCase(); return /[a-z0-9-]/.test(c) && c.length === 1 && c.charCodeAt(0) < 128 ? c : "-"; })
+      .slice(0, 18).join("").replace(/-+$/, "") || "machine";
+    console.log(`${r}-${(h & 0xffffffn).toString(16).padStart(6, "0")}`);' "$1"
 }
 
 # run_names <machine>: what bw browser agent-args --machine <machine> starts in the calling core, the

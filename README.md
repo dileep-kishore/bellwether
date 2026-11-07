@@ -191,8 +191,10 @@ The Bellwether Chrome is a second Google Chrome instance with its own profile,
 `~/.local/share/bellwether/chrome`, and its DevTools port on 127.0.0.1:9222.
 Bellwether never uses or touches your own Chrome or its default profile.
 `bw browser up` reuses a Chrome on that port only when every listener is on
-127.0.0.1 or [::1], the listening process's command line holds
-`--user-data-dir=<that profile>`, and `/json/version` answers. When the port
+127.0.0.1 or [::1], one of the listening process's arguments is exactly
+`--user-data-dir=<that profile>`, and `/json/version` answers. It reads the
+arguments from the kernel (`KERN_PROCARGS2` on macOS, `/proc/<pid>/cmdline`
+on Linux) and refuses a process whose arguments it cannot read. When the port
 is free and the profile is not running, it starts Chrome with `open -n`.
 `--background` adds `-g`, which keeps focus where it is. Otherwise it starts
 nothing and names the state: `port_taken` with the pid and command of the
@@ -261,7 +263,10 @@ and to leave its tab open for you to close from the panel.
 
 For a space on another machine, `bw browser forward ensure` keeps one SSH
 reverse forward per machine. The forward is a kept `hc` terminal named
-`bw-fwd-<machine>` that runs `bw browser forward keep`. That command
+`bw-fwd-<machine>-<hash>` that runs `bw browser forward keep`. `<machine>` is
+the name lower-cased, reduced to `[a-z0-9-]` and cut to fit hc's 32
+characters, and `<hash>` is 6 hex of the whole name's FNV-1a, so two machines
+never share a forward's terminal or state file. That command
 supervises
 `ssh -o ExitOnForwardFailure=yes -o BatchMode=yes … -N -R 127.0.0.1:<port>:127.0.0.1:9222 <target>`.
 After each connect it runs `bw browser port-check` on that machine. The port
@@ -271,9 +276,13 @@ this Chrome's browser id. A failed check closes the forward and writes
 supervisor writes `reconnecting` and retries after 2, 4, 8, 16 and 30 s, then
 every 60 s, on the same port with the same checks. When another program takes
 the port in the meantime, it writes `port_taken`, and the next `ensure` picks
-a new port. The state files live in
+a new port. While ssh stays up, the supervisor checks every 60 s that the
+local Chrome still has the browser id the forward was checked against and
+runs `port-check` again; a changed id or a wrong listener closes the forward
+as `refused`. The state files live in
 `~/.local/share/bellwether/browser/forwards/<core>/`. Agents on that machine
-find the forward's port in `~/.local/share/bellwether/agent/ports/<window>`.
+find the forward's port and the Chrome's browser id in
+`~/.local/share/bellwether/agent/ports/<window>`.
 
 ### Agent files
 
@@ -284,10 +293,14 @@ on each machine where an agent starts:
   instructions.
 - `browser-mcp` is a 0755 `sh` launcher. It reads `ports/<window>`, finds
   `npx` on PATH or in `/opt/homebrew/bin` or `/usr/local/bin`, and runs Chrome
-  DevTools MCP 1.12.0 against `http://127.0.0.1:<port>`.
+  DevTools MCP 1.12.0 with
+  `--wsEndpoint ws://127.0.0.1:<port>/devtools/browser/<browser id>`. Chrome
+  answers 404 to an upgrade for another browser id, so a session never
+  reconnects to a different browser that later takes the port.
 - `claude-mcp-<window>.json` is Claude's `--mcp-config` file.
-- `ports/<window>` holds the port this window's Chrome answers on there: 9222
-  on the window machine, the forward's port elsewhere.
+- `ports/<window>` holds two lines: the port this window's Chrome answers on
+  there (9222 on the window machine, the forward's port elsewhere), then that
+  Chrome's browser id. `bw browser agent-args` rewrites it on every call.
 
 `<window>` is the window machine's `hostname -s`, lower-cased, reduced to
 a-z, 0-9 and -, and at most 32 characters long. `ensure` rewrites a file only
@@ -321,7 +334,10 @@ bw machine setup <machine|local> --agent
 machine, where the window machine's `bw` runs them with `hc exec`. The
 forward's terminal runs `bw browser forward keep`, the supervisor, so you
 never call it by hand. Most `bw browser …` commands print JSON lines and exit
-0 for every state; only a usage error exits 2.
+0 for every state; only a usage error exits 2. `tabs`, `focus`, `close` and
+`new` first run `up`'s listener check and send nothing when the port holds
+anything but the Bellwether Chrome: the action line says `ok:false` with the
+state in its message, and `tabs` prints a `chrome_unreachable` error.
 
 `bw machine setup <m> --agent` is a fifth operation beside `--check`,
 `--diff`, `--apply` and `--remove`, and setup takes exactly one of them. It
@@ -353,6 +369,8 @@ that folder removes its history and sign-ins.
   without a permission prompt, as Codex's `approve` does. The instructions
   forbid passwords, one-time codes, payment details and purchases.
 - Arrange works on macOS only.
+- After the Bellwether Chrome restarts, a running agent's browser tools stop
+  working until its next session.
 - The checks in a Herdr window are still owed: the panel, Arrange beside a
   real Herdr window, a screenshot inline in a chat, and a real SSH machine.
 

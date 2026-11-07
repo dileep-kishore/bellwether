@@ -25,6 +25,10 @@ use tungstenite::Message;
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/fixtures/browser");
 const BROWSER_ID: &str = "71d8450a-71c6-4a85-b012-325fe0e3e1d0";
 
+fn words(w: &[&str]) -> Vec<String> {
+    w.iter().map(|s| s.to_string()).collect()
+}
+
 fn fixture(name: &str) -> String {
     fs::read_to_string(Path::new(FIXTURES).join(name)).unwrap()
 }
@@ -126,13 +130,16 @@ fn ss_output_parses() {
 #[path = "support/ports.rs"]
 mod ports;
 use ports::{free_port, serial};
+#[path = "support/argv.rs"]
+mod argv;
+use argv::{chrome_argv, fake_argv};
 
 fn write_script(path: &Path, body: &str) {
     fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
 }
 
-/// A scratch HOME, profile, app and fake `ps` and `open` for one test.
+/// A scratch HOME, profile, app and fake `ps`, argv reader and `open` for one test.
 struct Scene {
     dir: tempfile::TempDir,
     port: u16,
@@ -147,7 +154,7 @@ impl Scene {
             port: free_port(),
         };
         scene.open_exits(0);
-        scene.ps_prints(None);
+        scene.process_is(None);
         scene
     }
 
@@ -173,23 +180,19 @@ impl Scene {
         );
     }
 
-    /// The fake `ps` prints `line` for any pid, or exits 1 as `ps` does for a pid that is gone.
-    fn ps_prints(&self, line: Option<&str>) {
-        let body = match line {
-            Some(line) => format!("cat <<'EOF'\n{line}\nEOF"),
+    /// Every pid runs `argv`: the fake `ps` prints it joined and the argv reader one element at a time. None
+    /// exits 1 from both, as for a pid that is gone.
+    fn process_is(&self, argv: Option<&[String]>) {
+        let body = match argv {
+            Some(argv) => format!("cat <<'EOF'\n{}\nEOF", argv.join(" ")),
             None => "exit 1".to_string(),
         };
         write_script(&self.dir.path().join("ps"), &body);
+        fake_argv(&self.dir.path().join("argv"), argv);
     }
 
-    fn chrome_command(&self, profile: &Path) -> String {
-        format!(
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir={} \
-             --remote-debugging-port={} --remote-debugging-address=127.0.0.1 --no-first-run \
-             --no-default-browser-check",
-            profile.display(),
-            self.port
-        )
+    fn chrome_command(&self, profile: &Path) -> Vec<String> {
+        chrome_argv(profile, self.port)
     }
 
     fn command(&self, args: &[&str]) -> Command {
@@ -202,6 +205,7 @@ impl Scene {
             .env("BW_CHROME_APP", self.dir.path().join("Google Chrome.app"))
             .env("BW_OPEN", self.dir.path().join("open"))
             .env("BW_PS", self.dir.path().join("ps"))
+            .env("BW_PROC_ARGV", self.dir.path().join("argv"))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -339,7 +343,7 @@ fn reuses_our_chrome() {
     let _serial = serial();
     let scene = Scene::new();
     let seen = serve_chrome(scene.port);
-    scene.ps_prints(Some(&scene.chrome_command(&scene.profile())));
+    scene.process_is(Some(&scene.chrome_command(&scene.profile())));
     let (code, v) = scene.run(&["up"]);
     assert_eq!(code, 0);
     assert_line(&v, &scene, "running");
@@ -357,10 +361,13 @@ fn port_held_by_other_program_is_refused() {
     let scene = Scene::new();
     // A dev server that even answers /json/version is still not ours.
     let seen = serve_chrome(scene.port);
-    scene.ps_prints(Some(&format!(
-        "bun tests/browser/server.js --port {}",
-        scene.port
-    )));
+    let port = scene.port.to_string();
+    scene.process_is(Some(&words(&[
+        "bun",
+        "tests/browser/server.js",
+        "--port",
+        &port,
+    ])));
     let (code, v) = scene.run(&["up"]);
     assert_eq!(code, 0);
     assert_line(&v, &scene, "port_taken");
@@ -387,13 +394,99 @@ fn chrome_on_other_profile_is_refused() {
     let seen = serve_chrome(scene.port);
     // A profile path that only starts with ours is another profile.
     let other = PathBuf::from(format!("{}-2", scene.profile().display()));
-    scene.ps_prints(Some(&scene.chrome_command(&other)));
+    scene.process_is(Some(&scene.chrome_command(&other)));
     let (code, v) = scene.run(&["up"]);
     assert_eq!(code, 0);
     assert_line(&v, &scene, "port_taken");
     assert_eq!(v["pid"], std::process::id());
     assert_eq!(scene.open_argv(), None, "open must not run");
     assert!(seen.requests.lock().unwrap().is_empty());
+}
+
+#[test]
+fn profile_with_a_space_suffix_is_refused() {
+    let _serial = serial();
+    let scene = Scene::new();
+    let seen = serve_chrome(scene.port);
+    // One argument `--user-data-dir=<profile> other`: a flattened `ps` line reads it as ours.
+    let other = PathBuf::from(format!("{} other", scene.profile().display()));
+    scene.process_is(Some(&scene.chrome_command(&other)));
+    let (code, v) = scene.run(&["up"]);
+    assert_eq!(code, 0);
+    assert_line(&v, &scene, "port_taken");
+    assert_eq!(v["browser_id"], Value::Null);
+    assert_eq!(scene.open_argv(), None, "open must not run");
+    assert!(seen.requests.lock().unwrap().is_empty());
+}
+
+#[test]
+fn unreadable_arguments_are_refused() {
+    let _serial = serial();
+    let scene = Scene::new();
+    let seen = serve_chrome(scene.port);
+    scene.process_is(Some(&scene.chrome_command(&scene.profile())));
+    fake_argv(&scene.dir.path().join("argv"), None);
+    let (code, v) = scene.run(&["up"]);
+    assert_eq!(code, 0);
+    assert_line(&v, &scene, "port_taken");
+    let message = v["message"].as_str().unwrap();
+    assert!(message.contains("arguments cannot be read"), "{message}");
+    assert!(seen.requests.lock().unwrap().is_empty());
+}
+
+/// A listener whose real argv holds `profile_arg` as one element, read without `BW_PROC_ARGV`.
+fn real_listener(port: u16, profile_arg: &str) -> Child {
+    let js = format!(
+        "Bun.serve({{hostname: '127.0.0.1', port: {port}, fetch() {{ return Response.json({{Browser: \
+         'Chrome/156.0.8078.80', webSocketDebuggerUrl: 'ws://127.0.0.1:{port}/devtools/browser/{BROWSER_ID}'}}) }}}})"
+    );
+    let bun = which_bun();
+    let child = Command::new(bun)
+        .args(["-e", &js, "--", profile_arg])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while TcpStream::connect(("127.0.0.1", port)).is_err() {
+        assert!(Instant::now() < deadline, "bun never listened on {port}");
+        thread::sleep(Duration::from_millis(50));
+    }
+    child
+}
+
+fn which_bun() -> String {
+    let out = Command::new("sh")
+        .args(["-c", "command -v bun || echo /opt/homebrew/bin/bun"])
+        .output()
+        .unwrap();
+    String::from_utf8(out.stdout).unwrap().trim().to_string()
+}
+
+#[test]
+fn real_arguments_are_compared_whole() {
+    let _serial = serial();
+    for (arg, state) in [
+        ("--user-data-dir={} other", "port_taken"),
+        ("--user-data-dir={}", "running"),
+    ] {
+        let scene = Scene::new();
+        let arg = arg.replace("{}", &scene.profile().display().to_string());
+        let mut child = real_listener(scene.port, &arg);
+        let (code, v) = scene
+            .command(&["up"])
+            .env_remove("BW_PROC_ARGV")
+            .spawn()
+            .map(finish)
+            .unwrap();
+        let _ = child.kill();
+        let _ = child.wait();
+        assert_eq!(code, 0);
+        assert_line(&v, &scene, state);
+        assert_eq!(v["pid"], child.id(), "{v}");
+        assert_eq!(scene.open_argv(), None, "open must not run");
+    }
 }
 
 #[test]
@@ -406,7 +499,7 @@ fn profile_locked_without_port_is_named() {
         scene.profile().join("SingletonLock"),
     )
     .unwrap();
-    scene.ps_prints(Some(&scene.chrome_command(&scene.profile())));
+    scene.process_is(Some(&scene.chrome_command(&scene.profile())));
     let (code, v) = scene.run(&["up"]);
     assert_eq!(code, 0);
     assert_line(&v, &scene, "no_debug_port");
@@ -426,7 +519,7 @@ fn stale_lock_does_not_block_a_start() {
         scene.profile().join("SingletonLock"),
     )
     .unwrap();
-    scene.ps_prints(None);
+    scene.process_is(None);
     scene.open_exits(1);
     let (code, v) = scene.run(&["up"]);
     assert_eq!(code, 0);
@@ -485,7 +578,7 @@ fn open_argv_is_exact() {
     // A started Chrome: the fake open succeeds, then this test starts listening as Chrome would.
     fs::remove_file(scene.open_log()).unwrap();
     scene.open_exits(0);
-    scene.ps_prints(Some(&scene.chrome_command(&scene.profile())));
+    scene.process_is(Some(&scene.chrome_command(&scene.profile())));
     let child = scene.spawn(&["up", "--background"]);
     let deadline = Instant::now() + Duration::from_secs(10);
     while scene.open_argv().is_none() {
@@ -507,7 +600,7 @@ fn down_refuses_a_listener_that_is_not_ours() {
     let _serial = serial();
     let scene = Scene::new();
     let seen = serve_chrome(scene.port);
-    scene.ps_prints(Some("node dev-server.js"));
+    scene.process_is(Some(&words(&["node", "dev-server.js"])));
     let (code, v) = scene.run(&["down"]);
     assert_eq!(code, 0);
     assert_line(&v, &scene, "port_taken");
@@ -524,7 +617,7 @@ fn down_closes_our_chrome_with_browser_close() {
     let _serial = serial();
     let scene = Scene::new();
     let seen = serve_chrome(scene.port);
-    scene.ps_prints(Some(&scene.chrome_command(&scene.profile())));
+    scene.process_is(Some(&scene.chrome_command(&scene.profile())));
     let (code, v) = scene.run(&["down"]);
     assert_eq!(code, 0);
     assert_line(&v, &scene, "stopped");

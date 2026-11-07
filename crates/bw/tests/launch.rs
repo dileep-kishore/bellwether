@@ -10,12 +10,15 @@ use std::net::TcpListener;
 use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
 const BROWSER_ID: &str = "71d8450a-71c6-4a85-b012-325fe0e3e1d0";
+/// The id the same Chrome profile gets after a restart.
+const RESTARTED_ID: &str = "5c0e2f7a-9b1d-4e3f-8a6c-2d4b6f8a0c1e";
 const CORE: &str = "bw-test";
 const AGENT_DIR: &str = ".local/share/bellwether/agent";
 const PAGE_A: &str = "DB8645583CC586952CA123D5F36E6BB3";
@@ -25,8 +28,11 @@ fn manifest() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+#[path = "support/argv.rs"]
+mod argv;
 #[path = "support/ports.rs"]
 mod ports;
+use argv::{chrome_argv, fake_argv};
 use ports::{free_port, serial};
 
 fn write_script(path: &Path, body: &str) {
@@ -55,14 +61,16 @@ fn window() -> String {
     }
 }
 
-/// Serves the Chrome's `/json/version` and `/json/list` (two pages, a DevTools page and a worker) on `listener`
-/// until the test ends; a WebSocket upgrade gets a plain reply, so no tab reads as active.
-fn serve_chrome(listener: TcpListener) {
+/// Serves the Chrome's `/json/version` naming browser `id` and `/json/list` (two pages, a DevTools page and a
+/// worker) on `listener` until the test ends; a WebSocket upgrade gets a plain reply, so no tab reads as active.
+fn serve_chrome(listener: TcpListener, id: Arc<Mutex<&'static str>>) {
     let port = listener.local_addr().unwrap().port();
     thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
+            let id = id.clone();
             thread::spawn(move || {
+                let id = *id.lock().unwrap();
                 let mut buf = [0u8; 4096];
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
                 let n = stream.read(&mut buf).unwrap_or(0);
@@ -74,7 +82,7 @@ fn serve_chrome(listener: TcpListener) {
                 let body = if head.starts_with("GET /json/version ") {
                     json!({
                         "Browser": "Chrome/156.0.8078.80",
-                        "webSocketDebuggerUrl": format!("ws://127.0.0.1:{port}/devtools/browser/{BROWSER_ID}"),
+                        "webSocketDebuggerUrl": format!("ws://127.0.0.1:{port}/devtools/browser/{id}"),
                     })
                     .to_string()
                 } else if head.starts_with("GET /json/list ") {
@@ -113,6 +121,7 @@ fn serve_chrome(listener: TcpListener) {
 struct Scene {
     dir: tempfile::TempDir,
     chrome_port: u16,
+    chrome_id: Arc<Mutex<&'static str>>,
     env: Vec<(String, String)>,
     sleepers: Vec<Child>,
 }
@@ -159,15 +168,10 @@ impl Scene {
         );
         let profile = d.join("profile");
         let chrome_port = free_port();
-        // Every pid is the Bellwether Chrome to `ps`: the in-test server is this test process.
-        write_script(
-            &d.join("ps"),
-            &format!(
-                "echo '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir={} \
-                 --remote-debugging-port={chrome_port} --remote-debugging-address=127.0.0.1'",
-                profile.display()
-            ),
-        );
+        // Every pid is the Bellwether Chrome to `ps` and the argv reader: the in-test server is this process.
+        let argv = chrome_argv(&profile, chrome_port);
+        write_script(&d.join("ps"), &format!("echo '{}'", argv.join(" ")));
+        fake_argv(&d.join("argv"), Some(&argv));
         write_script(
             &d.join("open"),
             &format!("echo \"open $*\" >> '{}'", d.join("open.log").display()),
@@ -190,6 +194,8 @@ impl Scene {
                 manifest().join("tests/fake-ssh").display().to_string(),
             ),
             ("FAKE_SSH_LOG", d.join("ssh.log").display().to_string()),
+            // The fake ssh ends its supervisor when this process is gone, even killed before a Scene drops.
+            ("FAKE_SSH_LIFELINE", std::process::id().to_string()),
             ("BW_CHROME_PORT", chrome_port.to_string()),
             ("BW_CHROME_PROFILE", profile.display().to_string()),
             (
@@ -198,6 +204,7 @@ impl Scene {
             ),
             ("BW_OPEN", d.join("open").display().to_string()),
             ("BW_PS", d.join("ps").display().to_string()),
+            ("BW_PROC_ARGV", d.join("argv").display().to_string()),
             ("HERDR_APP_HOME", d.join("app-home").display().to_string()),
             (
                 "PATH",
@@ -215,6 +222,7 @@ impl Scene {
         Scene {
             dir,
             chrome_port,
+            chrome_id: Arc::new(Mutex::new(BROWSER_ID)),
             env,
             sleepers: Vec::new(),
         }
@@ -225,7 +233,10 @@ impl Scene {
     }
 
     fn start_chrome(&self) {
-        serve_chrome(TcpListener::bind(("127.0.0.1", self.chrome_port)).unwrap());
+        serve_chrome(
+            TcpListener::bind(("127.0.0.1", self.chrome_port)).unwrap(),
+            self.chrome_id.clone(),
+        );
     }
 
     fn set(&mut self, key: &str, value: &str) {
@@ -289,14 +300,16 @@ impl Scene {
             .join(CORE)
     }
 
-    /// A state file for `machine`'s browser forward, as a supervisor writes it.
-    fn put_forward(&self, machine: &str, port: u16, state: &str, terminal: &str) {
+    /// A state file for mac2's browser forward, as a supervisor writes it.
+    fn put_forward(&self, port: u16, state: &str, terminal: &str) {
+        let machine = "mac2";
         fs::create_dir_all(self.forwards()).unwrap();
         let rec = json!({"kind": "browser", "machine": machine, "target": format!("dk@{machine}.local"),
             "port": port, "terminal": terminal, "state": state, "reason": "", "browser_id": BROWSER_ID,
             "checked_at_ms": 1});
         fs::write(
-            self.forwards().join(format!("{machine}.json")),
+            // bw names it after the machine and 6 hex of the name's FNV-1a.
+            self.forwards().join("mac2-a9deae.json"),
             rec.to_string(),
         )
         .unwrap();
@@ -394,8 +407,8 @@ fn local_claude_args_after_up() {
     );
     assert_eq!(
         fs::read_to_string(agent.join("ports").join(&w)).unwrap(),
-        format!("{}\n", s.chrome_port),
-        "the window machine's port file holds the Chrome's own port"
+        format!("{}\n{BROWSER_ID}\n", s.chrome_port),
+        "the window machine's port file holds the Chrome's own port and id"
     );
     assert!(agent.join("browser-mcp").is_file());
     assert_eq!(
@@ -405,7 +418,8 @@ fn local_claude_args_after_up() {
     );
     let hc = s.log("hc.log");
     assert!(
-        hc.lines().all(|l| l.starts_with("run bw-warm-local ")),
+        hc.lines()
+            .all(|l| l.starts_with("run bw-warm-local-a680e8 ")),
         "a local agent needs no hc call but the warm's: {hc}"
     );
 }
@@ -454,15 +468,16 @@ fn remote_codex_args_use_the_forward_port() {
     assert_eq!(v["machine"], "mac2", "{v}");
     let w = window();
     let fwd: Value =
-        serde_json::from_str(&fs::read_to_string(s.forwards().join("mac2.json")).unwrap()).unwrap();
+        serde_json::from_str(&fs::read_to_string(s.forwards().join("mac2-a9deae.json")).unwrap())
+            .unwrap();
     assert_eq!(fwd["state"], "ready", "{fwd}");
     let port = fwd["port"].as_u64().unwrap();
     assert_ne!(port, u64::from(s.chrome_port));
     let agent = s.remote().join(AGENT_DIR);
     assert_eq!(
         fs::read_to_string(agent.join("ports").join(&w)).unwrap(),
-        format!("{port}\n"),
-        "mac2's port file holds the forward's port"
+        format!("{port}\n{BROWSER_ID}\n"),
+        "mac2's port file holds the forward's port and the Chrome's id"
     );
     let argv = strings(&v["argv"]);
     assert_eq!(
@@ -482,7 +497,7 @@ fn remote_codex_args_use_the_forward_port() {
     let hc = s.log("hc.log");
     assert!(
         hc.contains(&format!(
-            "agent ensure --window {w} --port {port} --no-warm"
+            "agent ensure --window {w} --port {port} --browser-id {BROWSER_ID} --no-warm"
         )),
         "{hc}"
     );
@@ -491,6 +506,44 @@ fn remote_codex_args_use_the_forward_port() {
             "agent args --kind codex --window {w} --cwd /tmp --profile work"
         )),
         "{hc}"
+    );
+}
+
+#[test]
+fn a_restarted_chrome_gives_the_next_session_its_new_id() {
+    let _serial = serial();
+    let s = Scene::new();
+    let w = window();
+    let local = s.home().join(AGENT_DIR).join("ports").join(&w);
+    let remote = s.remote().join(AGENT_DIR).join("ports").join(&w);
+    for machine in ["", "mac2"] {
+        let v = s.agent_args(&["--kind", "claude", "--machine", machine]);
+        assert_eq!(v["browser"], "ready", "{v}");
+    }
+    assert!(fs::read_to_string(&local)
+        .unwrap()
+        .ends_with(&format!("\n{BROWSER_ID}\n")));
+    assert!(fs::read_to_string(&remote)
+        .unwrap()
+        .ends_with(&format!("\n{BROWSER_ID}\n")));
+
+    // The same profile and port, a new browser id: only sessions started from here on may use it.
+    *s.chrome_id.lock().unwrap() = RESTARTED_ID;
+    for machine in ["", "mac2"] {
+        let v = s.agent_args(&["--kind", "claude", "--machine", machine]);
+        assert_eq!(v["browser"], "ready", "{v}");
+    }
+    assert_eq!(
+        fs::read_to_string(&local).unwrap(),
+        format!("{}\n{RESTARTED_ID}\n", s.chrome_port)
+    );
+    let fwd: Value =
+        serde_json::from_str(&fs::read_to_string(s.forwards().join("mac2-a9deae.json")).unwrap())
+            .unwrap();
+    assert_eq!(fwd["browser_id"], RESTARTED_ID, "{fwd}");
+    assert_eq!(
+        fs::read_to_string(&remote).unwrap(),
+        format!("{}\n{RESTARTED_ID}\n", fwd["port"])
     );
 }
 
@@ -511,8 +564,8 @@ fn agent_args_does_not_wait_on_the_warm_step() {
     }
     // Both warms still started, each in an hc terminal that removes itself, on its own machine.
     let hc = s.log("hc.log");
-    assert!(hc.contains("run bw-warm-local "), "{hc}");
-    assert!(hc.contains("run bw-warm-mac2 sh -c "), "{hc}");
+    assert!(hc.contains("run bw-warm-local-a680e8 "), "{hc}");
+    assert!(hc.contains("run bw-warm-mac2-a9deae sh -c "), "{hc}");
     let deadline = Instant::now() + Duration::from_secs(5);
     while s.count("npx.log", "-y chrome-devtools-mcp@1.12.0 --version") < 2 {
         assert!(
@@ -622,9 +675,9 @@ fn agent_args_usage_exits_2() {
 fn status_lists_chrome_tabs_and_live_forwards() {
     let _serial = serial();
     let mut s = Scene::new();
-    s.put_forward("mac2", 52817, "ready", "bw-fwd-mac2");
+    s.put_forward(52817, "ready", "bw-fwd-mac2-a9deae");
     s.live_terminal(
-        "bw-fwd-mac2",
+        "bw-fwd-mac2-a9deae",
         &[
             "bw",
             "browser",
@@ -654,7 +707,7 @@ fn status_lists_chrome_tabs_and_live_forwards() {
         forwards,
         vec![
             &json!({"type": "forward", "kind": "browser", "machine": "mac2", "target": "dk@mac2.local",
-            "port": 52817, "state": "ready", "reason": "", "terminal": "bw-fwd-mac2"})
+            "port": 52817, "state": "ready", "reason": "", "terminal": "bw-fwd-mac2-a9deae"})
         ]
     );
     assert_eq!(lines.len(), 4, "{lines:?}");
@@ -664,7 +717,7 @@ fn status_lists_chrome_tabs_and_live_forwards() {
 fn status_marks_a_forward_without_terminal_stopped() {
     let _serial = serial();
     let s = Scene::new();
-    s.put_forward("mac2", 52817, "ready", "bw-fwd-mac2");
+    s.put_forward(52817, "ready", "bw-fwd-mac2-a9deae");
     let (code, lines) = s.run(&["status"]);
     assert_eq!(code, 0);
     let f = lines.iter().find(|l| l["type"] == "forward").unwrap();
@@ -676,7 +729,7 @@ fn status_marks_a_forward_without_terminal_stopped() {
 fn status_starts_nothing() {
     let _serial = serial();
     let s = Scene::stopped();
-    s.put_forward("mac2", 52817, "reconnecting", "bw-fwd-mac2");
+    s.put_forward(52817, "reconnecting", "bw-fwd-mac2-a9deae");
     let (code, lines) = s.run(&["status"]);
     assert_eq!(code, 0, "{lines:?}");
     assert_eq!(lines[0]["type"], "chrome", "{lines:?}");
@@ -745,7 +798,7 @@ fn two_forward_ensures_at_once_start_one_terminal() {
     assert_eq!(lb[0]["state"], "ready", "{lb:?}");
     assert_eq!(la[0]["port"], lb[0]["port"], "{la:?} {lb:?}");
     assert_eq!(
-        s.count("hc.log", "run bw-fwd-mac2 "),
+        s.count("hc.log", "run bw-fwd-mac2-a9deae "),
         1,
         "two ensures at once started two terminals: {}",
         s.log("hc.log")

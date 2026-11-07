@@ -15,11 +15,17 @@ const TOOLSEARCH_LINE =
 const CODEX_LINE =
   "In Codex's `exec` tool, pass a screenshot's image block to `image(...)`, not `text(...)`, so you and the user see the picture.";
 
+const BROWSER_ID = "71d8450a-71c6-4a85-b012-325fe0e3e1d0";
+// A port file holds the port, then the browser id of the Chrome that port reached when the agent started.
+const PORT_FILE = `52817\n${BROWSER_ID}\n`;
+
+// The browser's own endpoint, not just the port: Chrome answers 404 to an upgrade for another browser id, so a
+// session started against one Bellwether Chrome never reconnects to whatever takes the port after it.
 const PINNED_ARGV = [
   "-y",
   "chrome-devtools-mcp@1.12.0",
-  "--browserUrl",
-  "http://127.0.0.1:52817",
+  "--wsEndpoint",
+  `ws://127.0.0.1:52817/devtools/browser/${BROWSER_ID}`,
   "--no-usage-statistics",
   "--no-performance-crux",
   "--screenshotFormat",
@@ -89,17 +95,24 @@ describe("browser instructions", () => {
 
 describe("browser-mcp launcher", () => {
   test("launcher execs npx with the pinned version and flags", () => {
-    const { home, bin } = setup({ w1: "52817\n" });
+    const { home, bin } = setup({ w1: PORT_FILE });
     const r = run(["w1"], { HOME: home, PATH: `${bin}:/usr/bin:/bin` });
     expect(r.err).toBe("");
     expect(r.code).toBe(0);
     expect(argvOf(r.out)).toEqual(PINNED_ARGV);
   });
 
-  test("launcher refuses a missing or non-numeric port with one stderr line and exit 1", () => {
-    const { home, bin } = setup({ bad: "52817x\n", empty: "", neg: "-1\n" });
+  test("launcher refuses a missing or non-numeric port, or a missing or odd browser id, with one stderr line and exit 1", () => {
+    const { home, bin } = setup({
+      bad: `52817x\n${BROWSER_ID}\n`,
+      empty: "",
+      neg: `-1\n${BROWSER_ID}\n`,
+      noid: "52817\n",
+      blankid: "52817\n\n",
+      slashid: "52817\n../../json/new\n",
+    });
     const env = { HOME: home, PATH: `${bin}:/usr/bin:/bin` };
-    for (const w of ["missing", "bad", "empty", "neg"]) {
+    for (const w of ["missing", "bad", "empty", "neg", "noid", "blankid", "slashid"]) {
       const r = run([w], env);
       expect(r.code).toBe(1);
       expect(r.out).toBe("");
@@ -109,7 +122,7 @@ describe("browser-mcp launcher", () => {
   });
 
   test("launcher refuses a window name that is not a slug", () => {
-    const { home, bin } = setup({ w1: "52817\n" });
+    const { home, bin } = setup({ w1: PORT_FILE });
     const env = { HOME: home, PATH: `${bin}:/usr/bin:/bin` };
     for (const args of [[], [""], ["../w1"], ["W1"], ["a".repeat(33)]]) {
       const r = run(args, env);
@@ -120,7 +133,7 @@ describe("browser-mcp launcher", () => {
   });
 
   test("launcher finds /opt/homebrew/bin/npx when PATH lacks npx", () => {
-    const { home, bin, npx } = setup({ w1: "52817" });
+    const { home, bin, npx } = setup({ w1: `52817\n${BROWSER_ID}` });
     const r = run(["w1"], {
       HOME: home,
       PATH: "/usr/bin:/bin",
@@ -134,7 +147,7 @@ describe("browser-mcp launcher", () => {
   });
 
   test("launcher without any npx exits 1 with one stderr line", () => {
-    const { home } = setup({ w1: "52817" });
+    const { home } = setup({ w1: PORT_FILE });
     const r = run(["w1"], { HOME: home, PATH: "/usr/bin:/bin", BW_NPX_FALLBACKS: join(home, "absent/npx") });
     expect(r.code).toBe(1);
     expect(r.err.split("\n").filter(Boolean)).toHaveLength(1);

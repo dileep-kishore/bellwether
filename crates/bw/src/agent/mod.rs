@@ -1,8 +1,8 @@
 //! `bw agent …`: Bellwether's agent files on the space's machine, and each new agent's extra argv.
 //!
 //! `ensure` writes, under `~/.local/share/bellwether/agent/`, the three browser instruction texts, the MCP
-//! launcher, `claude-mcp-<window>.json` and, given a port, `ports/<window>`. `args` prints the argv one Claude
-//! or Codex session adds; it changes no user setting.
+//! launcher, `claude-mcp-<window>.json` and, given a port and browser id, `ports/<window>`. `args` prints the
+//! argv one Claude or Codex session adds; it changes no user setting.
 
 use std::fs;
 use std::io::{self, Write};
@@ -36,7 +36,8 @@ const FILES: [(&str, &str, u32); 4] = [
     ("browser-mcp", LAUNCHER, 0o755),
 ];
 
-const USAGE: &str = "usage: bw agent ensure --window <w> [--port <p>] [--no-warm] \
+const USAGE: &str =
+    "usage: bw agent ensure --window <w> [--port <p> --browser-id <id>] [--no-warm] \
     | bw agent args --kind claude|codex --window <w> [--cwd <dir>] [--profile <p>] | bw agent warm";
 
 pub fn dir(home: &Path) -> PathBuf {
@@ -78,6 +79,11 @@ fn valid_window(w: &str) -> bool {
     (1..=32).contains(&w.len())
         && w.chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// A browser id as Chrome writes it in `/devtools/browser/<id>`; it goes into the launcher's URL path.
+fn valid_browser_id(id: &str) -> bool {
+    (1..=64).contains(&id.len()) && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 /// A Codex profile name; it names `<name>.config.toml`, so it may not be a path.
@@ -126,8 +132,13 @@ fn launcher(home: &Path) -> String {
     dir(home).join("browser-mcp").display().to_string()
 }
 
-/// Writes each file whose bytes differ and returns their names; `port: None` leaves `ports/<w>` as it is.
-pub fn ensure(home: &Path, window: &str, port: Option<u16>) -> Result<Vec<String>, String> {
+/// Writes each file whose bytes differ and returns their names. `browser` is the port this window's Chrome
+/// answers on here and that Chrome's browser id, which the launcher pins; None leaves `ports/<w>` as it is.
+pub fn ensure(
+    home: &Path,
+    window: &str,
+    browser: Option<(u16, &str)>,
+) -> Result<Vec<String>, String> {
     if !valid_window(window) {
         return Err(format!(
             "window name must be 1-32 of a-z, 0-9 and -, got {window:?}"
@@ -145,10 +156,13 @@ pub fn ensure(home: &Path, window: &str, port: Option<u16>) -> Result<Vec<String
         format!("{mcp}\n").into_bytes(),
         0o644,
     ));
-    if let Some(p) = port {
+    if let Some((port, id)) = browser {
+        if !valid_browser_id(id) {
+            return Err(format!("{id:?} is not a browser id"));
+        }
         files.push((
             format!("ports/{window}"),
-            format!("{p}\n").into_bytes(),
+            format!("{port}\n{id}\n").into_bytes(),
             0o644,
         ));
     }
@@ -337,7 +351,7 @@ fn window_opt(opts: &args::Args) -> Result<&str, ExitCode> {
 }
 
 fn ensure_cmd(home: &Path, rest: &[String]) -> ExitCode {
-    let opts = match args::parse(rest, &["no-warm"], &["window", "port"]) {
+    let opts = match args::parse(rest, &["no-warm"], &["window", "port", "browser-id"]) {
         Ok(o) => o,
         Err(e) => return crate::usage(&format!("{e}; {USAGE}")),
     };
@@ -350,7 +364,16 @@ fn ensure_cmd(home: &Path, rest: &[String]) -> ExitCode {
         Some(Ok(p)) if p > 0 => Some(p),
         Some(_) => return crate::usage(&format!("--port takes 1-65535; {USAGE}")),
     };
-    let changed = match ensure(home, window, port) {
+    // A port without its browser's id would let the launcher reach whatever listens there later.
+    let browser = match (port, opts.get("browser-id")) {
+        (None, None) => None,
+        (Some(p), Some(id)) if valid_browser_id(id) => Some((p, id)),
+        (Some(_), Some(id)) => {
+            return crate::usage(&format!("--browser-id {id:?} is not a browser id; {USAGE}"))
+        }
+        _ => return crate::usage(&format!("--port and --browser-id go together; {USAGE}")),
+    };
+    let changed = match ensure(home, window, browser) {
         Ok(c) => c,
         Err(e) => return crate::chat::error("write_failed", &e),
     };

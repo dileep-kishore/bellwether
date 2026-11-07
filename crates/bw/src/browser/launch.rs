@@ -106,24 +106,27 @@ impl Request {
 /// failure gives an empty argv, so the agent starts as it would without Bellwether.
 fn agent_args(req: &Request) -> Value {
     let chrome = chrome::up(chrome::port(), &chrome::profile_dir(), true);
-    if chrome.state != "running" {
-        return req.line(Err(chrome.message));
-    }
+    let id = match (chrome.state, &chrome.browser_id) {
+        ("running", Some(id)) => id.clone(),
+        _ => return req.line(Err(chrome.message)),
+    };
     let window = agent::this_window();
     let argv = if req.machine.is_empty() {
-        local_args(req, &window, chrome.port)
+        local_args(req, &window, chrome.port, &id)
     } else {
         remote_args(req, &window)
     };
     req.line(argv)
 }
 
-fn local_args(req: &Request, window: &str, port: u16) -> Result<Vec<String>, String> {
+/// Every call rewrites the port file with the Chrome's current id, so a session started after a Chrome restart
+/// pins the new one while running sessions keep the old one and fail.
+fn local_args(req: &Request, window: &str, port: u16, id: &str) -> Result<Vec<String>, String> {
     let home = std::env::var_os("HOME")
         .filter(|h| !h.is_empty())
         .map(PathBuf::from)
         .ok_or("HOME is not set")?;
-    agent::ensure(&home, window, Some(port))?;
+    agent::ensure(&home, window, Some((port, id)))?;
     if !agent::warmed(&home) {
         start_warm(None);
     }
@@ -140,9 +143,13 @@ fn local_args(req: &Request, window: &str, port: u16) -> Result<Vec<String>, Str
 fn remote_args(req: &Request, window: &str) -> Result<Vec<String>, String> {
     let m = req.machine.as_str();
     let f = forward::ensure(m, req.target.as_deref(), req.ssh_config.as_deref());
-    let port = match (f.state.as_str(), f.port) {
-        ("ready", Some(port)) => port.to_string(),
-        (state, _) if f.reason.is_empty() => {
+    // The id the forward's last check passed with, which is the one its port reaches.
+    let (port, id) = match (f.state.as_str(), f.port, &f.browser_id) {
+        ("ready", Some(port), Some(id)) => (port.to_string(), id.clone()),
+        ("ready", _, _) => {
+            return Err(format!("the browser forward to {m} has no checked browser"))
+        }
+        (state, _, _) if f.reason.is_empty() => {
             return Err(format!("the browser forward to {m} is {state}"))
         }
         _ => return Err(f.reason),
@@ -154,6 +161,8 @@ fn remote_args(req: &Request, window: &str) -> Result<Vec<String>, String> {
         window,
         "--port",
         &port,
+        "--browser-id",
+        &id,
         "--no-warm",
     ];
     let v = relay(m, &ensure)?;

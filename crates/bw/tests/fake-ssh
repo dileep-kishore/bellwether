@@ -7,6 +7,7 @@
 #   FAKE_SSH_PROXY_TO       a 127.0.0.1 port to pass connections to instead of the destination
 #   FAKE_SSH_EXIT_AFTER_MS  exit 255 this long after starting, as ssh does when the connection drops
 #   FAKE_SSH_EXIT_STARTS    N: only the first N starts (counted in FAKE_SSH_LOG) exit; default every start
+#   FAKE_SSH_LIFELINE       a pid, normally the test process: once it is gone, kill this process group
 js='
 const fs = require("fs");
 const args = process.argv.slice(1);
@@ -63,6 +64,19 @@ try {
   Bun.listen({ hostname: env.FAKE_SSH_WILDCARD === "1" ? "0.0.0.0" : "127.0.0.1", port, socket: pipe });
 } catch (e) {
   taken();
+}
+// A test process that dies without unwinding never drops its Scene, so the supervisor would wait on this
+// ssh forever; fake hc makes the supervisor its group leader, so the group id is the parent pid.
+const lifeline = Number(env.FAKE_SSH_LIFELINE || 0);
+if (lifeline > 0) {
+  setInterval(() => {
+    try {
+      process.kill(lifeline, 0);
+    } catch {
+      try { process.kill(-process.ppid, "SIGKILL"); } catch {}
+      process.exit(255);
+    }
+  }, 200);
 }
 const after = Number(env.FAKE_SSH_EXIT_AFTER_MS || 0);
 const limit = Number(env.FAKE_SSH_EXIT_STARTS || 0);

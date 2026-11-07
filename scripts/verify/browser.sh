@@ -182,7 +182,7 @@ cleanup() {
   HC_SESSION=$core "$hc" server stop > /dev/null 2>&1
   for p in "$L"/*.pid; do [ -f "$p" ] && kill "$(cat "$p")" 2> /dev/null; done
   # MCP servers whose agent ended without stopping them; ours name this run's ports.
-  for p in $(pgrep -f "chrome-devtools-mcp@1.12.0 --browserUrl http://127.0.0.1:(${cport:-x}|${fport:-x})( |$)"); do
+  for p in $(pgrep -f "chrome-devtools-mcp@1.12.0 --wsEndpoint ws://127.0.0.1:(${cport:-x}|${fport:-x})/"); do
     echo "NOTE killed a chrome-devtools-mcp its agent left running: $(ps -ww -o command= -p "$p" | cut -c1-120)"
     kill "$p" 2> /dev/null
   done
@@ -341,8 +341,9 @@ else
   fail "forward-ready" "forward $fwd; listeners [$addrs]; browser id through it $via_id, Chrome's $chrome_id"
 fi
 pf=$(there sh -c 'cat "$HOME"/.local/share/bellwether/agent/ports/*' 2>&1)
-[ "$pf" = "$fport" ] && pass "remote-port-file" "$machine's agent/ports file holds the forward's port $fport" ||
-  fail "remote-port-file" "$machine's agent/ports holds [$pf], the forward is on $fport"
+[ "$pf" = "$(printf '%s\n%s' "$fport" "$chrome_id")" ] &&
+  pass "remote-port-file" "$machine's agent/ports file holds the forward's port $fport and the Chrome's id $chrome_id" ||
+  fail "remote-port-file" "$machine's agent/ports holds [$pf], the forward is on $fport to browser $chrome_id"
 
 # Codex's rollout and PATH are that machine's; Codex gets a scratch CODEX_HOME holding a copy of auth.json.
 rpath=$(there sh -c 'printf %s "$PATH"' 2>&1)

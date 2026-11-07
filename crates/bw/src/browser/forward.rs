@@ -21,6 +21,7 @@ use serde_json::{json, Value};
 
 use super::{cdp, chrome, http, listen, lock};
 use crate::chat::cache;
+use crate::chat::protocol::fnv1a;
 use crate::hc::{self, HcError};
 use crate::machine::RUN_HELPER;
 
@@ -34,6 +35,8 @@ const PORT_TRIES: usize = 3;
 const LOCK_SLACK: Duration = Duration::from_secs(5);
 const DEV_ANSWER: Duration = Duration::from_secs(3);
 const DEV_RECHECK: Duration = Duration::from_secs(10);
+/// How often a browser forward that stays up checks again that it reaches the Chrome it was checked against.
+const BROWSER_RECHECK: Duration = Duration::from_secs(60);
 const UP_POLL: Duration = Duration::from_millis(500);
 /// Seconds between reconnects: 2, 4, 8, 16, 30, then every 60.
 const BACKOFF_S: [u64; 5] = [2, 4, 8, 16, 30];
@@ -311,8 +314,11 @@ fn run_keep(args: &[String]) -> ExitCode {
     keep(kind, machine, target, port, config.as_deref())
 }
 
-/// `[a-z0-9-]`, lower case, short enough that `bw-fwd-<slug>` fits hc's 32 characters.
-pub fn slug(machine: &str) -> String {
+/// 6 hex of FNV-1a over the whole name; `-` and 6 hex.
+const HASH_LEN: usize = 7;
+
+/// `[a-z0-9-]`, lower case, at most `max` characters, without a trailing `-`.
+fn readable(machine: &str, max: usize) -> String {
     let s: String = machine
         .chars()
         .map(|c| {
@@ -323,24 +329,34 @@ pub fn slug(machine: &str) -> String {
                 '-'
             }
         })
-        .take(NAME_MAX - "bw-fwd-".len())
+        .take(max)
         .collect();
-    if s.is_empty() {
-        "machine".into()
-    } else {
-        s
+    match s.trim_end_matches('-') {
+        "" => "machine".into(),
+        s => s.into(),
     }
 }
 
-/// `bw-fwd-<slug>`, or `bw-dev-<slug>-<port>` with the slug cut so the port always fits.
+fn name_hash(machine: &str) -> String {
+    let h = u64::from_str_radix(&fnv1a(machine), 16).unwrap_or(0);
+    format!("{:06x}", h & 0xff_ffff)
+}
+
+/// A readable prefix and a hash of the whole name, so machines that share a prefix or differ only in case or
+/// punctuation never share a state file, lock or terminal; `bw-fwd-<slug>` fits hc's 32 characters.
+pub fn slug(machine: &str) -> String {
+    let room = NAME_MAX - "bw-fwd-".len() - HASH_LEN;
+    format!("{}-{}", readable(machine, room), name_hash(machine))
+}
+
+/// `bw-fwd-<slug>`, or `bw-dev-<prefix>-<hash>-<port>` with the prefix cut so the hash and port always fit.
 pub fn terminal_name(kind: Kind, machine: &str, port: u16) -> String {
-    let slug = slug(machine);
     match kind {
-        Kind::Browser => format!("bw-fwd-{slug}"),
+        Kind::Browser => format!("bw-fwd-{}", slug(machine)),
         Kind::Dev => {
-            let tail = format!("-{port}");
+            let tail = format!("-{}-{port}", name_hash(machine));
             let room = NAME_MAX - "bw-dev-".len() - tail.len();
-            format!("bw-dev-{}{tail}", &slug[..slug.len().min(room)])
+            format!("bw-dev-{}{tail}", readable(machine, room))
         }
     }
 }
@@ -610,7 +626,14 @@ fn resolve(program: OsString) -> String {
 /// What the supervisor needs from this process's settings: a terminal gets the core's environment, not ours.
 fn keep_env() -> Vec<String> {
     let mut env = vec![format!("BW_HC={}", resolve(hc::program()))];
-    for key in ["BW_SSH", "BW_CHROME_PORT", "BW_CHROME_PROFILE", "BW_PS"] {
+    for key in [
+        "BW_SSH",
+        "BW_CHROME_PORT",
+        "BW_CHROME_PROFILE",
+        "BW_PS",
+        "BW_PROC_ARGV",
+        "BW_FORWARD_RECHECK_MS",
+    ] {
         if let Some(v) = std::env::var_os(key).filter(|v| !v.is_empty()) {
             env.push(format!("{key}={}", v.to_string_lossy()));
         }
@@ -729,6 +752,17 @@ fn wait_settled(path: &Path, started: &Forward) -> Forward {
     }
 }
 
+/// Why a state file at `machine`'s path is another machine's, whose terminal this call must leave alone.
+fn belongs_elsewhere(rec: &Forward, machine: &str, path: &Path) -> Option<String> {
+    (rec.machine != machine).then(|| {
+        format!(
+            "{} belongs to the forward to {:?}, not {machine:?}; stop that one first",
+            path.display(),
+            rec.machine
+        )
+    })
+}
+
 /// `bw browser forward ensure`: a checked browser forward to `machine`, reused when one is ready.
 pub fn ensure(machine: &str, target: Option<&str>, ssh_config: Option<&Path>) -> Forward {
     // A second ensure for the machine would remove the first one's new terminal; it waits and reuses it.
@@ -756,9 +790,14 @@ fn ensure_held(machine: &str, target: Option<&str>, ssh_config: Option<&Path>) -
     };
     let path = state_path(Kind::Browser, machine, 0);
     let old = read(&path);
+    if let Some(other) = old
+        .as_ref()
+        .and_then(|o| belongs_elsewhere(o, machine, &path))
+    {
+        return rec.with("refused", other);
+    }
     if let Some(old) = &old {
         if old.state == "ready"
-            && old.machine == machine
             && old.target == rec.target
             && old.browser_id.as_deref() == Some(id.as_str())
             && runs_keep(&old.terminal, old.port)
@@ -817,6 +856,9 @@ pub fn dev(machine: &str, port: u16, target: Option<&str>, ssh_config: Option<&P
     let rec = Forward { target, ..rec };
     let path = state_path(Kind::Dev, machine, port);
     if let Some(old) = read(&path) {
+        if let Some(other) = belongs_elsewhere(&old, machine, &path) {
+            return rec.with("refused", other);
+        }
         if matches!(old.state.as_str(), "ready" | "ready_no_answer")
             && old.target == rec.target
             && runs_keep(&old.terminal, old.port)
@@ -864,6 +906,10 @@ pub fn stop(machine: &str, dev: Option<u16>) -> Forward {
     };
     let path = state_path(kind, machine, dev.unwrap_or(0));
     let rec = read(&path).unwrap_or_else(|| Forward::new(kind, machine, "", dev));
+    if let Some(other) = belongs_elsewhere(&rec, machine, &path) {
+        let state = rec.state.clone();
+        return rec.with(&state, other);
+    }
     if let Err(e) = remove_terminal(&rec.terminal) {
         let state = rec.state.clone();
         return rec.with(&state, format!("cannot stop it: {e}"));
@@ -1084,6 +1130,34 @@ fn report(path: &Path, rec: &Forward) {
     );
 }
 
+/// `BROWSER_RECHECK`, or `BW_FORWARD_RECHECK_MS` for tests.
+fn browser_recheck() -> Duration {
+    std::env::var("BW_FORWARD_RECHECK_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|ms| *ms > 0)
+        .map_or(BROWSER_RECHECK, Duration::from_millis)
+}
+
+/// None while the forward still reaches the Chrome with `id`; else why it must close. Agents hold that id, so a
+/// restarted Chrome makes this forward useless to them, and anything else on the port must never be reached.
+fn recheck_browser(machine: &str, port: u16, id: &str) -> Option<String> {
+    let c = chrome::probe(chrome::port(), &chrome::profile_dir());
+    match (c.state, c.browser_id.as_deref()) {
+        ("running", Some(now)) if now == id => {}
+        ("running", Some(now)) => {
+            return Some(format!(
+                "the Bellwether Chrome is now browser {now}, not {id}, which this forward was checked against"
+            ))
+        }
+        _ => return Some(c.message),
+    }
+    match remote_check(machine, port, id) {
+        Check::Wrong(reason) => Some(reason),
+        Check::Pass | Check::NotYet(_) => None,
+    }
+}
+
 fn backoff(failures: usize) -> Duration {
     Duration::from_secs(BACKOFF_S.get(failures).copied().unwrap_or(BACKOFF_MAX_S))
 }
@@ -1144,6 +1218,7 @@ fn keep(kind: Kind, machine: &str, target: &str, port: u16, ssh_config: Option<&
                 failures = 0;
                 ssh.forget_lines();
                 let mut last = Instant::now();
+                let every = browser_recheck();
                 while ssh.running() {
                     thread::sleep(UP_POLL);
                     if kind == Kind::Dev && last.elapsed() >= DEV_RECHECK {
@@ -1153,6 +1228,17 @@ fn keep(kind: Kind, machine: &str, target: &str, port: u16, ssh_config: Option<&
                             report(&path, &rec);
                         }
                         last = Instant::now();
+                    }
+                    if let (Kind::Browser, Some(id)) = (kind, &id) {
+                        if last.elapsed() >= every {
+                            if let Some(reason) = recheck_browser(machine, port, id) {
+                                ssh.finish();
+                                return give_up(rec, "refused", reason);
+                            }
+                            rec.checked_at_ms = now_ms();
+                            write(&path, &rec);
+                            last = Instant::now();
+                        }
                     }
                 }
             }
@@ -1250,13 +1336,16 @@ mod tests {
 
     #[test]
     fn slug_and_terminal_names_fit_32() {
-        assert_eq!(slug("macmini"), "macmini");
-        assert_eq!(slug("Mac Mini.local"), "mac-mini-local");
-        assert_eq!(slug(""), "machine");
-        assert_eq!(terminal_name(Kind::Browser, "macmini", 0), "bw-fwd-macmini");
+        assert_eq!(slug("macmini"), "macmini-c27a57");
+        assert_eq!(slug("Mac Mini.local"), "mac-mini-local-ba0f9a");
+        assert_eq!(slug(""), "machine-222325");
+        assert_eq!(
+            terminal_name(Kind::Browser, "macmini", 0),
+            "bw-fwd-macmini-c27a57"
+        );
         assert_eq!(
             terminal_name(Kind::Dev, "macmini", 3000),
-            "bw-dev-macmini-3000"
+            "bw-dev-macmini-c27a57-3000"
         );
         let long = "a-very-long-machine-name-that-goes-on.example.com";
         for name in [
@@ -1274,6 +1363,28 @@ mod tests {
         // The port survives the cut, so two dev forwards to one machine never share a name.
         assert!(terminal_name(Kind::Dev, long, 65535).ends_with("-65535"));
         assert_eq!(terminal_name(Kind::Browser, long, 0).len(), 32);
+    }
+
+    #[test]
+    fn distinct_machines_never_share_a_name() {
+        let pairs = [
+            (
+                "builder-production-us-east-1",
+                "builder-production-us-east-2",
+            ),
+            ("Mac.mini", "mac-mini"),
+            ("MACMINI", "macmini"),
+            ("a", "a-"),
+        ];
+        for (a, b) in pairs {
+            assert_ne!(slug(a), slug(b), "{a} {b}");
+            for (kind, port) in [(Kind::Browser, 0), (Kind::Dev, 65535), (Kind::Dev, 1)] {
+                let (ta, tb) = (terminal_name(kind, a, port), terminal_name(kind, b, port));
+                assert_ne!(ta, tb, "{a} {b}");
+                assert!(ta.len() <= 32 && tb.len() <= 32, "{ta} {tb}");
+                assert_ne!(state_path(kind, a, port), state_path(kind, b, port));
+            }
+        }
     }
 
     #[test]

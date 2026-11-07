@@ -1,5 +1,6 @@
 //! `bw browser tabs|focus|close|new` against an in-test DevTools HTTP server and CDP WebSocket on free
-//! 127.0.0.1 ports, with fake `curl` and `sips` for favicons.
+//! 127.0.0.1 ports, with fake `curl` and `sips` for favicons and a fake argv reader that makes the in-test
+//! server the Bellwether Chrome or another program.
 
 use std::collections::HashSet;
 use std::fs;
@@ -14,6 +15,15 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 use tungstenite::Message;
+
+// Only `serial` is used here.
+#[allow(dead_code)]
+#[path = "support/ports.rs"]
+mod ports;
+use ports::serial;
+#[path = "support/argv.rs"]
+mod argv;
+use argv::{chrome_argv, fake_argv};
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x10\0\0\0\x10\x08\x06\0\0\0\x1f\xf3\xffa";
 const ICO: &[u8] = b"\0\0\x01\0\x01\0\x10\x10\0\0\x01\0 \0h\x04\0\0\x16\0\0\0";
@@ -212,7 +222,18 @@ impl Scratch {
              cp \"$FAKE_DIR/converted.png\" \"$last\"\n",
         );
         fs::write(dir.path().join("converted.png"), PNG).unwrap();
-        Scratch { dir }
+        let scratch = Scratch { dir };
+        scratch.listener_runs(&chrome_argv(&scratch.profile(), 9222));
+        scratch
+    }
+
+    fn profile(&self) -> PathBuf {
+        self.path().join("profile")
+    }
+
+    /// Every pid, so the in-test server too, runs `argv` to the argv reader.
+    fn listener_runs(&self, argv: &[String]) {
+        fake_argv(&self.path().join("argv"), Some(argv));
     }
 
     fn path(&self) -> &Path {
@@ -246,6 +267,8 @@ impl Scratch {
             .env("HOME", self.path())
             .env("HERDR_APP_HOME", self.path().join("app"))
             .env("BW_CHROME_PORT", port.to_string())
+            .env("BW_CHROME_PROFILE", self.profile())
+            .env("BW_PROC_ARGV", self.path().join("argv"))
             .env("BW_CURL", self.path().join("curl"))
             .env("BW_SIPS", self.path().join("sips"))
             .env("FAKE_DIR", self.path())
@@ -296,6 +319,7 @@ fn fnv16(s: &str) -> String {
 
 #[test]
 fn lists_pages_only() {
+    let _serial = serial();
     let chrome = Chrome::start(fixture_list(), &[]);
     let scratch = Scratch::new();
     let out = scratch.bw(chrome.port, &["tabs"]);
@@ -328,6 +352,7 @@ fn lists_pages_only() {
 
 #[test]
 fn active_comes_from_has_focus() {
+    let _serial = serial();
     // Window 1 holds A, B, C with B active; window 2 holds W2. A is first in /json/list.
     let list = json!([
         page("A", "http://127.0.0.1:9/a.html", None),
@@ -377,6 +402,7 @@ fn active_comes_from_has_focus() {
 
 #[test]
 fn tabs_without_chrome_is_an_error() {
+    let _serial = serial();
     let free = TcpListener::bind("127.0.0.1:0")
         .unwrap()
         .local_addr()
@@ -393,6 +419,7 @@ fn tabs_without_chrome_is_an_error() {
 
 #[test]
 fn new_uses_put() {
+    let _serial = serial();
     let chrome = Chrome::start(json!([page("A", "about:blank", None)]), &[]);
     let scratch = Scratch::new();
     let out = scratch.bw(
@@ -408,11 +435,16 @@ fn new_uses_put() {
     );
     let out = scratch.bw(chrome.port, &["new"]);
     assert_eq!(out.status.code(), Some(0), "{out:?}");
+    // Each command first checks the listener is the Bellwether Chrome, which reads /json/version twice.
     assert_eq!(
         chrome.requests(),
         [
+            "GET /json/version",
+            "GET /json/version",
             "PUT /json/new?http://127.0.0.1:9/a%20b%3Fx%3D1%26y%3D%C3%A9%23top",
             "GET /json/activate/NEWTAB",
+            "GET /json/version",
+            "GET /json/version",
             "PUT /json/new?about:blank",
             "GET /json/activate/NEWTAB",
         ]
@@ -421,6 +453,7 @@ fn new_uses_put() {
 
 #[test]
 fn focus_and_close_hit_the_id() {
+    let _serial = serial();
     let chrome = Chrome::start(json!([page("AB12", "about:blank", None)]), &[]);
     let scratch = Scratch::new();
 
@@ -450,18 +483,91 @@ fn focus_and_close_hit_the_id() {
     }
     let out = scratch.bw(chrome.port, &["focus"]);
     assert_eq!(out.status.code(), Some(2), "{out:?}");
+    // Usage errors exit before the ownership check, so they reach nothing.
     assert_eq!(
-        chrome.requests(),
+        chrome
+            .requests()
+            .into_iter()
+            .filter(|r| r != "GET /json/version")
+            .collect::<Vec<_>>(),
         [
             "GET /json/activate/AB12",
             "GET /json/close/AB12",
             "GET /json/activate/GONE"
         ]
     );
+    assert_eq!(
+        chrome.requests().len(),
+        3 + 3 * 2,
+        "{:?}",
+        chrome.requests()
+    );
+}
+
+/// Every command against a listener that is not the Bellwether Chrome: no request reaches it.
+fn refuses_listener(argv: impl Fn(&Path) -> Vec<String>, why: &str) {
+    let chrome = Chrome::start(json!([page("AB12", "about:blank", None)]), &[]);
+    let scratch = Scratch::new();
+    scratch.listener_runs(&argv(&scratch.profile()));
+    let out = scratch.bw(chrome.port, &["tabs"]);
+    assert_eq!(out.status.code(), Some(1), "{why}: {out:?}");
+    let l = lines(&out);
+    assert_eq!(l.len(), 1, "{why}: {l:?}");
+    assert_eq!(l[0]["type"], "error", "{why}");
+    assert_eq!(l[0]["code"], "chrome_unreachable", "{why}");
+    let message = l[0]["message"].as_str().unwrap();
+    assert!(message.contains("(port_taken)"), "{why}: {message}");
+    for args in [
+        &["focus", "--id", "AB12"][..],
+        &["close", "--id", "AB12"][..],
+        &["new"][..],
+    ] {
+        let out = scratch.bw(chrome.port, args);
+        assert_eq!(out.status.code(), Some(0), "{why} {args:?}: {out:?}");
+        let l = lines(&out);
+        assert_eq!(l.len(), 1, "{why} {args:?}: {l:?}");
+        assert_eq!(l[0]["type"], "tab-action", "{why} {args:?}");
+        assert_eq!(l[0]["action"], args[0], "{why} {args:?}");
+        assert_eq!(l[0]["ok"], false, "{why} {args:?}");
+        let message = l[0]["message"].as_str().unwrap();
+        assert!(
+            message.contains("another program"),
+            "{why} {args:?}: {message}"
+        );
+        assert!(
+            message.ends_with("(port_taken)"),
+            "{why} {args:?}: {message}"
+        );
+    }
+    assert!(
+        chrome.requests().is_empty(),
+        "{why}: {:?}",
+        chrome.requests()
+    );
+    assert!(chrome.cdp().is_empty(), "{why}: {:?}", chrome.cdp());
+}
+
+#[test]
+fn commands_refuse_another_program() {
+    let _serial = serial();
+    let argv = |_: &Path| ["python3", "-m", "http.server"].map(String::from).to_vec();
+    refuses_listener(argv, "another program");
+}
+
+#[test]
+fn commands_refuse_another_profile() {
+    let _serial = serial();
+    for suffix in ["-2", " other"] {
+        let argv = |profile: &Path| {
+            chrome_argv(Path::new(&format!("{}{suffix}", profile.display())), 9222)
+        };
+        refuses_listener(argv, suffix);
+    }
 }
 
 #[test]
 fn data_favicon_is_decoded() {
+    let _serial = serial();
     let png_url = format!(
         "data:image/png;base64,{}",
         base64::Engine::encode(&base64::engine::general_purpose::STANDARD, PNG)
@@ -498,6 +604,7 @@ fn data_favicon_is_decoded() {
 
 #[test]
 fn favicon_fetch_budget_is_four() {
+    let _serial = serial();
     let list: Vec<Value> = (1..=6)
         .map(|i| {
             page(
@@ -544,6 +651,7 @@ fn favicon_fetch_budget_is_four() {
 
 #[test]
 fn failed_favicon_is_not_retried_within_an_hour() {
+    let _serial = serial();
     let url = "http://127.0.0.1:9/missing.png";
     let chrome = Chrome::start(
         json!([page("A", "http://127.0.0.1:9/a.html", Some(url))]),
@@ -576,6 +684,7 @@ fn failed_favicon_is_not_retried_within_an_hour() {
 
 #[test]
 fn ico_is_converted_or_dropped() {
+    let _serial = serial();
     let url = "http://127.0.0.1:9/favicon.ico";
     let chrome = Chrome::start(
         json!([page("A", "http://127.0.0.1:9/a.html", Some(url))]),
@@ -608,6 +717,7 @@ fn ico_is_converted_or_dropped() {
 
 #[test]
 fn non_image_and_non_http_favicons_are_dropped() {
+    let _serial = serial();
     let list = json!([
         page(
             "H",
@@ -630,6 +740,7 @@ fn non_image_and_non_http_favicons_are_dropped() {
 
 #[test]
 fn no_favicons_without_an_app_home() {
+    let _serial = serial();
     let chrome = Chrome::start(
         json!([page(
             "A",
@@ -653,6 +764,7 @@ fn no_favicons_without_an_app_home() {
 
 #[test]
 fn prune_drops_files_older_than_7_days() {
+    let _serial = serial();
     let chrome = Chrome::start(json!([page("A", "about:blank", None)]), &[]);
     let scratch = Scratch::new();
     let dir = scratch.favicons();
