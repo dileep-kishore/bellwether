@@ -124,6 +124,8 @@ impl Scene {
                 manifest().join("tests/fake-ssh").display().to_string(),
             ),
             ("FAKE_SSH_LOG", d.join("ssh.log").display().to_string()),
+            // The fake ssh ends its supervisor when this process is gone, even killed before a Scene drops.
+            ("FAKE_SSH_LIFELINE", std::process::id().to_string()),
             ("BW_CHROME_PORT", chrome_port.to_string()),
             ("BW_CHROME_PROFILE", profile.display().to_string()),
             ("BW_PS", d.join("ps").display().to_string()),
@@ -701,6 +703,25 @@ fn stop_kills_and_removes_the_terminal() {
     // Stopping again finds nothing and says so the same way.
     let (code, again) = s.run(&["forward", "stop", "--machine", "mac2"]);
     assert_eq!((code, again["state"].clone()), (0, json!("stopped")));
+}
+
+#[test]
+fn supervisor_ends_when_the_test_process_does() {
+    let _serial = serial();
+    let mut s = Scene::new();
+    // Stands in for a test process killed before its Scene could drop.
+    let mut lifeline = Command::new("sleep").arg("60").spawn().unwrap();
+    s.set("FAKE_SSH_LIFELINE", &lifeline.id().to_string());
+    let v = s.ensure();
+    assert_eq!(v["state"], "ready", "{v}");
+    let pid = s.pid("bw-fwd-mac2").unwrap();
+    lifeline.kill().unwrap();
+    lifeline.wait().unwrap();
+    assert!(
+        wait_dead(pid, Duration::from_secs(5)),
+        "the supervisor outlived its test process"
+    );
+    assert!(!listening(port_of(&v)), "its ssh is gone");
 }
 
 #[test]

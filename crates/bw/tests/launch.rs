@@ -190,6 +190,8 @@ impl Scene {
                 manifest().join("tests/fake-ssh").display().to_string(),
             ),
             ("FAKE_SSH_LOG", d.join("ssh.log").display().to_string()),
+            // The fake ssh ends its supervisor when this process is gone, even killed before a Scene drops.
+            ("FAKE_SSH_LIFELINE", std::process::id().to_string()),
             ("BW_CHROME_PORT", chrome_port.to_string()),
             ("BW_CHROME_PROFILE", profile.display().to_string()),
             (
