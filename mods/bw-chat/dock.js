@@ -117,13 +117,16 @@ function card(c, v, h) {
   const glyph = c.kind === "approval" ? icon("approval") : icon("question");
   const note = (c.state === "pending" && v.notes.get(c.id)) || c.note;
   const command = c.command.trim();
+  const tool = c.kind === "approval" ? c.tool.trim() : "";
   const detail = c.detail.trim() && c.detail.trim() !== command ? c.detail.trim() : "";
   return v_flex().id(`card-${c.id}`).w_full().flex_none().rounded(8).bg(t.raised).border(1).border_color(t.border).px(16).py(12).gap(8)
     .child(h_flex().w_full().gap(8).items_start()
       .child(svg(glyph).size(16).flex_none().text_color(pending ? t.blocked : t.muted))
       .child(div().flex_1().min_w(0).max_h(36).overflow_hidden().whitespace_normal().text_size(13).font_semibold().text_color(t.foreground).child(c.title)))
-    .when(Boolean(command), (el) => el.child(div().id(`cmd-${c.id}`).w_full().max_h(288).overflow_y_scrollbar().rounded(6).bg(t.chrome)
-      .px(10).py(8).font_family(MONO).text_size(12).text_color(t.foreground).whitespace_normal().child(command)))
+    .when(Boolean(command || tool), (el) => el.child(v_flex().id(`cmd-${c.id}`).w_full().max_h(288).overflow_y_scrollbar().rounded(6).bg(t.chrome)
+      .px(10).py(8).gap(4).font_family(MONO).text_size(12).text_color(t.foreground).whitespace_normal()
+      .when(Boolean(tool), (b) => b.child(div().id(`tool-${c.id}`).text_size(11.5).text_color(t.muted).child(tool)))
+      .when(Boolean(command), (b) => b.child(div().w_full().child(command)))))
     .when(Boolean(detail), (el) => el.child(div().w_full().text_size(12).text_color(t.dim).whitespace_normal().child(detail)))
     .map((el) => {
       const body = c.kind === "question" || c.kind === "question_async" ? questionBody(c, v, h) : null;

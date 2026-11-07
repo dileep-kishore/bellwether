@@ -108,6 +108,23 @@ describe("dock", () => {
       "--expect-session", CODEX_SESSION, "--expect-path", CODEX_PATH, "--action", "approve"]);
   });
 
+  test("an approval card names its tool with the command in monospace", async () => {
+    const m = await ready(CLAUDE, data());
+    expect(REQUEST.tool).toBe("Bash");
+    const box = byId(m.el, `cmd-${REQUEST.id}`);
+    expect(box.attrs.font_family).toBe("Menlo");
+    expect(textOf(byId(m.el, `tool-${REQUEST.id}`))).toBe("Bash");
+    expect(textOf(box)).toContain(REQUEST.command);
+
+    // A tool with no command still shows; a question's tool (AskUserQuestion) does not.
+    const edit = { ...REQUEST, id: "r4", tool: "Edit", command: "" };
+    const ask = { ...REQUEST, id: "r5.q", kind: "question", tool: "AskUserQuestion", command: "", actions: [],
+      question: { toolUseId: "q", agent: "claude", delivery: "picker", state: "pending", questions: [{ id: "a", header: "A", text: "A?", multi: false, options: [{ label: "x" }] }] } };
+    const n = await ready(CLAUDE, data({ feed: () => out(rootWith([edit, ask])) }));
+    expect(textOf(byId(n.el, "tool-r4"))).toBe("Edit");
+    expect(byId(n.el, "tool-r5.q")).toBe(null);
+  });
+
   test("Answer in terminal flips to the terminal and presses nothing", async () => {
     const m = await ready(CLAUDE, data());
     await m.click(`answer-${REQUEST.id}-terminal`);
