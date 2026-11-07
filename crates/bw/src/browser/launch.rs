@@ -250,7 +250,7 @@ fn status() -> Vec<Value> {
     let mut c = chrome::probe(port, &profile);
     let mut tabs = Vec::new();
     if c.state == "running" {
-        match tabs::list(port, &tabs::app_home(), tabs::FETCH_BUDGET) {
+        match tabs::list(port, &crate::chat::cache::app_home(), tabs::FETCH_BUDGET) {
             Ok(t) => tabs = t,
             Err(e) => c.message = format!("cannot list the tabs: {e}"),
         }

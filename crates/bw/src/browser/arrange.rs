@@ -2,11 +2,9 @@
 //!
 //! Herdr's `window()` has no bounds, so on macOS the Herdr window comes from the window server's list
 //! (`CGWindowListCopyWindowInfo`), whose global top-left points are the same space CDP's window
-//! bounds use. This file reaches nothing in the crate but `super::cdp` and `super::http`, so
+//! bounds use. This file reaches only its sibling browser modules and `crate::usage`, so
 //! `tests/arrange.rs` can compile it beside them.
 
-#[cfg(target_os = "macos")]
-use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 #[cfg(target_os = "macos")]
 use std::process::{Command, Stdio};
@@ -16,7 +14,7 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 
 use super::cdp::{self, Cdp};
-use super::http;
+use super::pages;
 
 const MIN_WIDTH: f64 = 640.0;
 const CALL_TIMEOUT: Duration = Duration::from_secs(3);
@@ -192,11 +190,16 @@ pub fn arrange(port: u16, herdr: Rect, displays: &[Rect]) -> Arranged {
 }
 
 fn set_bounds(port: u16, ws: &str, want: Bounds) -> Result<Bounds, String> {
-    let pages = pages(port)?;
-    let Some(first) = pages.first() else {
+    let list = pages::list(port)?;
+    let ids: Vec<&str> = list.iter().filter_map(|t| t["id"].as_str()).collect();
+    let Some(first) = ids.first() else {
         return Err("the Bellwether Chrome has no open window".to_string());
     };
-    let target = pages.iter().find(|id| has_focus(port, id)).unwrap_or(first);
+    let focused = pages::focused(port, &ids);
+    let target = ids
+        .iter()
+        .find(|id| focused.contains(**id))
+        .unwrap_or(first);
     let mut cdp = Cdp::connect(ws, CALL_TIMEOUT)?;
     let window = cdp.call("Browser.getWindowForTarget", json!({"targetId": target}))?;
     let id = window["windowId"]
@@ -241,104 +244,9 @@ fn wait_normal(cdp: &mut Cdp, id: i64, from: &str) -> Result<(), String> {
     }
 }
 
-/// Page target ids from `/json/list`, in its order, without DevTools and extension pages.
-fn pages(port: u16) -> Result<Vec<String>, String> {
-    let reply = http::get(port, "/json/list", CALL_TIMEOUT)
-        .map_err(|e| format!("GET http://127.0.0.1:{port}/json/list: {e}"))?;
-    let list: Value = serde_json::from_slice(&reply.body)
-        .map_err(|e| format!("/json/list on {port} is not JSON: {e}"))?;
-    let ids = list
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|t| t["type"] == "page")
-        .filter(|t| {
-            let url = t["url"].as_str().unwrap_or("");
-            !url.starts_with("devtools://") && !url.starts_with("chrome-extension://")
-        })
-        .filter_map(|t| t["id"].as_str())
-        .filter(|id| {
-            !id.is_empty()
-                && id
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-        })
-        .map(str::to_string)
-        .collect();
-    Ok(ids)
-}
-
-/// Whether the page is its window's active tab (Task 1 probe: `document.hasFocus()` tracks it).
-fn has_focus(port: u16, id: &str) -> bool {
-    let url = format!("ws://127.0.0.1:{port}/devtools/page/{id}");
-    let Ok(mut page) = Cdp::connect(&url, CALL_TIMEOUT) else {
-        return false;
-    };
-    let params = json!({"expression": "document.hasFocus()", "returnByValue": true});
-    page.call("Runtime.evaluate", params)
-        .is_ok_and(|r| r["result"]["value"] == true)
-}
-
-#[cfg(target_os = "macos")]
-fn port() -> u16 {
-    std::env::var("BW_CHROME_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(9222)
-}
-
-#[cfg(target_os = "macos")]
-fn profile_dir() -> PathBuf {
-    if let Some(p) = std::env::var_os("BW_CHROME_PROFILE") {
-        return PathBuf::from(p);
-    }
-    let home = std::env::var_os("HOME").unwrap_or_default();
-    PathBuf::from(home).join(".local/share/bellwether/chrome")
-}
-
 #[cfg(target_os = "macos")]
 fn ps() -> String {
     std::env::var("BW_PS").unwrap_or_else(|_| "ps".to_string())
-}
-
-/// Refuses unless every listener on `port` runs with our `--user-data-dir`, so arrange never
-/// attaches to another program or another Chrome.
-#[cfg(target_os = "macos")]
-fn ours(port: u16, profile: &Path) -> Result<(), String> {
-    let out = Command::new("lsof")
-        .args(["-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-Fp"])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .map_err(|e| format!("lsof: {e}"))?;
-    let pids: Vec<&str> = std::str::from_utf8(&out.stdout)
-        .unwrap_or("")
-        .lines()
-        .filter_map(|l| l.strip_prefix('p'))
-        .collect();
-    if pids.is_empty() {
-        return Err(format!(
-            "the Bellwether Chrome is not running (nothing listens on {port})"
-        ));
-    }
-    let flag = format!("--user-data-dir={}", profile.display());
-    for pid in pids {
-        let out = Command::new(ps())
-            .args(["-ww", "-o", "command=", "-p", pid])
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|e| format!("ps: {e}"))?;
-        let command = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        let holds = command
-            .match_indices(&flag)
-            .any(|(i, _)| matches!(command[i + flag.len()..].chars().next(), None | Some(' ')));
-        if !holds {
-            return Err(format!(
-                "port {port} is held by pid {pid} ({command}), not the Bellwether Chrome"
-            ));
-        }
-    }
-    Ok(())
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -346,9 +254,9 @@ pub fn run(args: &[String]) -> ExitCode {
         [] => None,
         [flag, pid] if flag == "--owner-pid" => match pid.parse::<i32>() {
             Ok(pid) if pid > 0 => Some(pid),
-            _ => return usage(&format!("--owner-pid {pid:?} is not a pid; {USAGE}")),
+            _ => return crate::usage(&format!("--owner-pid {pid:?} is not a pid; {USAGE}")),
         },
-        _ => return usage(USAGE),
+        _ => return crate::usage(USAGE),
     };
     println!("{}", arrange_here(owner_pid).json());
     ExitCode::SUCCESS
@@ -356,9 +264,21 @@ pub fn run(args: &[String]) -> ExitCode {
 
 #[cfg(target_os = "macos")]
 fn arrange_here(owner_pid: Option<i32>) -> Arranged {
-    let port = port();
-    if let Err(e) = ours(port, &profile_dir()) {
-        return Arranged::not("chrome_not_running", e);
+    use super::chrome;
+    let port = chrome::port();
+    // Only a listener that `up` would reuse, so arrange never attaches to another program or Chrome.
+    let found = chrome::probe(port, &chrome::profile_dir());
+    match found.state {
+        "running" => {}
+        "stopped" => {
+            let e = format!("the Bellwether Chrome is not running (nothing listens on {port})");
+            return Arranged::not("chrome_not_running", e);
+        }
+        "port_taken" => {
+            let e = format!("{}, not the Bellwether Chrome", found.message);
+            return Arranged::not("chrome_not_running", e);
+        }
+        _ => return Arranged::not("chrome_not_running", found.message),
     }
     let herdr = match herdr_window(owner_pid) {
         Ok(r) => r,
@@ -373,14 +293,6 @@ fn arrange_here(_owner_pid: Option<i32>) -> Arranged {
         "unsupported",
         "Arrange needs macOS's window list".to_string(),
     )
-}
-
-fn usage(message: &str) -> ExitCode {
-    println!(
-        "{}",
-        json!({"type": "error", "code": "usage", "message": message})
-    );
-    ExitCode::from(2)
 }
 
 #[cfg(target_os = "macos")]

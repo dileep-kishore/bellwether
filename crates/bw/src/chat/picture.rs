@@ -5,7 +5,7 @@
 use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::ExitCode;
 use std::time::SystemTime;
 
@@ -257,14 +257,6 @@ fn read_there(machine: &str, w: &Want) -> Fetch {
     }
 }
 
-/// `$HERDR_APP_HOME`, else `~/.config/herdr-app`.
-fn app_home() -> PathBuf {
-    if let Some(d) = std::env::var_os("HERDR_APP_HOME").filter(|d| !d.is_empty()) {
-        return d.into();
-    }
-    PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".config/herdr-app")
-}
-
 fn copied(w: &Want, format: Format, bytes: u64) -> Value {
     json!({
         "type": "picture",
@@ -315,7 +307,7 @@ pub fn run(argv: &[String]) -> ExitCode {
         Ok(w) => w,
         Err(m) => return crate::usage(&format!("{m}; {USAGE}")),
     };
-    let home = app_home();
+    let home = cache::app_home();
     // Herdr makes its app home; a missing one means no Herdr here, so none is made for it.
     if !home.is_dir() {
         return super::error(

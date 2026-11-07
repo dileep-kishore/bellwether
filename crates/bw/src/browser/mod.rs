@@ -3,16 +3,14 @@
 use std::process::ExitCode;
 
 pub mod arrange;
-// Wave B's commands are the first callers of the HTTP and CDP clients.
-#[allow(dead_code)]
 pub mod cdp;
 pub mod chrome;
 pub mod forward;
-#[allow(dead_code)]
 pub mod http;
 pub mod launch;
 pub mod listen;
 mod lock;
+pub mod pages;
 pub mod tabs;
 
 const USAGE: &str = "usage: bw browser up|down|tabs|focus|close|new|arrange|free-port|port-check\

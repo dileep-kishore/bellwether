@@ -4,7 +4,7 @@
 //!
 //! bw has no library target, so the browser modules are compiled into this test under their own paths.
 
-// `arrange.rs` reaches the clients as `super::cdp` and `super::http`, which are these.
+// `arrange.rs` reaches its siblings as `super::<name>`, which are these; parts unused here are dead.
 #[allow(dead_code)]
 #[path = "../src/browser/arrange.rs"]
 mod arrange;
@@ -12,8 +12,27 @@ mod arrange;
 #[path = "../src/browser/cdp.rs"]
 mod cdp;
 #[allow(dead_code)]
+#[path = "../src/browser/chrome.rs"]
+mod chrome;
+#[allow(dead_code)]
 #[path = "../src/browser/http.rs"]
 mod http;
+#[allow(dead_code)]
+#[path = "../src/browser/listen.rs"]
+mod listen;
+#[allow(dead_code)]
+#[path = "../src/browser/lock.rs"]
+mod lock;
+#[allow(dead_code)]
+#[path = "../src/browser/pages.rs"]
+mod pages;
+
+/// The binary's `usage`, which `arrange.rs` and `chrome.rs` reach as `crate::usage`; these tests run
+/// the binary for its usage errors.
+#[allow(dead_code)]
+fn usage(_message: &str) -> std::process::ExitCode {
+    std::process::ExitCode::from(2)
+}
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -118,7 +137,7 @@ struct Window {
 
 struct FakeChrome {
     port: u16,
-    /// Every browser-WebSocket request, in order.
+    /// Every `Browser.*` request on the browser WebSocket, in order; the focus reads are left out.
     calls: Arc<Mutex<Vec<Value>>>,
 }
 
@@ -172,17 +191,25 @@ fn serve(
                 continue;
             };
             let req: Value = serde_json::from_str(text.as_str()).unwrap();
-            let result = if let Some(id) = path.strip_prefix("/devtools/page/") {
-                assert_eq!(req["method"], "Runtime.evaluate");
-                assert_eq!(req["params"]["expression"], "document.hasFocus()");
-                let focus = pages.iter().any(|(p, f)| p == id && *f);
-                json!({"result": {"type": "boolean", "value": focus}})
-            } else {
-                assert_eq!(path, "/devtools/browser/test-id");
-                seen.lock().unwrap().push(req.clone());
-                browser_reply(&req, window)
+            assert_eq!(path, "/devtools/browser/test-id");
+            let reply = match req["method"].as_str().unwrap() {
+                "Target.attachToTarget" => {
+                    let target = req["params"]["targetId"].as_str().unwrap();
+                    json!({"id": req["id"], "result": {"sessionId": format!("s-{target}")}})
+                }
+                "Runtime.evaluate" => {
+                    let session = req["sessionId"].as_str().unwrap();
+                    assert_eq!(req["params"]["expression"], "document.hasFocus()");
+                    let focus = pages.iter().any(|(p, f)| session == format!("s-{p}") && *f);
+                    json!({"id": req["id"], "sessionId": session,
+                           "result": {"result": {"type": "boolean", "value": focus}}})
+                }
+                "Target.detachFromTarget" => json!({"id": req["id"], "result": {}}),
+                _ => {
+                    seen.lock().unwrap().push(req.clone());
+                    json!({"id": req["id"], "result": browser_reply(&req, window)})
+                }
             };
-            let reply = json!({"id": req["id"], "result": result});
             ws.send(Message::text(reply.to_string())).unwrap();
         }
         return;
