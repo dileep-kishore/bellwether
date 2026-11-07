@@ -1,0 +1,30 @@
+  >_ OpenAI Codex (v0.167.0)
+
+     /scratch/codex-approval
+
+
+› Run exactly this shell command and nothing else: printf %s alpha beta gamma
+  delta > notes/wrapped-output-file-with-a-long-name.txt
+
+
+• Running printf %s alpha beta gamma delta > notes/wrapped-output-file-with-a-
+  long-name.txt
+
+
+  Would you like to run the following command?
+
+  Environment: local
+
+  Reason: Allow writing the four words to notes/wrapped-output-file-with-a-long
+  -name.txt in the current directory?
+
+  $ printf %s alpha beta gamma delta > notes/wrapped-output-file-with-a-long-
+    name.txt
+
+
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with `printf %s alpha beta
+     gamma delta > notes/wrapped-output-file-with-a-long-name.txt` (p)
+  3. No, and tell Codex what to do differently (esc)
+
+  Press enter to confirm or esc to cancel
