@@ -25,7 +25,7 @@ fn manifest() -> PathBuf {
 
 #[path = "support/ports.rs"]
 mod ports;
-use ports::free_port;
+use ports::{free_port, serial};
 
 fn write_script(path: &Path, body: &str) {
     fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
@@ -299,6 +299,7 @@ fn port_of(v: &Value) -> u16 {
 
 #[test]
 fn free_port_prefers_a_free_port() {
+    let _serial = serial();
     let s = Scene::new();
     let p = free_port();
     let (code, v) = s.run(&["free-port", "--prefer", &p.to_string()]);
@@ -318,6 +319,7 @@ fn free_port_prefers_a_free_port() {
 
 #[test]
 fn port_check_passes_only_on_loopback_with_the_id() {
+    let _serial = serial();
     let s = Scene::new();
     let id = BROWSER_ID;
     let port = s.chrome_port.to_string();
@@ -343,6 +345,7 @@ fn port_check_passes_only_on_loopback_with_the_id() {
 
 #[test]
 fn via_machine_is_named() {
+    let _serial = serial();
     let s = Scene::new();
     let (code, v) = s.run(&["forward", "ensure", "--machine", "bwloop"]);
     assert_eq!(code, 0);
@@ -359,6 +362,7 @@ fn via_machine_is_named() {
 
 #[test]
 fn offline_machine_is_named() {
+    let _serial = serial();
     let s = Scene::new();
     let (_, v) = s.run(&["forward", "ensure", "--machine", "asleep"]);
     assert_eq!(v["state"], "offline", "{v}");
@@ -372,6 +376,7 @@ fn offline_machine_is_named() {
 
 #[test]
 fn ensure_starts_a_checked_forward() {
+    let _serial = serial();
     let s = Scene::new();
     let v = s.ensure();
     assert_eq!(v["state"], "ready", "{v}");
@@ -413,6 +418,7 @@ fn ensure_starts_a_checked_forward() {
 
 #[test]
 fn ensure_reuses_a_ready_forward() {
+    let _serial = serial();
     let s = Scene::new();
     let first = s.ensure();
     assert_eq!(first["state"], "ready", "{first}");
@@ -426,6 +432,7 @@ fn ensure_reuses_a_ready_forward() {
 
 #[test]
 fn ensure_picks_the_stored_port_when_free() {
+    let _serial = serial();
     let s = Scene::new();
     let stored = free_port();
     let file = s.state_file("mac2.json");
@@ -452,6 +459,7 @@ fn ensure_picks_the_stored_port_when_free() {
 
 #[test]
 fn wildcard_listener_fails_closed() {
+    let _serial = serial();
     let mut s = Scene::new();
     s.set("FAKE_SSH_WILDCARD", "1");
     let v = s.ensure();
@@ -470,6 +478,7 @@ fn wildcard_listener_fails_closed() {
 
 #[test]
 fn other_browser_id_fails_closed() {
+    let _serial = serial();
     let mut s = Scene::new();
     let other = serve_version(OTHER_ID);
     s.set("FAKE_SSH_PROXY_TO", &other.to_string());
@@ -485,6 +494,7 @@ fn other_browser_id_fails_closed() {
 
 #[test]
 fn refused_is_not_retried() {
+    let _serial = serial();
     let mut s = Scene::new();
     s.set("FAKE_SSH_WILDCARD", "1");
     let v = s.ensure();
@@ -500,6 +510,7 @@ fn refused_is_not_retried() {
 
 #[test]
 fn ssh_exit_reconnects_with_checks() {
+    let _serial = serial();
     let mut s = Scene::new();
     s.set("FAKE_SSH_EXIT_AFTER_MS", "1500");
     s.set("FAKE_SSH_EXIT_STARTS", "1");
@@ -535,6 +546,7 @@ fn ssh_exit_reconnects_with_checks() {
 
 #[test]
 fn taken_port_on_reconnect_is_named() {
+    let _serial = serial();
     let mut s = Scene::new();
     s.set("FAKE_SSH_EXIT_AFTER_MS", "1500");
     s.set("FAKE_SSH_EXIT_STARTS", "1");
@@ -561,6 +573,7 @@ fn taken_port_on_reconnect_is_named() {
 
 #[test]
 fn three_failed_ports_give_up_with_a_reason() {
+    let _serial = serial();
     let mut s = Scene::new();
     s.set("FAKE_SSH_TAKEN", "1");
     let v = s.ensure();
@@ -582,6 +595,7 @@ fn three_failed_ports_give_up_with_a_reason() {
 
 #[test]
 fn chrome_not_running_starts_nothing() {
+    let _serial = serial();
     let mut s = Scene::new();
     // A Chrome port where nothing listens.
     s.set("BW_CHROME_PORT", &free_port().to_string());
@@ -594,6 +608,7 @@ fn chrome_not_running_starts_nothing() {
 
 #[test]
 fn dev_needs_a_free_local_port() {
+    let _serial = serial();
     let s = Scene::new();
     let held = TcpListener::bind("127.0.0.1:0").unwrap();
     let n = held.local_addr().unwrap().port();
@@ -618,6 +633,7 @@ fn dev_needs_a_free_local_port() {
 
 #[test]
 fn dev_forward_reports_whether_the_server_answers() {
+    let _serial = serial();
     let mut s = Scene::new();
     let n = free_port();
     // Nothing answers "there": the fake ssh passes connections to a closed port, never back to itself.
@@ -666,6 +682,7 @@ fn dev_forward_reports_whether_the_server_answers() {
 
 #[test]
 fn stop_kills_and_removes_the_terminal() {
+    let _serial = serial();
     let s = Scene::new();
     let v = s.ensure();
     assert_eq!(v["state"], "ready", "{v}");
@@ -688,6 +705,7 @@ fn stop_kills_and_removes_the_terminal() {
 
 #[test]
 fn list_marks_a_forward_without_its_terminal_stopped() {
+    let _serial = serial();
     let s = Scene::new();
     let v = s.ensure();
     assert_eq!(v["state"], "ready", "{v}");
@@ -712,6 +730,7 @@ fn list_marks_a_forward_without_its_terminal_stopped() {
 
 #[test]
 fn usage_errors_exit_2() {
+    let _serial = serial();
     let s = Scene::new();
     for args in [
         vec!["forward"],

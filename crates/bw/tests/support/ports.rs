@@ -17,3 +17,11 @@ pub fn free_port() -> u16 {
     }
     panic!("no free 127.0.0.1 port in 20000..32000");
 }
+
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Held for a whole test: on macOS a socket gets close-on-exec only after it is created, so a `bw` child that
+/// another test thread spawns in between inherits the listener and keeps its port bound.
+pub fn serial() -> std::sync::MutexGuard<'static, ()> {
+    SERIAL.lock().unwrap_or_else(|e| e.into_inner())
+}

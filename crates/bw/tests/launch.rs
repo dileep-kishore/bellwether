@@ -27,7 +27,7 @@ fn manifest() -> PathBuf {
 
 #[path = "support/ports.rs"]
 mod ports;
-use ports::free_port;
+use ports::{free_port, serial};
 
 fn write_script(path: &Path, body: &str) {
     fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
@@ -369,6 +369,7 @@ fn unavailable(v: &Value, reason: &str) {
 
 #[test]
 fn local_claude_args_after_up() {
+    let _serial = serial();
     let s = Scene::new();
     let cwd = s.path().join("project");
     fs::create_dir(&cwd).unwrap();
@@ -411,6 +412,7 @@ fn local_claude_args_after_up() {
 
 #[test]
 fn local_args_need_no_cwd() {
+    let _serial = serial();
     let mut s = Scene::new();
     let v = s.agent_args(&["--kind", "claude", "--machine", ""]);
     assert_eq!(v["browser"], "ready", "{v}");
@@ -436,6 +438,7 @@ fn local_args_need_no_cwd() {
 
 #[test]
 fn remote_codex_args_use_the_forward_port() {
+    let _serial = serial();
     let s = Scene::new();
     let v = s.agent_args(&[
         "--kind",
@@ -493,6 +496,7 @@ fn remote_codex_args_use_the_forward_port() {
 
 #[test]
 fn agent_args_does_not_wait_on_the_warm_step() {
+    let _serial = serial();
     let mut s = Scene::new();
     s.set("FAKE_NPX_SLEEP", "8");
     for machine in ["", "mac2"] {
@@ -522,6 +526,7 @@ fn agent_args_does_not_wait_on_the_warm_step() {
 
 #[test]
 fn via_gives_empty_argv_and_reason() {
+    let _serial = serial();
     let s = Scene::new();
     let v = s.agent_args(&["--kind", "codex", "--machine", "bwloop", "--cwd", "/tmp"]);
     unavailable(
@@ -534,6 +539,7 @@ fn via_gives_empty_argv_and_reason() {
 
 #[test]
 fn chrome_not_startable_gives_empty_argv() {
+    let _serial = serial();
     let mut s = Scene::stopped();
     s.set(
         "BW_CHROME_APP",
@@ -557,6 +563,7 @@ fn chrome_not_startable_gives_empty_argv() {
 
 #[test]
 fn unreadable_codex_config_gives_empty_argv() {
+    let _serial = serial();
     let mut s = Scene::new();
     let codex_home = s.path().join("codex-home");
     fs::create_dir(&codex_home).unwrap();
@@ -578,6 +585,7 @@ fn unreadable_codex_config_gives_empty_argv() {
 
 #[test]
 fn agent_args_usage_exits_2() {
+    let _serial = serial();
     let s = Scene::new();
     for args in [
         vec!["agent-args", "--machine", ""],
@@ -612,6 +620,7 @@ fn agent_args_usage_exits_2() {
 
 #[test]
 fn status_lists_chrome_tabs_and_live_forwards() {
+    let _serial = serial();
     let mut s = Scene::new();
     s.put_forward("mac2", 52817, "ready", "bw-fwd-mac2");
     s.live_terminal(
@@ -653,6 +662,7 @@ fn status_lists_chrome_tabs_and_live_forwards() {
 
 #[test]
 fn status_marks_a_forward_without_terminal_stopped() {
+    let _serial = serial();
     let s = Scene::new();
     s.put_forward("mac2", 52817, "ready", "bw-fwd-mac2");
     let (code, lines) = s.run(&["status"]);
@@ -664,6 +674,7 @@ fn status_marks_a_forward_without_terminal_stopped() {
 
 #[test]
 fn status_starts_nothing() {
+    let _serial = serial();
     let s = Scene::stopped();
     s.put_forward("mac2", 52817, "reconnecting", "bw-fwd-mac2");
     let (code, lines) = s.run(&["status"]);
@@ -685,6 +696,7 @@ fn status_starts_nothing() {
 
 #[test]
 fn two_ups_at_once_run_open_once() {
+    let _serial = serial();
     let s = Scene::stopped();
     // The panel's Start and an agent's agent-args, at the same moment.
     let up = s.command(&["up"]).spawn().unwrap();
@@ -716,6 +728,7 @@ fn two_ups_at_once_run_open_once() {
 
 #[test]
 fn two_forward_ensures_at_once_start_one_terminal() {
+    let _serial = serial();
     let s = Scene::new();
     let a = s
         .command(&["forward", "ensure", "--machine", "mac2"])

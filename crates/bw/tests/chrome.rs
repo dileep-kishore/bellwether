@@ -31,6 +31,7 @@ fn fixture(name: &str) -> String {
 
 #[test]
 fn lsof_fixtures_parse() {
+    let _serial = serial();
     let ls = listen::parse_lsof(&fixture("lsof-loopback.txt"));
     assert_eq!(ls.len(), 1);
     assert_eq!(ls[0].pid, 74613);
@@ -54,6 +55,7 @@ fn lsof_fixtures_parse() {
 
 #[test]
 fn ipv6_loopback_counts_as_loopback() {
+    let _serial = serial();
     let ls =
         listen::parse_lsof("p76023\ncsshd-session\nf12\nn[::1]:55890\nf13\nn127.0.0.1:55890\n");
     assert_eq!(ls.len(), 2);
@@ -64,6 +66,7 @@ fn ipv6_loopback_counts_as_loopback() {
 
 #[test]
 fn wildcard_is_not_loopback() {
+    let _serial = serial();
     let ls = listen::parse_lsof(&fixture("lsof-wildcard.txt"));
     let err = listen::loopback_only(&ls, 55896).unwrap_err();
     assert!(err.contains("*:55896"), "{err}");
@@ -85,6 +88,7 @@ fn wildcard_is_not_loopback() {
 
 #[test]
 fn nothing_listening_is_an_error() {
+    let _serial = serial();
     assert_eq!(
         listen::loopback_only(&[], 9222),
         Err("nothing listens on 9222".to_string())
@@ -94,6 +98,7 @@ fn nothing_listening_is_an_error() {
 
 #[test]
 fn ss_output_parses() {
+    let _serial = serial();
     let text = "LISTEN 0      4096       127.0.0.1:52817      0.0.0.0:*    users:((\"sshd-session\",pid=811,fd=9))\n\
                 LISTEN 0      4096           [::1]:52817         [::]:*    users:((\"sshd-session\",pid=811,fd=10))\n\
                 LISTEN 0      128          0.0.0.0:52818      0.0.0.0:*\n\
@@ -120,7 +125,7 @@ fn ss_output_parses() {
 
 #[path = "support/ports.rs"]
 mod ports;
-use ports::free_port;
+use ports::{free_port, serial};
 
 fn write_script(path: &Path, body: &str) {
     fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
@@ -331,6 +336,7 @@ fn assert_line(v: &Value, scene: &Scene, state: &str) {
 
 #[test]
 fn reuses_our_chrome() {
+    let _serial = serial();
     let scene = Scene::new();
     let seen = serve_chrome(scene.port);
     scene.ps_prints(Some(&scene.chrome_command(&scene.profile())));
@@ -347,6 +353,7 @@ fn reuses_our_chrome() {
 
 #[test]
 fn port_held_by_other_program_is_refused() {
+    let _serial = serial();
     let scene = Scene::new();
     // A dev server that even answers /json/version is still not ours.
     let seen = serve_chrome(scene.port);
@@ -375,6 +382,7 @@ fn port_held_by_other_program_is_refused() {
 
 #[test]
 fn chrome_on_other_profile_is_refused() {
+    let _serial = serial();
     let scene = Scene::new();
     let seen = serve_chrome(scene.port);
     // A profile path that only starts with ours is another profile.
@@ -390,6 +398,7 @@ fn chrome_on_other_profile_is_refused() {
 
 #[test]
 fn profile_locked_without_port_is_named() {
+    let _serial = serial();
     let scene = Scene::new();
     fs::create_dir(scene.profile()).unwrap();
     std::os::unix::fs::symlink(
@@ -409,6 +418,7 @@ fn profile_locked_without_port_is_named() {
 
 #[test]
 fn stale_lock_does_not_block_a_start() {
+    let _serial = serial();
     let scene = Scene::new();
     fs::create_dir(scene.profile()).unwrap();
     std::os::unix::fs::symlink(
@@ -426,6 +436,7 @@ fn stale_lock_does_not_block_a_start() {
 
 #[test]
 fn missing_app_is_not_installed() {
+    let _serial = serial();
     let scene = Scene::new();
     let (code, v) = scene
         .command(&["up"])
@@ -441,6 +452,7 @@ fn missing_app_is_not_installed() {
 
 #[test]
 fn open_argv_is_exact() {
+    let _serial = serial();
     let scene = Scene::new();
     let app = scene.dir.path().join("Google Chrome.app");
     let expected = |background: bool| {
@@ -492,6 +504,7 @@ fn open_argv_is_exact() {
 
 #[test]
 fn down_refuses_a_listener_that_is_not_ours() {
+    let _serial = serial();
     let scene = Scene::new();
     let seen = serve_chrome(scene.port);
     scene.ps_prints(Some("node dev-server.js"));
@@ -508,6 +521,7 @@ fn down_refuses_a_listener_that_is_not_ours() {
 
 #[test]
 fn down_closes_our_chrome_with_browser_close() {
+    let _serial = serial();
     let scene = Scene::new();
     let seen = serve_chrome(scene.port);
     scene.ps_prints(Some(&scene.chrome_command(&scene.profile())));
@@ -520,6 +534,7 @@ fn down_closes_our_chrome_with_browser_close() {
 
 #[test]
 fn down_with_nothing_running_is_stopped() {
+    let _serial = serial();
     let scene = Scene::new();
     let (code, v) = scene.run(&["down"]);
     assert_eq!(code, 0);
@@ -529,6 +544,7 @@ fn down_with_nothing_running_is_stopped() {
 
 #[test]
 fn bad_port_or_option_is_usage() {
+    let _serial = serial();
     let scene = Scene::new();
     for (port, args) in [
         ("nope", &["up"][..]),
