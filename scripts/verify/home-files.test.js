@@ -1,7 +1,7 @@
 // requests.sh --machine runs only on a temporary hc machine, and home-files.sh puts back only the files a run
 // created or changed under that machine's HOME.
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -76,14 +76,34 @@ describe("home-files.sh", () => {
     expect(existsSync(join(home, ".claude"))).toBe(false);
   });
 
-  test("a folder the run made that still holds something it cannot remove fails restore", () => {
+  test("restore deletes links the run made and puts back links it changed, never touching their targets", () => {
     const { base, home, saved } = scratch();
+    put(base, { "target.txt": "outside\n" });
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    symlinkSync(join(base, "target.txt"), join(home, ".codex/kept"));
+    expect(homeFiles(["save", home, saved, ...PATHS]).code).toBe(0);
+    // Codex makes links like these under ~/.codex/tmp/arg0-macos at each start.
+    mkdirSync(join(home, ".codex/tmp/arg0-macos/codex-arg0x"), { recursive: true });
+    symlinkSync(join(base, "target.txt"), join(home, ".codex/tmp/arg0-macos/codex-arg0x/apply_patch"));
+    rmSync(join(home, ".codex/kept"));
+    symlinkSync(join(base, "other"), join(home, ".codex/kept"));
+    const r = homeFiles(["restore", home, saved, ...PATHS]);
+    expect(r.err).toBe("");
+    expect(r.code).toBe(0);
+    expect(existsSync(join(home, ".codex/tmp"))).toBe(false);
+    expect(readlinkSync(join(home, ".codex/kept"))).toBe(join(base, "target.txt"));
+    expect(readFileSync(join(base, "target.txt"), "utf8")).toBe("outside\n");
+  });
+
+  test("a folder the run made that still holds something it cannot remove fails restore", () => {
+    const { home, saved } = scratch();
     expect(homeFiles(["save", home, saved, ...PATHS]).code).toBe(0);
     mkdirSync(join(home, ".codex"), { recursive: true });
-    Bun.spawnSync(["ln", "-s", join(base, "elsewhere"), join(home, ".codex/link")]);
+    Bun.spawnSync(["mkfifo", join(home, ".codex/fifo")]);
     const r = homeFiles(["restore", home, saved, ...PATHS]);
     expect(r.code).not.toBe(0);
     expect(r.err).toContain(".codex");
+    expect(existsSync(join(home, ".codex/fifo"))).toBe(true);
   });
 });
 
