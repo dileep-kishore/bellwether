@@ -1,7 +1,9 @@
 #!/bin/sh
-# Done check 2 without a window: bw feed on the six recordings, then real Claude and Codex fed,
-# sent to and refused through bw, here and on another machine. Each chat's first message goes
-# through `bw send --expect-session none`, as a fresh chat tab sends it.
+# Done check 2 without a window: bw feed and bw tree on the recordings (the root logs, then each sub-agent's
+# log and the nesting), then real Claude and Codex fed, sent to and refused through bw, here and on another
+# machine: their sub-agent trees, and after a real /clear or /new the chat's next message sent with
+# `--expect-session <new id> --expect-path none` (Codex's folder prompt answered with bw answer from its card).
+# Each chat's first message goes through `bw send --expect-session none`, as a fresh chat tab sends it.
 #   scripts/verify/sessions.sh [--offline] [--machine <name>]
 # --offline runs only the recordings' checks (scripts/test.sh runs it). Without --machine the
 # other machine's half prints PENDING. Spends tokens: Claude haiku and Codex gpt-6-luna, low effort.
@@ -10,6 +12,7 @@
 # a copy of ~/.codex/auth.json. On <name>, Codex runs in that machine's core under
 # $BW_SESSIONS_REMOTE_ROOT (default: $HOME/bw-verify/sessions there), and the helper's `current` link
 # is moved aside to show it missing, then reinstalled by `bw machine install <name>`.
+# BW_VERIFY_ONLY=claude,claude-prompt,claude-children,codex,remote runs only those groups live, for a rerun.
 # Prints PASS <check>, FAIL <check>: <why> or PENDING <check>: <why>; exits 1 on any FAIL. On exit it
 # stops the private core, kills its terminals on <name>, deletes the scratch folders (auth.json
 # copies included) and the Claude project folders its runs wrote, and puts the helper link back.
@@ -25,7 +28,7 @@ while [ $# -gt 0 ]; do
   case $1 in
     --offline) offline=1; shift ;;
     --machine) machine=${2:?--machine needs a name}; shift 2 ;;
-    *) sed -n 5p "$0" >&2; exit 2 ;;
+    *) sed -n 7p "$0" >&2; exit 2 ;;
   esac
 done
 [ "$offline" = 1 ] && [ -n "$machine" ] && { echo "--offline and --machine exclude each other" >&2; exit 2; }
