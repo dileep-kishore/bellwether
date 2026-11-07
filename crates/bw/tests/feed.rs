@@ -637,3 +637,33 @@ fn terminal_mode_prints_the_locate_state() {
     assert_eq!(lines[0]["type"], "state");
     assert_eq!(lines[0]["state"], "no_terminal");
 }
+
+/// A message `bw send` delivered from another core, as `hc send` wraps it (probe against bwloop, 2026-11-07).
+fn hc_wrapped(text: &str) -> String {
+    format!("<hc from=\"495a7fa4c01bdb33213c3868c28d6caa/ppid:53078\">{text}</hc>")
+}
+
+#[test]
+fn message_sent_from_another_core_is_a_user_row() {
+    let text = "--force \"q\" </hc>\nline 2";
+    let x = Scratch::new();
+    let log = x.root("codex-question");
+    let item = serde_json::json!({"timestamp": "2026-11-06T22:20:00.000Z", "type": "response_item",
+        "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": hc_wrapped(text)}]}});
+    append(&log, &format!("{item}\n"));
+    let users: Vec<Value> = rows(&x.feed(&log, "codex", true, None))
+        .into_iter()
+        .filter(|r| r["k"] == "user")
+        .collect();
+    assert_eq!(users.last().unwrap()["text"], text, "codex");
+
+    let log = x.root("claude-approval");
+    let item = serde_json::json!({"timestamp": "2026-11-06T22:20:00.000Z", "type": "user", "uuid": "u-hc-1",
+        "message": {"role": "user", "content": hc_wrapped("hello there")}});
+    append(&log, &format!("{item}\n"));
+    let users: Vec<Value> = rows(&x.feed(&log, "claude", true, None))
+        .into_iter()
+        .filter(|r| r["k"] == "user")
+        .collect();
+    assert_eq!(users.last().unwrap()["text"], "hello there", "claude");
+}

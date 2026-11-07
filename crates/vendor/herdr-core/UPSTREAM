@@ -59,3 +59,11 @@ Changes:
   `other_exec_code_is_a_script`.
 - 2026-11-06, tests/bellwether.rs (new): the tests above, on the
   scrubbed recordings in tests/fixtures/sessions.
+- 2026-11-07, src/conversation/mod.rs: `hc send` from another core
+  types `<hc from="<core>/ppid:N">text</hc>`, which `user_visible`
+  dropped as tagged text. `hc_sent_text` (new) matches exactly that
+  wrapper (the whole message, a `from` of `<core>/ppid:<digits>`, the
+  text up to the final `</hc>`, unescaped as hc writes it) and
+  `user_visible` judges the inner text as it would typed text. Other
+  tagged text is still hidden. Test: tests/bellwether.rs
+  `hc_wrapper_keeps_the_senders_text`.
