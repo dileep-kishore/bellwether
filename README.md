@@ -45,7 +45,8 @@ flips the zoom and focus between the chat and the terminal; the chat header's
 window flips too. `keys/bellwether.json` binds `cmd-j` in
 `layout:bellwether`, so merge it with `scripts/keys-merge.js` as below; the
 script reports a terminal binding of `cmd-j` as shadowed, since that one wins
-while a terminal has focus.
+while a terminal has focus. In a terminal sub-agent's view `⌘J` flips to the
+parent agent's terminal, not the sub-agent's.
 
 The chat reads the agent's session log through `bw feed` every 2 s while
 shown and every 10 s while hidden. A chat behind its terminal's zoom counts as
@@ -306,7 +307,7 @@ changed.
 ```sh
 scripts/verify/requests.sh --offline          # goldens, hooks and the focus guard; what scripts/test.sh runs
 scripts/verify/requests.sh                    # also real agents here
-scripts/verify/requests.sh --machine <name>   # also Codex on <name> through its helper
+scripts/verify/requests.sh --machine <name>   # also Codex on <name>; <name> must be a temporary hc machine (bwloop)
 ```
 
 `scripts/verify/feed-cost.sh [runs]` times `bw feed --log … --pictures` on

@@ -220,6 +220,7 @@ describe("dock model", () => {
       ["clipped", "Command too long to show here. Read it in the terminal"],
       ["ambiguous", "Claude's conversation cannot be read (ambiguous)"],
       ["no_match", "Bellwether cannot read this prompt. Answer it in the terminal"],
+      ["multi_question", "This prompt has several questions. Answer it in the terminal"],
       ["other_view", "Answer it in that sub-agent's own chat"],
       ["something_new", "Answer it in the terminal"],
     ];

@@ -118,6 +118,7 @@ export function reasonNote(reason, agentName) {
     case "codex_child": return "Codex sub-agent approvals are answered in the terminal for now";
     case "clipped": return "Command too long to show here. Read it in the terminal";
     case "no_match": return "Bellwether cannot read this prompt. Answer it in the terminal";
+    case "multi_question": return "This prompt has several questions. Answer it in the terminal";
     case "other_view": return "Answer it in that sub-agent's own chat";
     case "ambiguous": return waitingText("ambiguous", agentName);
     default: return "Answer it in the terminal";
