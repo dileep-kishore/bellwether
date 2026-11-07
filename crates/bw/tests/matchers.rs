@@ -4,13 +4,10 @@
 //! bw has no library target, so the matcher files are compiled into this test as modules of their own.
 
 #[path = "../src/requests/codex_approval.rs"]
-#[allow(unfulfilled_lint_expectations)]
 mod codex_approval;
 #[path = "../src/requests/codex_folder.rs"]
-#[allow(unfulfilled_lint_expectations)]
 mod codex_folder;
 #[path = "../src/requests/matchers.rs"]
-#[allow(unfulfilled_lint_expectations)]
 mod matchers;
 
 use std::path::{Path, PathBuf};

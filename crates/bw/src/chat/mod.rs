@@ -9,13 +9,13 @@ pub mod cache;
 pub mod dirs;
 pub mod protocol;
 
-mod feed;
+pub mod feed;
 pub mod locate;
 mod picture;
-mod rows;
+pub mod rows;
 mod send;
 mod sentence;
-mod tail;
+pub mod tail;
 pub mod tree;
 
 pub fn run(cmd: &str, args: &[String]) -> ExitCode {

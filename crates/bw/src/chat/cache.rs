@@ -62,7 +62,7 @@ pub fn core_name() -> String {
 }
 
 /// Characters outside `[A-Za-z0-9_-]` become `_`, so a name never leaves its folder.
-fn safe(name: &str) -> String {
+pub fn safe(name: &str) -> String {
     name.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '_' || c == '-' {

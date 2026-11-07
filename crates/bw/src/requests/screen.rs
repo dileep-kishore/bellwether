@@ -1,11 +1,6 @@
 //! `HcScreen`: the vendored `PaneScreen` over the `hc` CLI, for one terminal on this machine, so the vendored
 //! approval and question code reads and answers it as Flockbook's does over hc's socket.
 
-#![expect(
-    dead_code,
-    reason = "bw cards and bw answer (phase 3 Tasks 8 and 9) use it"
-)]
-
 use std::ffi::OsString;
 use std::time::Duration;
 

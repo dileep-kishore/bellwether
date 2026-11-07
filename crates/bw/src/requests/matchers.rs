@@ -3,11 +3,6 @@
 //! Each matcher reads one screen and names the keys of each action; a screen it cannot read gives no prompt, so no
 //! key is chosen for it. Keys are hc key names (`hc keys -- <t> <key>`).
 
-#![expect(
-    dead_code,
-    reason = "bw cards and bw answer (phase 3 Tasks 8 and 9) use it"
-)]
-
 use herdr_core::approval::{
     screen_box, screen_prompt, screen_shows_prompt, CLIPPED_TITLE, PROMPT_MARKER,
 };
