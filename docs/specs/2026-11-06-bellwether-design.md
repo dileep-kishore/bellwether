@@ -242,9 +242,11 @@ holds the space runs the agents, the logs, Git and the hooks.
 - Bellwether launches chat agents with per-session additions (see
   "Browser"): Claude with `--mcp-config` and `--append-system-prompt-file`,
   Codex with `-c mcp_servers.bw-browser…` and `-c developer_instructions=…`,
-  where the value is the effective existing `developer_instructions` (top
-  level and active profile in that machine's `~/.codex/config.toml`)
-  followed by Bellwether's text, so nothing the user set is lost. Terminal
+  where the value is the effective existing `developer_instructions` (that
+  machine's `~/.codex/config.toml`, then the `--profile` file, then a
+  trusted project's `.codex/config.toml`) followed by Bellwether's text, so
+  nothing the user set is lost. Claude gets no `--strict-mcp-config`, and
+  Codex's browser server gets `default_tools_approval_mode="approve"`. Terminal
   tabs of Claude or Codex get the same additions.
 - A chat tab that is not shown polls its feed every 10 s instead of every
   2 s; status comes from `agents()` regardless.

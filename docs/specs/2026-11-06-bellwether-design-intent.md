@@ -415,3 +415,21 @@ including the shared Bellwether Chrome; "proceed until you finish
 everything" with the cargo approval answers the outside-repository question
 for this build; tests that need the Herdr window are deferred, other tests
 (unit, fixture, helper, script) run in every phase.
+
+## Amendment log, build
+
+- 2026-11-06: Codex's effective `developer_instructions` comes from
+  `config.toml`, then the `--profile` file, then a trusted project's
+  `.codex/config.toml`; Claude starts without `--strict-mcp-config`; Codex's
+  per-session MCP server sets `default_tools_approval_mode="approve"`.
+  Original: "top level and active profile in that machine's
+  `~/.codex/config.toml`". Evidence: phase 0 spike,
+  `docs/research/2026-11-06-phase0-spike.md` (Codex 0.167 rejects
+  `profile =` and ignores `[profiles.x]` without `--profile`;
+  `--strict-mcp-config` drops the user's own servers; `exec` refuses an
+  unapproved tool under `approval_policy = never`).
+- 2026-11-06: phase 0 built on macmini, which has no `herdr-app`: the
+  `bellwether` layout is a hand copy of `main` with `cloned_from`, the
+  zoom-flip spike moves to the owed window checks, and remote paths are
+  tested against a loopback `hc` machine with its own HOME. Evidence:
+  `docs/plans/2026-11-06-bellwether-phase-0.md`, Build environment.
