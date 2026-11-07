@@ -21,7 +21,7 @@ pub mod util;
 pub use client::{EventStream, HerdrClient};
 #[cfg(unix)]
 pub use client::UnixConnector;
-pub use conversation::{parse_lines, ConversationParser};
+pub use conversation::{parse_lines, parse_lines_in, ConversationParser, FileScope};
 pub use error::{HerdrError, QuestionFailure};
 pub use screen::{all_panes, DeliveryOutcome, PaneScreen};
 pub use model::*;
