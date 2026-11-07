@@ -536,7 +536,14 @@ impl SessionResolver {
             };
         }
         let grok = if n.kind == "grok" { Some(grok_home(&agent.line)) } else { None };
-        if let Some(p) = log_path(&open, &n.kind, grok.as_deref(), &home_dir()) {
+        let open = if n.kind == "codex" { without_codex_subagents(&open) } else { open };
+        let home = LogRoots::in_home(&home_dir());
+        let roots =
+            LogRoots { codex_sessions: self.codex_dir.clone(), claude_projects: self.projects_dir.clone(), ..home.clone() };
+        // The home folders stay a second try: upstream always looked there, whatever the resolver's dirs.
+        let open_log = log_path_in(&open, &n.kind, grok.as_deref(), &roots)
+            .or_else(|| if roots == home { None } else { log_path_in(&open, &n.kind, grok.as_deref(), &home) });
+        if let Some(p) = open_log {
             if !is_claimed(&p, claimed) {
                 return (Some(p), None);
             }
@@ -908,8 +915,40 @@ pub fn subtree(pid: i32, procs: &[Proc]) -> Vec<i32> {
 // TODO(windows): the prefixes are unix paths under `home`; open files are not listed on Windows (empty), so nothing
 // matches there and the resolver falls back to the pid-file / cwd routes.
 pub fn log_path(open_files: &[String], kind: &str, grok_home: Option<&str>, home: &str) -> Option<String> {
+    let grok = grok_home.map(String::from).unwrap_or_else(|| home.to_string() + "/.grok");
+    log_path_in(open_files, kind, Some(&grok), &LogRoots::in_home(home))
+}
+
+/// Where agents keep the logs [`log_path_in`] accepts, each without a trailing `/`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LogRoots {
+    pub claude_projects: String,
+    pub codex_sessions: String,
+    pub cursor_projects: String,
+    pub pi_dir: String,
+}
+
+impl LogRoots {
+    /// The default folders under `home`: `~/.claude/projects`, `~/.codex/sessions`, `~/.cursor/projects`, `~/.pi`.
+    pub fn in_home(home: &str) -> LogRoots {
+        LogRoots {
+            claude_projects: format!("{home}/.claude/projects"),
+            codex_sessions: format!("{home}/.codex/sessions"),
+            cursor_projects: format!("{home}/.cursor/projects"),
+            pi_dir: format!("{home}/.pi"),
+        }
+    }
+}
+
+fn under(root: &str) -> String {
+    root.trim_end_matches('/').to_string() + "/"
+}
+
+/// `log_path` with each agent's folder given (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`). Grok Build without `grok_home`
+/// uses `~/.grok` of this process's home.
+pub fn log_path_in(open_files: &[String], kind: &str, grok_home: Option<&str>, roots: &LogRoots) -> Option<String> {
     if kind == "grok" {
-        let sessions = grok_home.map(String::from).unwrap_or_else(|| home.to_string() + "/.grok") + "/sessions/";
+        let sessions = grok_home.map(String::from).unwrap_or_else(|| home_dir() + "/.grok") + "/sessions/";
         let dirs: HashSet<String> = open_files
             .iter()
             .filter_map(|p| {
@@ -925,6 +964,8 @@ pub fn log_path(open_files: &[String], kind: &str, grok_home: Option<&str>, home
             .collect();
         return if dirs.len() == 1 { dirs.into_iter().next().map(|d| d + "/updates.jsonl") } else { None };
     }
+    let (codex, cursor, pi, claude) =
+        (under(&roots.codex_sessions), under(&roots.cursor_projects), under(&roots.pi_dir), under(&roots.claude_projects));
     let hits: HashSet<&String> = open_files
         .iter()
         .filter(|p| {
@@ -932,10 +973,10 @@ pub fn log_path(open_files: &[String], kind: &str, grok_home: Option<&str>, home
                 return false;
             }
             match kind {
-                "codex" => p.starts_with(&(home.to_string() + "/.codex/sessions/")) && last_path_component(p).starts_with("rollout-"),
-                "cursor" => p.starts_with(&(home.to_string() + "/.cursor/projects/")) && p.contains("/agent-transcripts/"),
-                "pi" => p.starts_with(&(home.to_string() + "/.pi/")),
-                _ => p.starts_with(&(home.to_string() + "/.claude/projects/")),
+                "codex" => p.starts_with(&codex) && last_path_component(p).starts_with("rollout-"),
+                "cursor" => p.starts_with(&cursor) && p.contains("/agent-transcripts/"),
+                "pi" => p.starts_with(&pi),
+                _ => p.starts_with(&claude),
             }
         })
         .collect();
@@ -944,6 +985,21 @@ pub fn log_path(open_files: &[String], kind: &str, grok_home: Option<&str>, home
     } else {
         None
     }
+}
+
+/// Open files without the Codex rollouts whose first line is a sub-agent's: Codex 0.167 runs a sub-agent in the
+/// parent's process, which then holds both rollouts open.
+pub fn without_codex_subagents(open_files: &[String]) -> Vec<String> {
+    open_files
+        .iter()
+        .filter(|p| {
+            if !p.ends_with(".jsonl") || !last_path_component(p).starts_with("rollout-") {
+                return true;
+            }
+            !read_prefix(p, 1 << 20).and_then(|d| codex_meta_full(&d)).is_some_and(|m| m.subagent)
+        })
+        .cloned()
+        .collect()
 }
 
 /// Foundation's `UUID(uuidString:)` shape: 8-4-4-4-12 hex digits.
@@ -1071,7 +1127,8 @@ fn day_folder(dir: &str, d: NaiveDate) -> String {
 }
 
 /// Codex rollouts (`YYYY/MM/DD/rollout-<local time>-<id>.jsonl`) that started at or after `after` (2 s slack) and
-/// whose `session_meta` cwd is `cwd`. Looks at the day folders (local time) from `after` on, at most 8.
+/// whose `session_meta` cwd is `cwd`, leaving out sub-agents' rollouts. Looks at the day folders (local time) from
+/// `after` on, at most 8.
 pub fn codex_candidates(dir: &str, cwd: &str, after: Date, now: Date) -> Vec<String> {
     let lower = after - Duration::seconds(2);
     let want = standardize_path(cwd);
@@ -1095,8 +1152,8 @@ pub fn codex_candidates(dir: &str, cwd: &str, after: Date, now: Date) -> Vec<Str
                     continue;
                 }
                 let path = format!("{folder}/{f}");
-                let Some((c, start)) = codex_meta(&path) else { continue };
-                if standardize_path(&c) == want && start >= lower {
+                let Some(m) = read_prefix(&path, 1 << 20).and_then(|d| codex_meta_full(&d)) else { continue };
+                if !m.subagent && standardize_path(&m.cwd) == want && m.start >= lower {
                     out.push(path);
                 }
             }
@@ -1116,6 +1173,22 @@ pub fn codex_meta(path: &str) -> Option<(String, Date)> {
 
 /// cwd and start time from a rollout's first line.
 pub fn codex_meta_data(data: &[u8]) -> Option<(String, Date)> {
+    codex_meta_full(data).map(|m| (m.cwd, m.start))
+}
+
+/// A rollout's `session_meta`. `id` is empty when the line names none; `subagent`: its `source` is an object with
+/// `subagent` (a child Codex 0.167 started inside the parent's process).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CodexMeta {
+    pub id: String,
+    pub cwd: String,
+    pub start: Date,
+    pub subagent: bool,
+}
+
+/// [`CodexMeta`] from a rollout's first line.
+pub fn codex_meta_full(first_line: &[u8]) -> Option<CodexMeta> {
+    let data = first_line;
     if data.is_empty() {
         return None;
     }
@@ -1127,7 +1200,9 @@ pub fn codex_meta_data(data: &[u8]) -> Option<(String, Date)> {
     let p = o.get("payload")?.as_object()?;
     let cwd = p.get("cwd")?.as_str()?;
     let ts = p.get("timestamp").and_then(|v| v.as_str()).or_else(|| o.get("timestamp").and_then(|v| v.as_str()))?;
-    Some((cwd.to_string(), parse_iso(ts)?))
+    let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let subagent = p.get("source").and_then(|v| v.as_object()).is_some_and(|s| s.contains_key("subagent"));
+    Some(CodexMeta { id, cwd: cwd.to_string(), start: parse_iso(ts)?, subagent })
 }
 
 /// The day folders (`<dir>/YYYY/MM/DD`, local time) a rollout started at or after `after` can be in, up to `now`
@@ -1145,15 +1220,15 @@ pub fn codex_day_folders(dir: &str, after: Date, now: Date, slack_days: i64) -> 
 }
 
 /// The rollouts among `(path, first line)` whose `session_meta` cwd is `cwd` and that started at or after `after`
-/// (2 s slack), sorted.
+/// (2 s slack), sorted. Sub-agents' rollouts are left out.
 pub fn codex_matches(first_lines: &[(String, Vec<u8>)], cwd: &str, after: Date) -> Vec<String> {
     let want = standardize_path(cwd);
     let lower = after - Duration::seconds(2);
     let mut out: Vec<String> = first_lines
         .iter()
         .filter_map(|(path, line)| {
-            let (c, start) = codex_meta_data(line)?;
-            if standardize_path(&c) == want && start >= lower {
+            let m = codex_meta_full(line)?;
+            if !m.subagent && standardize_path(&m.cwd) == want && m.start >= lower {
                 Some(path.clone())
             } else {
                 None
