@@ -321,7 +321,7 @@ the macmini results: at most 14 ms per read.
 
 Mods call `~/.local/share/bellwether/helper/current/bw` on the machine a space
 lives on. `current` links to a version folder, so an update swaps one link.
-`shared/helper.js` needs `bw version` to report version 0.3.0 and protocol 3.
+`shared/helper.js` needs `bw version` to report version 0.4.0 and protocol 4.
 When another machine's helper is missing or outdated, a mod runs this Mac's
 `bw machine install <machine>` and checks again; this Mac's own helper comes
 from `scripts/install-helper.sh`.
