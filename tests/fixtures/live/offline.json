@@ -1,0 +1,702 @@
+{
+  "machines": [
+    {
+      "name": null,
+      "layout": "ready"
+    },
+    {
+      "name": "macmini",
+      "layout": "unavailable"
+    }
+  ],
+  "spaces": [
+    {
+      "id": "s1",
+      "index": 1,
+      "name": "alpha",
+      "named": false,
+      "folder": "/r/alpha",
+      "machine": null,
+      "branch": "main",
+      "active": true,
+      "status": "blocked",
+      "tabs": [
+        {
+          "id": "tb1",
+          "index": 1,
+          "name": "1",
+          "named": false,
+          "active": true,
+          "status": "working",
+          "panes": 1,
+          "zoomed": false,
+          "settled": false,
+          "settled_at": null,
+          "changed_at": 1762459940000,
+          "working_since": 1762459940000
+        },
+        {
+          "id": "tb2",
+          "index": 2,
+          "name": "fix login",
+          "named": true,
+          "active": false,
+          "status": "blocked",
+          "panes": 1,
+          "zoomed": false,
+          "settled": false,
+          "settled_at": null,
+          "changed_at": 1762459880000,
+          "working_since": null
+        },
+        {
+          "id": "tb7",
+          "index": 3,
+          "name": "3",
+          "named": false,
+          "active": false,
+          "status": null,
+          "panes": 1,
+          "zoomed": false,
+          "settled": false,
+          "settled_at": null,
+          "changed_at": null,
+          "working_since": null
+        }
+      ]
+    },
+    {
+      "id": "s2",
+      "index": 2,
+      "name": "feat",
+      "named": false,
+      "folder": "/r/alpha-wt/feat",
+      "machine": null,
+      "branch": "feat",
+      "active": false,
+      "status": "working",
+      "tabs": [
+        {
+          "id": "tb3",
+          "index": 1,
+          "name": "1",
+          "named": false,
+          "active": true,
+          "status": "working",
+          "panes": 1,
+          "zoomed": false,
+          "settled": false,
+          "settled_at": null,
+          "changed_at": 1762456400000,
+          "working_since": null
+        }
+      ]
+    },
+    {
+      "id": "macmini/s3",
+      "index": 3,
+      "name": "gamma",
+      "named": false,
+      "folder": "/home/u/gamma",
+      "machine": "macmini",
+      "branch": "main",
+      "active": false,
+      "status": "done",
+      "tabs": [
+        {
+          "id": "macmini/tb5",
+          "index": 1,
+          "name": "1",
+          "named": false,
+          "active": true,
+          "status": "done",
+          "panes": 1,
+          "zoomed": false,
+          "settled": false,
+          "settled_at": null,
+          "changed_at": 1762459700000,
+          "working_since": null
+        }
+      ]
+    }
+  ],
+  "panes": [
+    {
+      "pane": "p1",
+      "terminal": "t1",
+      "tab": "tb1",
+      "title": "Claude Code",
+      "cwd": "/r/alpha",
+      "branch": "main",
+      "status": "working",
+      "app": "claude-code",
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": null,
+        "color": null,
+        "shell": false,
+        "agent": true
+      },
+      "focused": true,
+      "zoomed": false,
+      "movable": false
+    },
+    {
+      "pane": "p2",
+      "terminal": "t2",
+      "tab": "tb2",
+      "title": "Codex",
+      "cwd": "/r/alpha",
+      "branch": "main",
+      "status": "blocked",
+      "app": "codex",
+      "program": {
+        "key": "codex",
+        "name": "Codex",
+        "icon": "icons/codex.svg",
+        "tint": true,
+        "tile": null,
+        "color": null,
+        "shell": false,
+        "agent": true
+      },
+      "focused": false,
+      "zoomed": false,
+      "movable": false
+    },
+    {
+      "pane": "p7",
+      "terminal": "t7",
+      "tab": "tb7",
+      "title": "zsh",
+      "cwd": "/r/alpha",
+      "branch": "main",
+      "status": null,
+      "app": null,
+      "program": {
+        "key": "shell",
+        "name": "zsh",
+        "icon": "icons/terminal.svg",
+        "tint": true,
+        "tile": null,
+        "color": null,
+        "shell": true,
+        "agent": false
+      },
+      "focused": false,
+      "zoomed": false,
+      "movable": false
+    },
+    {
+      "pane": "p3",
+      "terminal": "t3",
+      "tab": "tb3",
+      "title": "Claude Code",
+      "cwd": "/r/alpha-wt/feat",
+      "branch": "feat",
+      "status": "idle",
+      "app": "claude-code",
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": null,
+        "color": null,
+        "shell": false,
+        "agent": true
+      },
+      "focused": false,
+      "zoomed": false,
+      "movable": false
+    },
+    {
+      "pane": "macmini/p5",
+      "terminal": "macmini/t5",
+      "tab": "macmini/tb5",
+      "title": "Codex",
+      "cwd": "/home/u/gamma",
+      "branch": "main",
+      "status": "done",
+      "app": "codex",
+      "program": {
+        "key": "codex",
+        "name": "Codex",
+        "icon": "icons/codex.svg",
+        "tint": true,
+        "tile": null,
+        "color": null,
+        "shell": false,
+        "agent": true
+      },
+      "focused": false,
+      "zoomed": false,
+      "movable": false
+    }
+  ],
+  "agents": [
+    {
+      "address": "t1",
+      "pane": "p1",
+      "space": "s1",
+      "space_name": "alpha",
+      "tab": "tb1",
+      "tab_index": 1,
+      "tab_name": "1",
+      "status": "working",
+      "app": "claude-code",
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": null,
+        "color": null,
+        "shell": false,
+        "agent": true
+      },
+      "title": "Refactor the parser",
+      "seq": 5,
+      "pinned": false,
+      "focused": true
+    },
+    {
+      "address": "t2",
+      "pane": "p2",
+      "space": "s1",
+      "space_name": "alpha",
+      "tab": "tb2",
+      "tab_index": 2,
+      "tab_name": "fix login",
+      "status": "blocked",
+      "app": "codex",
+      "program": {
+        "key": "codex",
+        "name": "Codex",
+        "icon": "icons/codex.svg",
+        "tint": true,
+        "tile": null,
+        "color": null,
+        "shell": false,
+        "agent": true
+      },
+      "title": "codex",
+      "seq": 7,
+      "pinned": false,
+      "focused": false
+    },
+    {
+      "address": "t3",
+      "pane": "p3",
+      "space": "s2",
+      "space_name": "feat",
+      "tab": "tb3",
+      "tab_index": 1,
+      "tab_name": "1",
+      "status": "idle",
+      "app": "claude-code",
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": null,
+        "color": null,
+        "shell": false,
+        "agent": true
+      },
+      "title": "Write tests",
+      "seq": 2,
+      "pinned": false,
+      "focused": false
+    },
+    {
+      "address": "t4",
+      "pane": "",
+      "space": "s2",
+      "space_name": "feat",
+      "tab": "tb3",
+      "tab_index": 1,
+      "tab_name": "1",
+      "status": "working",
+      "app": "claude-code",
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": null,
+        "color": null,
+        "shell": false,
+        "agent": true
+      },
+      "title": "Explore the repo",
+      "seq": 6,
+      "pinned": false,
+      "focused": false
+    },
+    {
+      "address": "macmini/t5",
+      "pane": "macmini/p5",
+      "space": "macmini/s3",
+      "space_name": "gamma",
+      "tab": "macmini/tb5",
+      "tab_index": 1,
+      "tab_name": "1",
+      "status": "done",
+      "app": "codex",
+      "program": {
+        "key": "codex",
+        "name": "Codex",
+        "icon": "icons/codex.svg",
+        "tint": true,
+        "tile": null,
+        "color": null,
+        "shell": false,
+        "agent": true
+      },
+      "title": "Port the script",
+      "seq": 4,
+      "pinned": false,
+      "focused": false
+    }
+  ],
+  "terminals": [
+    {
+      "address": "t1",
+      "argv": [
+        "claude"
+      ],
+      "name": null,
+      "template": null,
+      "parent": null,
+      "labels": {},
+      "state": "live",
+      "status": "working",
+      "report": null,
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": null,
+        "color": null,
+        "shell": false,
+        "agent": true
+      }
+    },
+    {
+      "address": "t2",
+      "argv": [
+        "codex"
+      ],
+      "name": null,
+      "template": null,
+      "parent": null,
+      "labels": {},
+      "state": "live",
+      "status": "blocked",
+      "report": null,
+      "program": {
+        "key": "codex",
+        "name": "Codex",
+        "icon": "icons/codex.svg",
+        "tint": true,
+        "tile": null,
+        "color": null,
+        "shell": false,
+        "agent": true
+      }
+    },
+    {
+      "address": "t7",
+      "argv": [
+        "zsh"
+      ],
+      "name": null,
+      "template": null,
+      "parent": null,
+      "labels": {},
+      "state": "live",
+      "status": null,
+      "report": null,
+      "program": {
+        "key": "shell",
+        "name": "zsh",
+        "icon": "icons/terminal.svg",
+        "tint": true,
+        "tile": null,
+        "color": null,
+        "shell": true,
+        "agent": false
+      }
+    },
+    {
+      "address": "t3",
+      "argv": [
+        "claude"
+      ],
+      "name": null,
+      "template": null,
+      "parent": null,
+      "labels": {},
+      "state": "live",
+      "status": "idle",
+      "report": null,
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": null,
+        "color": null,
+        "shell": false,
+        "agent": true
+      }
+    },
+    {
+      "address": "t4",
+      "argv": [
+        "claude"
+      ],
+      "name": null,
+      "template": null,
+      "parent": "t3",
+      "labels": {},
+      "state": "live",
+      "status": "working",
+      "report": null,
+      "program": {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": null,
+        "color": null,
+        "shell": false,
+        "agent": true
+      }
+    },
+    {
+      "address": "macmini/t5",
+      "argv": [
+        "codex"
+      ],
+      "name": null,
+      "template": null,
+      "parent": null,
+      "labels": {},
+      "state": "live",
+      "status": "done",
+      "report": null,
+      "program": {
+        "key": "codex",
+        "name": "Codex",
+        "icon": "icons/codex.svg",
+        "tint": true,
+        "tile": null,
+        "color": null,
+        "shell": false,
+        "agent": true
+      }
+    }
+  ],
+  "focused": {
+    "space": "s1",
+    "tab": "tb1",
+    "pane": "p1",
+    "terminal": "t1",
+    "shown": null,
+    "agent": null,
+    "cwd": "/r/alpha"
+  },
+  "shared": {
+    "bw.projects": {
+      "version": 1,
+      "projects": [
+        {
+          "machine": null,
+          "commonDir": "/r/alpha/.git",
+          "name": "alpha",
+          "main": "/r/alpha"
+        },
+        {
+          "machine": "macmini",
+          "commonDir": "/home/u/gamma/.git",
+          "name": "gamma",
+          "main": "/home/u/gamma"
+        }
+      ]
+    }
+  },
+  "exec": [
+    {
+      "on": null,
+      "cmd": "git",
+      "argsInclude": [
+        "rev-parse",
+        "/r/alpha-wt/feat"
+      ],
+      "result": {
+        "code": 0,
+        "stdout": "/r/alpha/.git\n/r/alpha-wt/feat\n",
+        "stderr": ""
+      }
+    },
+    {
+      "on": null,
+      "cmd": "git",
+      "argsInclude": [
+        "rev-parse",
+        "/r/alpha"
+      ],
+      "result": {
+        "code": 0,
+        "stdout": "/r/alpha/.git\n/r/alpha\n",
+        "stderr": ""
+      }
+    },
+    {
+      "on": "macmini",
+      "cmd": "git",
+      "argsInclude": [
+        "rev-parse",
+        "/home/u/gamma"
+      ],
+      "result": "reject"
+    },
+    {
+      "on": null,
+      "cmd": "git",
+      "argsInclude": [
+        "--git-dir",
+        "/r/alpha/.git",
+        "worktree"
+      ],
+      "result": {
+        "code": 0,
+        "stdout": "worktree /r/alpha\u0000HEAD 1111111111111111111111111111111111111111\u0000branch refs/heads/main\u0000\u0000worktree /r/alpha-wt/feat\u0000HEAD 2222222222222222222222222222222222222222\u0000branch refs/heads/feat\u0000\u0000worktree /r/alpha-wt/detached\u0000HEAD 3333333333333333333333333333333333333333\u0000detached\u0000\u0000",
+        "stderr": ""
+      }
+    },
+    {
+      "on": "macmini",
+      "cmd": "git",
+      "argsInclude": [
+        "--git-dir",
+        "/home/u/gamma/.git",
+        "worktree"
+      ],
+      "result": "reject"
+    },
+    {
+      "on": null,
+      "cmd": "sh",
+      "argsInclude": [
+        "/r/alpha"
+      ],
+      "result": {
+        "code": 0,
+        "stdout": "# branch.oid 1111111111111111111111111111111111111111\u0000# branch.head main\u0000# branch.upstream origin/main\u0000# branch.ab +1 -0\u0000\u001e",
+        "stderr": ""
+      }
+    },
+    {
+      "on": null,
+      "cmd": "sh",
+      "argsInclude": [
+        "/r/alpha-wt/feat"
+      ],
+      "result": {
+        "code": 0,
+        "stdout": "# branch.oid 2222222222222222222222222222222222222222\u0000# branch.head feat\u0000# branch.upstream origin/feat\u0000# branch.ab +0 -0\u00001 .M N... 100644 100644 100644 2222222222222222222222222222222222222222 2222222222222222222222222222222222222222 src/a.txt\u0000\u001e3\t1\tsrc/a.txt\u0000",
+        "stderr": ""
+      }
+    },
+    {
+      "on": null,
+      "cmd": "sh",
+      "argsInclude": [
+        "/r/alpha-wt/detached"
+      ],
+      "result": {
+        "code": 0,
+        "stdout": "# branch.oid 3333333333333333333333333333333333333333\u0000# branch.head (detached)\u0000\u001e",
+        "stderr": ""
+      }
+    },
+    {
+      "on": "macmini",
+      "cmd": "sh",
+      "argsInclude": [
+        "/home/u/gamma"
+      ],
+      "result": "reject"
+    }
+  ],
+  "knownAgents": {
+    "": [
+      {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": null,
+        "color": null,
+        "shell": false,
+        "agent": true,
+        "run": [
+          "claude"
+        ],
+        "installed": true
+      },
+      {
+        "key": "codex",
+        "name": "Codex",
+        "icon": "icons/codex.svg",
+        "tint": true,
+        "tile": null,
+        "color": null,
+        "shell": false,
+        "agent": true,
+        "run": [
+          "codex"
+        ],
+        "installed": true
+      }
+    ],
+    "macmini": [
+      {
+        "key": "codex",
+        "name": "Codex",
+        "icon": "icons/codex.svg",
+        "tint": true,
+        "tile": null,
+        "color": null,
+        "shell": false,
+        "agent": true,
+        "run": [
+          "codex"
+        ],
+        "installed": true
+      },
+      {
+        "key": "claude",
+        "name": "Claude Code",
+        "icon": "icons/claude.svg",
+        "tint": false,
+        "tile": null,
+        "color": null,
+        "shell": false,
+        "agent": true,
+        "run": [
+          "claude"
+        ],
+        "installed": false
+      }
+    ]
+  }
+}
