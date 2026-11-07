@@ -3,11 +3,10 @@
 // TextView markdown. Heights stay as estimate.js guesses them (same line heights).
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
-import { tableCells, colWidths, markdownHeight } from "./estimate.js";
+import { FENCE, tableCells, colWidths, markdownHeight } from "./estimate.js";
 
 export { tableCells };
 
-const FENCE = /^\s*(```|~~~)\s*([\w+#.-]*)\s*$/;
 const SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 
 const alignOf = (cell) => {

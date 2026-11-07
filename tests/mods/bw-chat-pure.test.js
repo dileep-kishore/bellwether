@@ -1,7 +1,7 @@
 // bw-chat's pure modules: feed state, row heights and markdown blocks.
 import { describe, expect, test } from "bun:test";
 import { applyFeed, applyOlder, emptyFeed, olderFrom } from "../../mods/bw-chat/feedstate.js";
-import { BUBBLE, GUTTER, READ_W, columnWidth, rowHeight, sizes } from "../../mods/bw-chat/estimate.js";
+import { BUBBLE, GUTTER, READ_W, columnWidth, markdownHeight, rowHeight, sizes } from "../../mods/bw-chat/estimate.js";
 import { codeBlockAt, splitBlocks, tableCells } from "../../mods/bw-chat/mdblocks.js";
 
 const log = (extra = {}) => ({ type: "log", agent: "claude", terminal: "t8", session: "s1", path: "/l/s1.jsonl",
@@ -166,5 +166,19 @@ describe("mdblocks", () => {
     const text = "```\none\ntwo\n```";
     expect(codeBlockAt(text, 600, 20)).toBe("one\ntwo");
     expect(codeBlockAt(text, 600, 500)).toBe(null);
+  });
+
+  test("a ~~~ fence is measured and found as the same code box as a ``` fence", () => {
+    const body = Array(100).fill("x();");
+    const tilde = ["~~~js", ...body, "~~~"].join("\n");
+    const tick = ["```js", ...body, "```"].join("\n");
+    expect(splitBlocks(tilde)).toEqual(splitBlocks(tick));
+    expect(markdownHeight(tilde, 736)).toBe(markdownHeight(tick, 736));
+    expect(rowHeight({ k: "assistant", id: "a", text: tilde }, 736)).toBe(rowHeight({ k: "assistant", id: "a", text: tick }, 736));
+    expect(codeBlockAt(tilde, 736, 50)).toBe(body.join("\n"));
+    // A ``` line inside a ~~~ block is code, as mdblocks.js draws it.
+    const mixed = ["~~~", "```", "x", "~~~"].join("\n");
+    expect(splitBlocks(mixed)).toEqual([{ k: "code", lang: "", text: "```\nx" }]);
+    expect(markdownHeight(mixed, 736)).toBe(markdownHeight(["```", "a", "b", "```"].join("\n"), 736));
   });
 });
