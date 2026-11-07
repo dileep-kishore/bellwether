@@ -287,6 +287,24 @@ fn cdp_call_matches_ids_and_skips_events() {
 }
 
 #[test]
+fn cdp_session_call_carries_the_session_id() {
+    let (url, server) = cdp_server(|req| {
+        vec![json!({"id": req["id"], "sessionId": req["sessionId"], "result": {"value": true}})]
+    });
+    let mut cdp = cdp::Cdp::connect(&url, WAIT).unwrap();
+    let reply = cdp
+        .call_session("S1", "Runtime.evaluate", json!({"expression": "1"}))
+        .unwrap();
+    assert_eq!(reply, json!({"value": true}));
+    cdp.call("Browser.getVersion", json!({})).unwrap();
+    drop(cdp);
+    let seen = server.join().unwrap();
+    assert_eq!(seen[0]["sessionId"], "S1");
+    assert_eq!(seen[0]["method"], "Runtime.evaluate");
+    assert!(seen[1].get("sessionId").is_none(), "{}", seen[1]);
+}
+
+#[test]
 fn cdp_error_is_returned() {
     let (url, server) = cdp_server(|req| {
         vec![
