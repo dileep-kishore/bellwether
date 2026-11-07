@@ -46,3 +46,12 @@ Copyright (c) 2026 Min-Chen Lee.
   user's real HOME instead of a made-up one, no fake agents, repositories,
   themes or scenes, Bellwether's layout synced with `scripts/sync.sh`, and
   the window skipped when `herdr-app` is missing.
+
+## Shepherdr
+
+Source: https://github.com/eliasstravik/shepherdr, MIT License,
+Copyright (c) 2026 Elias Stravik.
+
+| File here | Source path | Commit | How |
+| --- | --- | --- | --- |
+| `hooks/bw-event` (the `$HC_TERMINAL_ID` gate: exit 0 without a terminal id or with one holding `/` or `..`) | `mods/chat/ask-hook.sh:19-21` | `4552191829b5e67dee60a1c780f41224575ef685` | adapted |
