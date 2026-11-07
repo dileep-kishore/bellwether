@@ -3,7 +3,7 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { home, layout, nextCommand, notify, openOverlay, panes, run, setShared, shared, spaces, window } from "herdr";
-import { adopt, flipActions, wakeAt } from "./chat-tabs.js";
+import { adopt, CHAT_SHOWN, flipActions, shownChatPanes, wakeAt } from "./chat-tabs.js";
 import { moveIndex, tabItems } from "./model.js";
 import { createPoke } from "./refresh-driver.js";
 import { ICONS, machineTag, programIcon, statusIcon, themeColors } from "./ui.js";
@@ -84,6 +84,9 @@ export default class Tabs extends View {
     for (const [cmd, args] of r.actions) run(cmd, args);
     for (const n of r.notices) notify({ ...n, level: "warning" });
     const state = r.next ?? shared(CHAT_TABS);
+    // Herdr draws no hidden bw-chat copy, so its poll loop learns from this list that it went out of sight.
+    const shown = shownChatPanes(all, ps);
+    if (JSON.stringify(shown) !== JSON.stringify(shared(CHAT_SHOWN) ?? [])) setShared(CHAT_SHOWN, shown);
 
     if (this.flip) {
       this.flip = false;

@@ -17,7 +17,7 @@ import {
   spaces,
   terminals,
 } from "herdr";
-import { isShown } from "./chat-tabs.js";
+import { CHAT_SHOWN, isShown, shownFrom } from "./chat-tabs.js";
 import { Composer } from "./composer.js";
 import { dock } from "./dock.js";
 import {
@@ -176,6 +176,8 @@ export default class Chat extends View {
     // Read once here so the first feed and the loop's first sleep are right; render keeps them current.
     const ps = panes();
     this.locate(spaces(), ps);
+    /** This chat's own pane, as the last render saw it. @type {string | null} */
+    this.chatPane = null;
     /** @type {boolean} */
     this.shown = this.readShown(spaces(), ps);
     this.status = this.statusOf(ps);
@@ -238,6 +240,8 @@ export default class Chat extends View {
           const now = Date.now();
           // The guard ended since the last frame: draw the buttons enabled again.
           if (this.drawnGuarded && !isGuarded(this.guard, now)) cx.notify();
+          // A hidden copy is not drawn, so render cannot tell it went out of sight; bw-tabs's list can.
+          this.shown = shownFrom(shared(CHAT_SHOWN), this.chatPane, this.shown);
           let wait = Math.max(0, pollMs(this.shown) - (now - started));
           if (this.answerable() && isGuarded(this.guard, now))
             wait = Math.max(1000, Math.min(wait, guardedUntil(this.guard) - now));
@@ -338,7 +342,8 @@ export default class Chat extends View {
     const tab = this.tab();
     if (tab === null) return false;
     const chat = ps.find((p) => p.tab === tab && p.mod === "bw-chat");
-    return isShown({ tab, chatPane: chat?.pane ?? null }, all, ps);
+    this.chatPane = chat?.pane ?? null;
+    return isShown({ tab, chatPane: this.chatPane }, all, ps);
   }
 
   /**

@@ -379,6 +379,35 @@ export function entryForTerminal(value, terminal) {
   return Object.values(readChatTabs(value).tabs).find((e) => e.terminal === terminal) ?? null;
 }
 
+/** `shared` key: the bw-chat panes on screen, which bw-tabs stores because Herdr draws no hidden copy. */
+export const CHAT_SHOWN = "bw.chat-shown";
+
+/**
+ * The bw-chat panes on screen: in the active space's active tab, zoomed or in a tab with no zoom. Sorted.
+ * @param {any[]} spaces SpaceInfo[]
+ * @param {any[]} panes PaneInfo[]
+ * @returns {string[]}
+ */
+export function shownChatPanes(spaces, panes) {
+  const tab = spaces.find((s) => s.active)?.tabs.find((/** @type {any} */ t) => t.active);
+  if (!tab) return [];
+  return panes
+    .filter((p) => p.mod === "bw-chat" && p.tab === tab.id && (p.zoomed || !tab.zoomed))
+    .map((p) => p.pane)
+    .sort();
+}
+
+/**
+ * Whether `pane` is on screen by bw-tabs's stored list; `fallback` when there is no list or no pane.
+ * @param {unknown} stored the value of `shared(CHAT_SHOWN)`
+ * @param {string | null} pane this chat's pane
+ * @param {boolean} fallback
+ */
+export function shownFrom(stored, pane, fallback) {
+  if (pane === null || stored === undefined || stored === null) return fallback;
+  return Array.isArray(stored) && stored.includes(pane);
+}
+
 /**
  * Shown: its tab is the active tab of the active space, and its chat pane is zoomed or the tab is not.
  * @param {Pick<Entry, "tab" | "chatPane"> | null} entry
