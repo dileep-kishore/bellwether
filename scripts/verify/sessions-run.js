@@ -7,7 +7,7 @@ import { basename, dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { createHelper } from "../../shared/helper.js";
 import {
-  AGENT_PATH, HC, Term, USER_ENV, changed, claudeReady, codexHome, codexReady, envWith, filesWith, hcUser, lines, makeRepo,
+  AGENT_PATH, HC, Term, USER_ENV, aboveFooter, changed, claudeReady, codexHome, codexReady, envWith, filesWith, hcUser, lines, makeRepo,
   marker, reporter, rollouts, short, sleep, spawn, until, viaHc,
 } from "./live.js";
 
@@ -184,11 +184,12 @@ async function oldRefused(name, t, old, logsWith) {
     return l && !(l.type === "located" && l.session === old.session) ? l : null;
   }, 40000);
   if (!now) return fail(name, `bw locate still names ${old.session} after the new conversation`);
-  const before = await t.steady();
+  // Claude's footer below the input box changes on its own (mode hints after /clear); typed text shows above it.
+  const before = aboveFooter(await t.steady());
   const rowsBefore = (await bwOld(t, old)).length;
   const r = await t.send(old, text);
   await sleep(4000);
-  const after = await t.screen();
+  const after = aboveFooter(await t.screen());
   const rowsAfter = (await bwOld(t, old)).length;
   const hits = await logsWith(text);
   if (r?.result !== "refused-conversation") return fail(name, `bw send gave ${short(r)}`);
