@@ -1,0 +1,11 @@
+{
+  "bw-right": [{}, { "panel": "changes" }, { "panel": "issues" }, { "panel": "browser" }],
+  "bw-new": [{ "space": "s1" }, { "space": "macmini/s3" }, { "machine": null, "folder": "/r/beta" }],
+  "bw-menu": [
+    {},
+    { "overlay": "o1", "project": { "key": "[null,\"/r/beta/.git\"]", "machine": null, "commonDir": "/r/beta/.git", "main": "/r/beta", "name": "beta", "open": false } },
+    { "overlay": "o1", "project": { "key": "[\"macmini\",\"/home/u/gamma/.git\"]", "machine": "macmini", "commonDir": "/home/u/gamma/.git", "main": "/home/u/gamma", "name": "gamma", "open": true } },
+    { "overlay": "o1", "project": { "key": "[null,\"/r/bare.git\"]", "machine": null, "commonDir": "/r/bare.git", "main": null, "name": "bare", "open": false } }
+  ],
+  "bw-add": [{}, { "overlay": "o1" }]
+}

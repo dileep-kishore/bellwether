@@ -210,7 +210,7 @@ holds the space runs the agents, the logs, Git and the hooks.
 - Lists refresh on `watchFolder` of each local common directory and each open
   worktree, debounced to one refresh per second, with a 30 s refresh for open
   worktrees, a 60 s timer when a watch is rejected, and 15 s for other remote
-  worktrees. The selected worktree on a remote machine refreshes every 2 s,
+  worktrees. The selected worktree on a remote machine refreshes every 1.5 s,
   since `watchFolder` cannot watch another machine. `setAgentOrder` follows
   the list.
 

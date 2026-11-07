@@ -1,0 +1,5 @@
+{
+  "layout:bellwether": {
+    "cmd-alt-b": "layout.toggle:right"
+  }
+}

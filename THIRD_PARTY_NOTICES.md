@@ -17,6 +17,8 @@ Copyright (c) 2026 Min-Chen Lee.
 | `crates/vendor/Cargo.lock` | `xplat/Cargo.lock` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | pruned by cargo |
 | `crates/bw/src/machine/mod.rs` (`target_for`, the fixed `sh -c` script that runs the helper there) | `xplat/flockbook-modfeed/src/remote.rs` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
 | `crates/bw/src/machine/install.rs` (parts under 6 MB, join and hash there, `SHA256SUMS` parsing, clean up on failure) | `xplat/flockbook-modfeed/src/remote.rs` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
+| `tests/harness/herdr-stub.js` (the `fake` and `log` objects, the recording `run`, `exec`, `setShared`, `openOverlay`, `closeOverlay`, `notify`, `setAgentOrder` stubs, the `#name` theme Proxy) | `herdr-app/test/stub/herdr.mjs` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
+| `tests/harness/kit-stub.js` (the element Proxy that keeps children, attributes and handlers, `when`, the right-button `on_mouse_down` key, `byId`, `textOf`, the `InputState` and `Input` stubs) | `herdr-app/test/stub/ui.mjs` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
 
 ## herdr-t3
 

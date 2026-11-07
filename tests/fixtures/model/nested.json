@@ -1,0 +1,45 @@
+{
+  "about": "One space whose cwd uses the /tmp spelling, inside a worktree nested in the main checkout's folder. Git reports /private/tmp paths.",
+  "platform": "macos",
+  "machines": [{ "name": null, "layout": "ready" }],
+  "spaces": [
+    {
+      "id": "s1", "index": 1, "name": "nested", "named": false, "folder": "/tmp/r/alpha", "machine": null, "branch": "nested", "active": true, "status": "working",
+      "tabs": [
+        { "id": "tb1", "index": 1, "name": "1", "named": false, "active": true, "status": "working", "panes": 1, "zoomed": false, "settled": false, "settled_at": null, "changed_at": 1000, "working_since": 900 }
+      ]
+    },
+    {
+      "id": "s2", "index": 2, "name": "alpha", "named": false, "folder": "/tmp/r/alpha", "machine": null, "branch": "main", "active": false, "status": null,
+      "tabs": [
+        { "id": "tb2", "index": 1, "name": "1", "named": false, "active": true, "status": null, "panes": 1, "zoomed": false, "settled": false, "settled_at": null, "changed_at": null, "working_since": null }
+      ]
+    }
+  ],
+  "panes": [
+    { "pane": "p1", "terminal": "t1", "tab": "tb1", "title": "claude", "cwd": "/tmp/r/alpha/.worktrees/nested/src", "branch": "nested", "status": "working", "app": "claude-code", "program": { "key": "claude", "name": "Claude Code", "icon": "icons/claude.svg", "tint": true, "tile": null, "color": null, "shell": false, "agent": true }, "focused": true, "zoomed": false, "movable": false },
+    { "pane": "p2", "terminal": "t2", "tab": "tb2", "title": "zsh", "cwd": "/tmp/r/alpha/docs/", "branch": "main", "status": null, "app": null, "program": { "key": "shell", "name": "zsh", "icon": "icons/shell.svg", "tint": true, "tile": null, "color": null, "shell": true, "agent": false }, "focused": false, "zoomed": false, "movable": false }
+  ],
+  "agents": [
+    { "address": "t1", "pane": "p1", "space": "s1", "space_name": "nested", "tab": "tb1", "tab_index": 1, "tab_name": "1", "status": "working", "app": "claude-code", "program": { "key": "claude", "name": "Claude Code", "icon": "icons/claude.svg", "tint": true, "tile": null, "color": null, "shell": false, "agent": true }, "title": "nested work", "seq": 1, "pinned": false, "focused": true }
+  ],
+  "terminals": [
+    { "address": "t1", "state": "live", "status": "working" },
+    { "address": "t2", "state": "live", "status": null }
+  ],
+  "stored": [],
+  "git": {
+    "places": [
+      { "machine": null, "folder": "/tmp/r/alpha/.worktrees/nested/src", "commonDir": "/private/tmp/r/alpha/.git", "top": "/private/tmp/r/alpha/.worktrees/nested" },
+      { "machine": null, "folder": "/tmp/r/alpha/docs/", "commonDir": "/private/tmp/r/alpha/.git", "top": "/private/tmp/r/alpha/" }
+    ],
+    "worktrees": [
+      { "machine": null, "commonDir": "/private/tmp/r/alpha/.git", "stale": false, "list": [
+        { "path": "/private/tmp/r/alpha", "head": "a1", "branch": "main", "detached": false, "bare": false, "locked": false, "prunable": false },
+        { "path": "/private/tmp/r/alpha/.worktrees/nested", "head": "a1", "branch": "nested", "detached": false, "bare": false, "locked": false, "prunable": false }
+      ] }
+    ],
+    "counts": [],
+    "unreachable": []
+  }
+}
