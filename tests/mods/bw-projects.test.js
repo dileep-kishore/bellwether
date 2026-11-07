@@ -275,6 +275,20 @@ describe("bw-projects", () => {
     expect(m.log.overlays[1].props.project).toMatchObject({ key: GAMMA, machine: "macmini", open: true });
   });
 
+  test("a project with no main checkout has no + to start a terminal", async () => {
+    calls = [];
+    const data = withExec("two-machines");
+    const bare = { machine: null, commonDir: "/r/bare.git", name: "bare", main: null };
+    data.shared = { "bw.projects": { version: 1, projects: [bare] } };
+    const m = await mount("bw-projects", { live: data });
+    await settle(m);
+    const key = projectKey(null, "/r/bare.git");
+    await fire(byId(m.el, `project-${key}`), "on_hover", true, m.cx);
+    m.render();
+    expect(byId(m.el, `project-new-${key}`)).toBe(null);
+    expect(byId(m.el, `project-more-${key}`)).not.toBe(null);
+  });
+
   test("spaces outside git show under Other spaces with their agents", async () => {
     const m = await mounted("two-machines", (cmd, args) => {
       if (cmd === "git" && args.includes("rev-parse") && args.includes("/r/alpha-wt/feat")) return { code: 128, stdout: "", stderr: "fatal: not a git repository" };
