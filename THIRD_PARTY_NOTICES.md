@@ -31,6 +31,7 @@ Copyright (c) 2026 Min-Chen Lee.
 | `mods/bw-chat/timeline.js` (the row bodies, the tool line and its calls, `chipIcon`, `oneLine`, the virtual list with `on_item_click` and its scrollbar) | `herdr-app/mods/flockbook/chat.js` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
 | `mods/bw-chat/main.js` (the feed poll, older rows on scroll-up at the top, following the newest row, the height cache) | `herdr-app/mods/flockbook/chat.js` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
 | `mods/bw-chat/composer.js` (`withoutEnter`, the Textarea box, Enter sends and Shift-Enter adds a line; files, paste and status tags dropped) | `herdr-app/mods/flockbook/composer.js` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
+| `crates/bw/src/chat/picture.rs` (`line_at`: the line read of `read`, without its format and size match, since the caller knows only the digest) | `xplat/herdr-core/src/log_image.rs` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
 
 ## herdr-t3
 
