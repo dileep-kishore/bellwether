@@ -1,0 +1,50 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": {
+    "includes": [
+      "**",
+      "!docs",
+      "!target",
+      "!crates",
+      "!tests/fixtures",
+      "!node_modules",
+      // Herdr draws the SVG icons itself, page.html is a browser-test fixture, and prose keeps its own wrapping.
+      "!**/*.svg",
+      "!**/*.html",
+      "!**/*.md",
+      "!tests/harness/api.json",
+      "!mods/*/chat-tabs.js",
+      "!mods/*/git-parse.js",
+      "!mods/*/git.js",
+      "!mods/*/helper.js",
+      "!mods/*/projects-model.js",
+      "!mods/*/refresh-driver.js",
+      "!mods/*/refresh-schedule.js",
+      "!mods/*/status.js",
+      "!mods/*/ui.js"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 120,
+    "lineEnding": "lf"
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always",
+      "trailingCommas": "all"
+    }
+  },
+  "assist": {
+    // Sorting imports reorders module evaluation and churns every file for no lint benefit.
+    "actions": { "source": { "organizeImports": "off" } }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": { "preset": "recommended" }
+  }
+}

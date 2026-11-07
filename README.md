@@ -398,7 +398,12 @@ hooks/bw-event            the hook bw machine setup installs; it hands each even
 agent/                    the browser instructions and MCP launcher that bw embeds and bw agent ensure writes to each machine
 docs/brief/               the requests this work answers, verbatim
 docs/research/            what the reference projects do, with evidence
+package.json, bun.lock    the pinned JavaScript dev tools: Biome and TypeScript
+biome.jsonc               Biome's format and lint settings
 ```
+
+Run `bun install` once per checkout to put the pinned tools in
+`node_modules`, which Git and Syncthing both ignore.
 
 ## Install on a machine
 
