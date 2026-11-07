@@ -10,10 +10,12 @@
 # their trust entries) for root and sub-agent approvals and an async question. Agents run in a private hc core
 # (HC_SESSION=bw-requests) in scratch git repositories under /private/tmp/claude-501/bw-requests. Their hooks run
 # "$HOME/.local/share/bellwether/hooks/bw-event", so that script is put there for the run and taken away after
-# (or put back as it was). With --machine: bw machine setup <name> --diff, --apply, --check, a trust step written
-# into <name>'s ~/.codex/config.toml, then Codex there (CODEX_HOME=~/.codex) for an approval, a stale card and an
-# async question, all through the helper there; on exit --remove, and every file and folder of <name>'s ~/.claude,
-# ~/.codex and Bellwether's hooks and backups folders is put back as it was (or deleted if it was absent).
+# (or put back as it was). With --machine, which must be a machine hc machine ls --json marks temporary (bwloop):
+# bw machine setup <name> --diff, --apply, --check, a trust step written into <name>'s ~/.codex/config.toml, then
+# Codex there (CODEX_HOME=~/.codex) for an approval, a stale card and an async question, all through the helper
+# there; on exit --remove, and scripts/verify/home-files.sh puts back each file under <name>'s ~/.claude, ~/.codex
+# and Bellwether's hooks and backups folders that the run changed or removed, and deletes each file and folder
+# the run created.
 # BW_VERIFY_ONLY=claude,codex,remote runs only those groups, for a rerun. Prints PASS <check> or FAIL <check>: <why>;
 # exits 1 on any FAIL, including when ~/.claude/settings.json, ~/.codex/hooks.json or ~/.codex/config.toml here
 # changed during the run.
@@ -31,6 +33,13 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ "$offline" = 1 ] && [ -n "$machine" ] && { echo "--offline and --machine exclude each other" >&2; exit 2; }
+# The run writes that machine's real ~/.claude and ~/.codex, and Codex there writes its own files during the run;
+# only a temporary machine has no other writer whose changes the cleanup could undo.
+if [ -n "$machine" ] && ! "$hc" machine ls --json 2> /dev/null |
+  jq -e --arg m "$machine" 'any(.machines[]?; .name == $m and .temporary == true)' > /dev/null 2>&1; then
+  echo "--machine $machine: hc machine ls --json does not mark it temporary; this run writes and puts back its ~/.claude and ~/.codex, so it runs only on a temporary machine such as bwloop" >&2
+  exit 2
+fi
 
 real="$HOME/.claude/settings.json $HOME/.codex/hooks.json $HOME/.codex/config.toml"
 sums() { for f in $real; do [ -f "$f" ] && shasum -a 256 "$f"; done; }
@@ -68,8 +77,9 @@ core=bw-requests
 core_pid=
 hook_script=$HOME/.local/share/bellwether/hooks/bw-event
 hook_saved=0 hook_dir_made=0
-# The paths under <machine>'s HOME this run may create or change; each is put back as it was.
+# The paths under <machine>'s HOME this run may create or change; home-files.sh saves and puts back their files.
 remote_paths=".claude .codex .local/share/bellwether/hooks .local/share/bellwether/backups"
+home_files=$(cat "$src/scripts/verify/home-files.sh") || { echo "FAIL setup: read home-files.sh"; exit 1; }
 
 # Agents started from inside another Claude session inherit CLAUDE_CODE_CHILD_SESSION, which turns
 # transcript saving off; the private core and everything it starts get a bare environment.
@@ -92,13 +102,9 @@ cleanup() {
   fi
   if [ -n "$H" ]; then
     "$bw" machine setup "$machine" --remove > "$L/remove.out" 2>&1 || cfail "bw machine setup $machine --remove: $(cat "$L/remove.out")"
-    # Each path back as it was: the saved copy if it existed, else gone.
-    "$hc" exec --on "$machine" -- sh -c 'cd "$1" || exit 1; saved=$2; shift 2
-      for p in "$@"; do
-        if [ -e "$saved/$p" ] || [ -L "$saved/$p" ]; then rm -rf "./$p" && mkdir -p "./$(dirname "$p")" && cp -pR "$saved/$p" "./$p"
-        else rm -rf "./$p"; fi
-      done' sh "$H" "$R/saved" $remote_paths > /dev/null 2>&1 || cfail "could not put back $remote_paths on $machine"
-    now=$("$hc" exec --on "$machine" -- sh -c 'cd "$1" && shift && for p in "$@"; do [ -e "$p" ] && find "$p" -type f -exec shasum -a 256 {} + | sort; done' sh "$H" $remote_paths 2>&1)
+    out=$("$hc" exec --on "$machine" -- sh -c "$home_files" sh restore "$H" "$R/saved" $remote_paths 2>&1) ||
+      cfail "could not put back $remote_paths on $machine: $out"
+    now=$("$hc" exec --on "$machine" -- sh -c "$home_files" sh sums "$H" $remote_paths 2>&1)
     [ "$now" = "$remote_before" ] || cfail "$machine's $remote_paths differ from before the run"
   fi
   if [ -n "$R" ]; then
@@ -152,10 +158,9 @@ if [ -n "$machine" ]; then
   "$hc" exec --on "$machine" -- sh -c '[ ! -e "$1" ] || [ -f "$1/.bw-verify" ] && rm -rf "$1" && umask 077 &&
     mkdir -p "$1/saved" && : > "$1/.bw-verify"' sh "$R" > /dev/null 2>&1 ||
     { echo "FAIL setup: $R on $machine (a folder without .bw-verify is never deleted)"; R=; exit 1; }
-  remote_before=$("$hc" exec --on "$machine" -- sh -c 'cd "$1" && shift && for p in "$@"; do [ -e "$p" ] && find "$p" -type f -exec shasum -a 256 {} + | sort; done' sh "$home" $remote_paths 2>&1)
-  "$hc" exec --on "$machine" -- sh -c 'cd "$1" || exit 1; saved=$2; shift 2
-    for p in "$@"; do [ -e "$p" ] || continue; mkdir -p "$saved/$(dirname "$p")" && cp -pR "$p" "$saved/$p" || exit 1; done' \
-    sh "$home" "$R/saved" $remote_paths > /dev/null 2>&1 || { echo "FAIL setup: could not save $remote_paths on $machine"; exit 1; }
+  remote_before=$("$hc" exec --on "$machine" -- sh -c "$home_files" sh sums "$home" $remote_paths 2>&1)
+  out=$("$hc" exec --on "$machine" -- sh -c "$home_files" sh save "$home" "$R/saved" $remote_paths 2>&1) ||
+    { echo "FAIL setup: could not save $remote_paths on $machine: $out"; exit 1; }
   H=$home
   set -- "$@" --machine "$machine" --remote-root "$R" --remote-home "$H"
 fi
