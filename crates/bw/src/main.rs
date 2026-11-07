@@ -2,9 +2,12 @@ use std::process::ExitCode;
 
 use serde_json::json;
 
+mod hc;
+mod machine;
 mod version;
 
-const USAGE: &str = "usage: bw version";
+const USAGE: &str =
+    "usage: bw version | bw machine status <machine> | bw machine install <machine> [--force]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -13,6 +16,7 @@ fn main() -> ExitCode {
             println!("{}", version::version_json());
             ExitCode::SUCCESS
         }
+        Some("machine") => machine::run(&args[1..]),
         Some(other) => usage(&format!("unknown command {other:?}; {USAGE}")),
         None => usage(USAGE),
     }
