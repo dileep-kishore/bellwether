@@ -4,11 +4,6 @@
 //! `enter select · esc back`. Each option's digit picks it at once, with no Enter. hc says `idle`, never
 //! `blocked`, while it shows, so a reader that waits for `blocked` never sees it.
 
-#![expect(
-    dead_code,
-    reason = "bw cards and bw answer (phase 3 Tasks 8 and 9) use it"
-)]
-
 use herdr_core::approval::hash_id;
 
 use super::codex_approval::{blocks, footer_is, options, plain};

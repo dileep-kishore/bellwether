@@ -125,18 +125,30 @@ pub fn locate_fresh(terminal: &str, now_ms: i64) -> Result<Located, LocateFailur
 }
 
 fn locate_as(terminal: &str, now_ms: i64, recheck: bool) -> Result<Located, LocateFailure> {
+    locate_with_record(terminal, now_ms, recheck).1
+}
+
+/// `locate`, also giving the `hc get` record it read (None when it read none), so a caller needs no second one.
+pub fn locate_with_record(
+    terminal: &str,
+    now_ms: i64,
+    recheck: bool,
+) -> (Option<Value>, Result<Located, LocateFailure>) {
     // A remote terminal's pids mean nothing here (`mapper::pane` drops them), so it would only ever read as no log.
     if terminal.contains('/') {
-        return Err(LocateFailure::NoTerminal(format!(
-            "{terminal} is on another machine; bw locate runs there with its local address"
-        )));
+        return (
+            None,
+            Err(LocateFailure::NoTerminal(format!(
+                "{terminal} is on another machine; bw locate runs there with its local address"
+            ))),
+        );
     }
     let term = match hc::hc_get(terminal) {
         Ok(v) => v,
         Err(HcError::Refused { kind, message }) if kind == "not_found" || kind == "finished" => {
-            return Err(LocateFailure::NoTerminal(message))
+            return (None, Err(LocateFailure::NoTerminal(message)))
         }
-        Err(e) => return Err(LocateFailure::NoCore(e.to_string())),
+        Err(e) => return (None, Err(LocateFailure::NoCore(e.to_string()))),
     };
     let file = cache::terminal_file(terminal);
     let core_dir = file.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -149,7 +161,8 @@ fn locate_as(terminal: &str, now_ms: i64, recheck: bool) -> Result<Located, Loca
         home: PathBuf::from(session_log::home_dir()),
         recheck,
     };
-    locate_with(&term, &file, &inputs, now_ms)
+    let found = locate_with(&term, &file, &inputs, now_ms);
+    (Some(term), found)
 }
 
 /// This core's live terminal addresses; none when `hc ls` fails, which only means nothing counts as taken.

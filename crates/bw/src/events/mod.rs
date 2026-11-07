@@ -181,10 +181,6 @@ fn write_in(root: &Path, e: &Event) -> io::Result<PathBuf> {
 }
 
 /// The terminal's events from `since_ms` on, oldest first; unreadable files are skipped.
-#[expect(
-    dead_code,
-    reason = "bw cards and bw counts (phase 3 Tasks 8 and 10) read events"
-)]
 pub fn read(terminal: &str, since_ms: i64) -> Vec<Event> {
     read_in(&events_dir(), terminal, since_ms)
 }

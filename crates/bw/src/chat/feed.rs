@@ -20,6 +20,7 @@ use serde_json::json;
 use super::args::{self, Args};
 use super::protocol::{fnv1a, JsonLines};
 use super::{cache, locate, rows, tail, tree};
+use crate::requests::cards;
 
 /// The range parsed again on each growth stops growing here; then `bw` starts a new 2 MB tail (splice 0).
 pub const MAX_SPAN: u64 = 8 * 1024 * 1024;
@@ -184,7 +185,7 @@ pub fn session_of(path: &Path, agent: &str) -> String {
 }
 
 /// `BW_NOW_MS` when set, for tests; else the clock.
-pub(super) fn now() -> Date {
+pub fn now() -> Date {
     std::env::var("BW_NOW_MS")
         .ok()
         .and_then(|v| v.parse::<i64>().ok())
@@ -194,12 +195,12 @@ pub(super) fn now() -> Date {
 
 const USAGE: &str = "usage: bw feed (--terminal <t> [--session <child>] \
     | --log <path> --agent claude|codex [--scope root|claude-subagent|codex-child:<ordinal>]) \
-    [--cursor <c> | --before <start>] [--pictures] [--tree]";
+    [--cursor <c> | --before <start>] [--pictures] [--tree] [--cards]";
 
 pub fn run(argv: &[String]) -> ExitCode {
     let a = match args::parse(
         argv,
-        &["pictures", "tree"],
+        &["pictures", "tree", "cards"],
         &[
             "terminal", "log", "agent", "cursor", "before", "session", "scope",
         ],
@@ -229,12 +230,13 @@ fn scope_arg(value: Option<&str>, agent: &str) -> Option<FileScope> {
     }
 }
 
-/// What one call reads besides the range: `--pictures`, `--tree`, and a range before `--before`.
+/// What one call reads besides the range: `--pictures`, `--tree`, `--cards`, and a range before `--before`.
 struct Ask<'a> {
     cursor: Option<&'a str>,
     before: Option<u64>,
     pictures: bool,
     tree: bool,
+    cards: bool,
 }
 
 fn run_in<Tz: TimeZone>(a: &Args, now: &Date, tz: &Tz) -> ExitCode {
@@ -246,21 +248,24 @@ fn run_in<Tz: TimeZone>(a: &Args, now: &Date, tz: &Tz) -> ExitCode {
     if before.is_some() && a.get("cursor").is_some() {
         return crate::usage(&format!("--before takes no --cursor; {USAGE}"));
     }
-    if before.is_some() && a.has("tree") {
-        return crate::usage(&format!("--before takes no --tree; {USAGE}"));
+    if before.is_some() && (a.has("tree") || a.has("cards")) {
+        return crate::usage(&format!("--before takes no --tree or --cards; {USAGE}"));
     }
     let ask = Ask {
         cursor: a.get("cursor"),
         before,
         pictures: a.has("pictures"),
         tree: a.has("tree"),
+        cards: a.has("cards"),
     };
     let mut out = JsonLines::new();
     let result = match (a.get("terminal"), a.get("log"), a.get("agent")) {
         (Some(t), None, None) if a.get("scope").is_none() => {
             by_terminal(t, a.get("session"), &ask, &mut out, now, tz)
         }
-        (None, Some(log), Some(agent @ ("claude" | "codex"))) if a.get("session").is_none() => {
+        (None, Some(log), Some(agent @ ("claude" | "codex")))
+            if a.get("session").is_none() && !ask.cards =>
+        {
             let Some(scope) = scope_arg(a.get("scope"), agent) else {
                 return crate::usage(&format!(
                     "--scope {:?} is not one of {agent}'s; {USAGE}",
@@ -326,6 +331,7 @@ fn by_log<Tz: TimeZone>(
     with_state(&file, &src, ask.cursor, ask.pictures, out, now, tz)
 }
 
+/// The terminal's rows, then with `--cards` its requests, from one `hc get`, so a chat poll is one call.
 fn by_terminal<Tz: TimeZone>(
     terminal: &str,
     child: Option<&str>,
@@ -334,7 +340,37 @@ fn by_terminal<Tz: TimeZone>(
     now: &Date,
     tz: &Tz,
 ) -> std::io::Result<()> {
-    let located = match locate::locate(terminal, now.timestamp_millis()) {
+    let (record, found) = locate::locate_with_record(terminal, now.timestamp_millis(), false);
+    let mut tree = None;
+    let fed = rows_of(terminal, child, &found, ask, &mut tree, out, now, tz);
+    if ask.cards && fed.is_ok() {
+        cards::emit(
+            terminal,
+            record.as_ref(),
+            &found,
+            tree,
+            now.timestamp_millis(),
+            out,
+        );
+    }
+    fed
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "by_terminal's parts, kept apart so the cards follow every outcome"
+)]
+fn rows_of<Tz: TimeZone>(
+    terminal: &str,
+    child: Option<&str>,
+    found: &Result<locate::Located, locate::LocateFailure>,
+    ask: &Ask,
+    tree_out: &mut Option<tree::Tree>,
+    out: &mut JsonLines,
+    now: &Date,
+    tz: &Tz,
+) -> std::io::Result<()> {
+    let located = match found {
         Ok(l) => l,
         Err(f) => {
             out.emit_value(f.state_line());
@@ -351,10 +387,11 @@ fn by_terminal<Tz: TimeZone>(
         out.emit_value(gone.state_line());
         return Ok(());
     }
-    let tree = (ask.tree || child.is_some()).then(|| tree::tree_of(&located));
+    let tree = (ask.tree || child.is_some() || ask.cards).then(|| tree::tree_of(located));
     if let Some(t) = tree.as_ref().filter(|_| ask.tree) {
         out.emit_value(t.line());
     }
+    tree_out.clone_from(&tree);
     let (path, scope, cache_file) = match (child, &tree) {
         (Some(id), Some(t)) => {
             let Some(c) = t.child(id).filter(|c| c.path.is_file()) else {

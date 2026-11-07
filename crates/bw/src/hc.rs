@@ -239,21 +239,11 @@ pub fn hc_send_with(
 }
 
 /// `hc read <address> --json`: the terminal's visible screen as plain text, no history.
-#[expect(
-    dead_code,
-    reason = "bw cards and bw answer (phase 3 Tasks 8 and 9) call it"
-)]
+#[expect(dead_code, reason = "bw answer (phase 3 Task 9) calls it")]
 pub fn hc_read(address: &str) -> Result<String, HcError> {
     hc_read_with(&program(), address)
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "bw cards and bw answer (phase 3 Tasks 8 and 9) call it"
-    )
-)]
 pub fn hc_read_with(program: &OsStr, address: &str) -> Result<String, HcError> {
     let r = run_with(
         program,
@@ -267,21 +257,11 @@ pub fn hc_read_with(program: &OsStr, address: &str) -> Result<String, HcError> {
 }
 
 /// Presses `keys` (hc's names: `enter`, `esc`, `1`, ...) in the terminal at `address`, never `--force`.
-#[expect(
-    dead_code,
-    reason = "bw cards and bw answer (phase 3 Tasks 8 and 9) call it"
-)]
+#[expect(dead_code, reason = "bw answer (phase 3 Task 9) calls it")]
 pub fn hc_keys(address: &str, keys: &[&str], timeout: Duration) -> Result<Value, HcError> {
     hc_keys_with(&program(), address, keys, timeout)
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "bw cards and bw answer (phase 3 Tasks 8 and 9) call it"
-    )
-)]
 pub fn hc_keys_with(
     program: &OsStr,
     address: &str,

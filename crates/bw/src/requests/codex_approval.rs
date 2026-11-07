@@ -5,11 +5,6 @@
 //! lines, options `1. … (y)`, an optional `2. … (p)` and a last `… (esc)`, and the footer. Anything else in the box
 //! gives no match, so no key is ever chosen for a prompt this code has not seen.
 
-#![expect(
-    dead_code,
-    reason = "bw cards and bw answer (phase 3 Tasks 8 and 9) use it"
-)]
-
 use herdr_core::approval::hash_id;
 
 pub const QUESTION: &str = "Would you like to run the following command?";
