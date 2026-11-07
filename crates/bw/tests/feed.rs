@@ -628,9 +628,9 @@ fn golden_text(lines: &[Value]) -> String {
         .map(|l| {
             let mut l = l.clone();
             if l["type"] == "log" {
+                // `remove` would swap the last key into its place, as serde_json keeps insertion order here.
                 let o = l.as_object_mut().unwrap();
-                o.remove("path");
-                o.remove("cursor");
+                o.retain(|k, _| k != "path" && k != "cursor");
             }
             format!("{l}\n")
         })
