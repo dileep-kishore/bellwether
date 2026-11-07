@@ -85,11 +85,28 @@ pub fn terminal_file(terminal: &str) -> PathBuf {
         .join(format!("{}.json", safe(terminal)))
 }
 
+/// `feeds/<core>/<terminal>.<fnv1a(child)>.json`: a sub-agent's feed state, apart from its terminal's root.
+/// It holds no `root`, so `roots_except` never reads it as another terminal's claim.
+pub fn child_file(terminal: &str, child: &str) -> PathBuf {
+    feeds_dir()
+        .join(safe(&core_name()))
+        .join(format!("{}.{}.json", safe(terminal), fnv1a(child)))
+}
+
 /// `feeds/log/<fnv1a(path)>.json`, for a feed read by log path rather than by terminal.
 pub fn log_file(path: &Path) -> PathBuf {
     feeds_dir()
         .join("log")
         .join(format!("{}.json", fnv1a(&path.to_string_lossy())))
+}
+
+/// `log_file` for a file read with another scope (`--scope`), whose rows differ from a root read's.
+pub fn scoped_log_file(path: &Path, scope: &str) -> PathBuf {
+    feeds_dir().join("log").join(format!(
+        "{}.{}.json",
+        fnv1a(&path.to_string_lossy()),
+        fnv1a(scope)
+    ))
 }
 
 /// A missing, unreadable or other-version file reads as an empty cache.
@@ -268,6 +285,14 @@ mod tests {
         assert_eq!(terminal_file("macmini/t5"), core.join("macmini_t5.json"));
         assert_eq!(terminal_file("../x"), core.join("___x.json"));
         assert_eq!(terminal_file("t12"), core.join("t12.json"));
+        assert_eq!(
+            child_file("macmini/t5", "a640ed49983e1482a"),
+            core.join(format!("macmini_t5.{}.json", fnv1a("a640ed49983e1482a")))
+        );
+        assert_ne!(
+            scoped_log_file(Path::new("/a/b.jsonl"), "claude-subagent"),
+            log_file(Path::new("/a/b.jsonl"))
+        );
         assert_eq!(
             log_file(Path::new("/a/b.jsonl")),
             feeds_dir()

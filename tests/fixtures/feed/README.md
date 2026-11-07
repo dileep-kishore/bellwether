@@ -22,6 +22,18 @@ length, so byte offsets and Codex row ids (`cx@<offset>`) stay those of the reco
   diff before committing.
 - `rows_match_hand_counts` checks the same rows against each recording's hand counts.
 
+`children/<scenario>-<child id>.jsonl` hold the same output for each sub-agent of
+`claude-subagents` and `codex-subagent`, read on its own:
+
+    BW_NOW_MS=1794009600000 BW_TZ=UTC bw feed --log <child log> --agent <claude|codex> \
+        --scope claude-subagent|codex-child:<history_start_ordinal> --pictures
+
+The `log` line's `session` is the child file's stem, as for any `--log` read; a chat reads a
+child with `bw feed --terminal <t> --session <child id>`, whose `log` line names the root
+session and the child. `crates/bw/tests/tree.rs` makes and checks them in
+`child_goldens_are_current` (bless as above, with `--test tree`), and
+`child_rows_match_hand_counts` checks the rows against each child's hand counts.
+
 The `bw-chat` mod's tests (phase 2, Task 8) read these files as the helper's answers.
 `tests/fixtures/live/chat-tab.json` and `chat-remote.json` hold copies of the
 `claude-picture` and `codex-question` answers with `terminal`, `path` and `cursor` set in
