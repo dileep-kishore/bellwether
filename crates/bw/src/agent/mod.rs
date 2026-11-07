@@ -36,8 +36,8 @@ const FILES: [(&str, &str, u32); 4] = [
     ("browser-mcp", LAUNCHER, 0o755),
 ];
 
-const USAGE: &str = "usage: bw agent ensure --window <w> [--port <p>] \
-    | bw agent args --kind claude|codex --window <w> --cwd <dir> [--profile <p>]";
+const USAGE: &str = "usage: bw agent ensure --window <w> [--port <p>] [--no-warm] \
+    | bw agent args --kind claude|codex --window <w> [--cwd <dir>] [--profile <p>] | bw agent warm";
 
 pub fn dir(home: &Path) -> PathBuf {
     home.join(AGENT_DIR)
@@ -167,7 +167,7 @@ pub fn ensure(home: &Path, window: &str, port: Option<u16>) -> Result<Vec<String
 pub fn warm(home: &Path) -> &'static str {
     let d = dir(home);
     let marker = d.join(WARM_MARKER);
-    if marker.is_file() {
+    if warmed(home) {
         return "skipped";
     }
     let out_path = d.join(".warm.out");
@@ -208,6 +208,35 @@ pub fn warm(home: &Path) -> &'static str {
     } else {
         "failed"
     }
+}
+
+/// True once the pinned MCP package is in this machine's npx cache.
+pub fn warmed(home: &Path) -> bool {
+    dir(home).join(WARM_MARKER).is_file()
+}
+
+/// `bw agent warm`: one warm at a time per machine; a second finds the first running and leaves.
+fn warm_cmd(home: &Path) -> ExitCode {
+    let d = dir(home);
+    let lock = fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&d)
+        .and_then(|()| {
+            fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .mode(0o600)
+                .open(d.join(".warm.lock"))
+        });
+    let warm = match &lock {
+        Ok(f) if f.try_lock().is_ok() => warm(home),
+        Ok(_) => "running",
+        Err(_) => "failed",
+    };
+    println!("{}", json!({"type": "agent-warm", "warm": warm}));
+    ExitCode::SUCCESS
 }
 
 /// `ok`, `missing` (none of the embedded files there) or `outdated` (some missing or different).
@@ -292,6 +321,7 @@ pub fn run(args: &[String]) -> ExitCode {
     match args.first().map(String::as_str) {
         Some("ensure") => ensure_cmd(&home, rest),
         Some("args") => args_cmd(&home, rest),
+        Some("warm") if rest.is_empty() => warm_cmd(&home),
         _ => crate::usage(USAGE),
     }
 }
@@ -307,7 +337,7 @@ fn window_opt(opts: &args::Args) -> Result<&str, ExitCode> {
 }
 
 fn ensure_cmd(home: &Path, rest: &[String]) -> ExitCode {
-    let opts = match args::parse(rest, &[], &["window", "port"]) {
+    let opts = match args::parse(rest, &["no-warm"], &["window", "port"]) {
         Ok(o) => o,
         Err(e) => return crate::usage(&format!("{e}; {USAGE}")),
     };
@@ -324,12 +354,62 @@ fn ensure_cmd(home: &Path, rest: &[String]) -> ExitCode {
         Ok(c) => c,
         Err(e) => return crate::chat::error("write_failed", &e),
     };
-    let warm = warm(home);
+    // `bw browser agent-args` has 20 s in all and a first warm may take 25, so it starts the warm itself.
+    let warm = if opts.has("no-warm") {
+        if warmed(home) {
+            "skipped"
+        } else {
+            "needed"
+        }
+    } else {
+        warm(home)
+    };
     println!(
         "{}",
         json!({"type": "agent-files", "changed": changed, "warm": warm})
     );
     ExitCode::SUCCESS
+}
+
+/// The argv one Claude or Codex session adds on this machine, or the error code and reason that rule it out.
+pub fn agent_args(
+    home: &Path,
+    kind: &str,
+    window: &str,
+    cwd: Option<&Path>,
+    profile: Option<&str>,
+) -> Result<Vec<String>, (&'static str, String)> {
+    if !npx_found() {
+        return Err((
+            "node_missing",
+            "npx not found on PATH or in /opt/homebrew/bin or /usr/local/bin: install Node".into(),
+        ));
+    }
+    if kind == "claude" {
+        return Ok(claude_args(home, window));
+    }
+    let codex_home = std::env::var_os("CODEX_HOME")
+        .filter(|h| !h.is_empty())
+        .map_or_else(|| home.join(".codex"), PathBuf::from);
+    match codex::effective(&codex_home, cwd, profile) {
+        Ok(v) => Ok(codex_args(home, window, v.as_deref())),
+        Err(e) => Err(("codex_config_unreadable", e)),
+    }
+}
+
+/// The checks `bw agent args` and `bw browser agent-args` share: kind, an absolute `--cwd` when given, and a
+/// profile name that cannot be a path.
+pub fn check_options(kind: &str, cwd: Option<&str>, profile: Option<&str>) -> Result<(), String> {
+    if !matches!(kind, "claude" | "codex") {
+        return Err("--kind is claude or codex".into());
+    }
+    if cwd.is_some_and(|c| !Path::new(c).is_absolute()) {
+        return Err("--cwd takes an absolute folder".into());
+    }
+    if profile.is_some_and(|p| !valid_profile(p)) {
+        return Err("--profile takes a profile name".into());
+    }
+    Ok(())
 }
 
 fn args_cmd(home: &Path, rest: &[String]) -> ExitCode {
@@ -341,39 +421,21 @@ fn args_cmd(home: &Path, rest: &[String]) -> ExitCode {
         Ok(w) => w,
         Err(code) => return code,
     };
-    let Some(cwd) = opts.get("cwd").map(Path::new).filter(|c| c.is_absolute()) else {
-        return crate::usage(&format!("--cwd takes an absolute folder; {USAGE}"));
-    };
-    let profile = opts.get("profile");
-    if profile.is_some_and(|p| !valid_profile(p)) {
-        return crate::usage(&format!("--profile takes a profile name; {USAGE}"));
-    }
     let kind = opts.get("kind").unwrap_or_default();
-    if !matches!(kind, "claude" | "codex") {
-        return crate::usage(&format!("--kind is claude or codex; {USAGE}"));
+    let (cwd, profile) = (opts.get("cwd"), opts.get("profile"));
+    if let Err(e) = check_options(kind, cwd, profile) {
+        return crate::usage(&format!("{e}; {USAGE}"));
     }
-    if !npx_found() {
-        return crate::chat::error(
-            "node_missing",
-            "npx not found on PATH or in /opt/homebrew/bin or /usr/local/bin: install Node",
-        );
-    }
-    let argv = if kind == "claude" {
-        claude_args(home, window)
-    } else {
-        let codex_home = std::env::var_os("CODEX_HOME")
-            .filter(|h| !h.is_empty())
-            .map_or_else(|| home.join(".codex"), PathBuf::from);
-        match codex::effective(&codex_home, cwd, profile) {
-            Ok(v) => codex_args(home, window, v.as_deref()),
-            Err(e) => return crate::chat::error("codex_config_unreadable", &e),
+    match agent_args(home, kind, window, cwd.map(Path::new), profile) {
+        Ok(argv) => {
+            println!(
+                "{}",
+                json!({"type": "agent-args", "kind": kind, "argv": argv})
+            );
+            ExitCode::SUCCESS
         }
-    };
-    println!(
-        "{}",
-        json!({"type": "agent-args", "kind": kind, "argv": argv})
-    );
-    ExitCode::SUCCESS
+        Err((code, message)) => crate::chat::error(code, &message),
+    }
 }
 
 #[cfg(test)]

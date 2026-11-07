@@ -12,6 +12,7 @@ pub mod forward;
 pub mod http;
 pub mod launch;
 pub mod listen;
+mod lock;
 pub mod tabs;
 
 const USAGE: &str = "usage: bw browser up|down|tabs|focus|close|new|arrange|free-port|port-check\

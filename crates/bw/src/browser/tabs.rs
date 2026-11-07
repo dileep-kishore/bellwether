@@ -126,7 +126,7 @@ fn chrome_port() -> Result<u16, String> {
 }
 
 /// `$HERDR_APP_HOME`, else `~/.config/herdr-app`.
-fn app_home() -> PathBuf {
+pub(crate) fn app_home() -> PathBuf {
     if let Some(d) = std::env::var_os("HERDR_APP_HOME").filter(|d| !d.is_empty()) {
         return d.into();
     }

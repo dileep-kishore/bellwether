@@ -14,9 +14,10 @@ use std::process::{Command, Stdio};
 const KEY: &str = "developer_instructions";
 
 /// The value Codex would use, or None when no layer sets one; Err names a file Codex would refuse to load.
+/// Without `cwd` the project layer is skipped, since the folder Herdr will start the agent in is unknown.
 pub fn effective(
     codex_home: &Path,
-    cwd: &Path,
+    cwd: Option<&Path>,
     profile: Option<&str>,
 ) -> Result<Option<String>, String> {
     let base_path = codex_home.join("config.toml");
@@ -32,7 +33,7 @@ pub fn effective(
         }
     }
     let trust = trust_entries(base.as_ref());
-    for folder in project_folders(cwd) {
+    for folder in cwd.map(project_folders).unwrap_or_default() {
         let path = folder.join(".codex/config.toml");
         if !path.is_file() || !trusted(&trust, &folder) {
             continue;
