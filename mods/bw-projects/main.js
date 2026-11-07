@@ -8,7 +8,7 @@ import {
 } from "herdr";
 import { addProject, focusAgent, newInMain, openWorktree, projectMenu } from "./actions.js";
 import { createHelper, parseLines } from "./helper.js";
-import { buildProjects, projectKey, readStored, refreshTargets, rememberProjects } from "./projects-model.js";
+import { buildProjects, countTargets, projectKey, readStored, refreshTargets, rememberProjects } from "./projects-model.js";
 import { createPoke, runRefresher } from "./refresh-driver.js";
 import { createSchedule } from "./refresh-schedule.js";
 import { machineSection, rail } from "./rows.js";
@@ -18,6 +18,18 @@ import { ICONS } from "./ui.js";
 const STORE = "bw.projects";
 const FOLDED = "bw-projects.folded";
 const RAIL_BELOW = 160;
+/** `bw counts` per machine, start to start. */
+const COUNTS_MS = 10000;
+/** `bw counts` takes at most this many terminals per call. */
+const COUNTS_PER_CALL = 64;
+
+/**
+ * @typedef {object} CountLoop One machine's `bw counts` loop; render changes `terminals` and pokes it.
+ * @property {{ address: string, local: string }[]} terminals
+ * @property {import("./refresh-driver.js").Poke} poke
+ * @property {boolean} live false once render no longer wants it; the loop then ends
+ * @property {boolean} started
+ */
 
 /** @returns {Set<string>} */
 function loadFolded() {
@@ -50,6 +62,14 @@ export default class Projects extends View {
     // does not ask twice. A key leaves once stored, so a project removed later can be remembered again.
     /** @type {Set<string>} */
     this.remembered = new Set();
+    /** @type {Record<string, import("./projects-model.js").AgentCount>} */
+    this.counts = {};
+    /** @type {Map<string | null, CountLoop>} */
+    this.countLoops = new Map();
+    /** Each agent's status as render last saw it. @type {Map<string, string>} */
+    this.statuses = new Map();
+    // Render has no cx, so a task started here spawns each machine's loop when render asks for one.
+    this.countStarter = createPoke();
 
     const bw = `${home()}/.local/share/bellwether/helper/current/bw`;
     // The loop task's own cx, so an install can redraw its heading before it finishes.
@@ -71,6 +91,7 @@ export default class Projects extends View {
       },
     });
     const runTarget = makeRun({ exec, helper });
+    this.helper = helper;
 
     cx.spawn(async (cx) => {
       loopCx = cx;
@@ -87,6 +108,16 @@ export default class Projects extends View {
         loopCx = null;
       }
     });
+    cx.spawn(async (cx) => {
+      while (this.alive) {
+        for (const [machine, loop] of this.countLoops) {
+          if (loop.started) continue;
+          loop.started = true;
+          cx.spawn((cx) => this.countLoop(cx, machine, loop));
+        }
+        await this.countStarter.wait();
+      }
+    });
     cx.timer.every(60000, (cx) => {
       if (this.showsTime) cx.notify();
     });
@@ -95,6 +126,82 @@ export default class Projects extends View {
   close() {
     this.alive = false;
     this.poke.poke();
+    this.countStarter.poke();
+    for (const loop of this.countLoops.values()) loop.poke.poke();
+  }
+
+  /**
+   * Runs `bw counts` on `machine` every 10 s, or at once when poked, until render drops the machine.
+   * Reads no live data: render hands it the terminals.
+   * @param {any} cx @param {string | null} machine @param {CountLoop} loop
+   */
+  async countLoop(cx, machine, loop) {
+    while (this.alive && loop.live) {
+      const started = Date.now();
+      const terminals = loop.terminals;
+      /** @type {Record<string, import("./projects-model.js").AgentCount>} */
+      const got = {};
+      for (let i = 0; i < terminals.length; i += COUNTS_PER_CALL) {
+        const part = terminals.slice(i, i + COUNTS_PER_CALL);
+        // The Git loop's helper target installs bw; this loop only waits for it.
+        const r = await this.helper.call(machine, ["counts", "--terminals", part.map((t) => t.local).join(",")], { install: false });
+        if (!r.ok) continue;
+        const address = new Map(part.map((t) => [t.local, t.address]));
+        for (const l of r.lines) {
+          const a = l.type === "count" && typeof l.terminal === "string" ? address.get(l.terminal) : undefined;
+          if (a) got[a] = { subagents: l.subagents, requests: l.requests };
+        }
+      }
+      if (this.alive && loop.live && this.mergeCounts(got)) cx.notify();
+      await loop.poke.wait(cx.sleep(Math.max(1000, COUNTS_MS - (Date.now() - started))));
+    }
+  }
+
+  /** @param {Record<string, import("./projects-model.js").AgentCount>} got @returns {boolean} true when a count changed */
+  mergeCounts(got) {
+    let changed = false;
+    for (const [address, c] of Object.entries(got)) {
+      const was = this.counts[address];
+      if (was?.subagents === c.subagents && was?.requests === c.requests) continue;
+      this.counts[address] = c;
+      changed = true;
+    }
+    return changed;
+  }
+
+  /**
+   * Keeps one counts loop per ready machine with agent lines, and pokes a machine's loop when its terminals
+   * or one of its agents' status changed. A second render with nothing new changes nothing.
+   * @param {import("./projects-model.js").ProjectTree} tree @param {any[]} agents AgentInfo[] @param {any[]} spaces SpaceInfo[]
+   */
+  syncCounts(tree, agents, spaces) {
+    const want = new Map(countTargets(tree).map((c) => [c.machine, c.terminals]));
+    for (const [machine, loop] of this.countLoops) {
+      if (want.has(machine)) continue;
+      loop.live = false;
+      loop.poke.poke();
+      this.countLoops.delete(machine);
+      for (const t of loop.terminals) delete this.counts[t.address];
+    }
+    let fresh = false;
+    for (const [machine, terminals] of want) {
+      const loop = this.countLoops.get(machine);
+      if (!loop) {
+        this.countLoops.set(machine, { terminals, poke: createPoke(), live: true, started: false });
+        fresh = true;
+      } else if (JSON.stringify(loop.terminals) !== JSON.stringify(terminals)) {
+        loop.terminals = terminals;
+        loop.poke.poke();
+      }
+    }
+    if (fresh) this.countStarter.poke();
+
+    const machineOf = new Map(spaces.map((s) => [s.id, s.machine ?? null]));
+    for (const a of agents) {
+      const was = this.statuses.get(a.address);
+      if (was !== undefined && was !== a.status) this.countLoops.get(machineOf.get(a.space) ?? null)?.poke.poke();
+    }
+    this.statuses = new Map(agents.map((a) => [a.address, a.status]));
   }
 
   /** @param {string} key @param {any} cx */
@@ -139,10 +246,12 @@ export default class Projects extends View {
       stored: readStored(stored),
       platform: win.platform,
       git: this.git,
+      counts: this.counts,
     };
     const tree = buildProjects(input);
     const active = all.find((s) => s.active)?.id ?? null;
     this.sync(tree, input, active, stored);
+    this.syncCounts(tree, input.agents, all);
 
     this.showsTime = false;
     /** @type {import("./rows.js").Draw} */

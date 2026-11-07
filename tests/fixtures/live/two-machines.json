@@ -629,6 +629,30 @@
         "stdout": "# branch.oid 1111111111111111111111111111111111111111\u0000# branch.head main\u0000\u001e",
         "stderr": ""
       }
+    },
+    {
+      "on": null,
+      "cmd": "sh",
+      "argsInclude": [
+        "counts"
+      ],
+      "result": {
+        "code": 0,
+        "stdout": "{\"type\":\"count\",\"terminal\":\"t1\",\"subagents\":2,\"requests\":0}\n{\"type\":\"count\",\"terminal\":\"t2\",\"subagents\":0,\"requests\":1}\n{\"type\":\"count\",\"terminal\":\"t3\",\"subagents\":0,\"requests\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "on": "macmini",
+      "cmd": "sh",
+      "argsInclude": [
+        "counts"
+      ],
+      "result": {
+        "code": 0,
+        "stdout": "{\"type\":\"count\",\"terminal\":\"t5\",\"subagents\":1,\"requests\":0}\n",
+        "stderr": ""
+      }
     }
   ],
   "knownAgents": {

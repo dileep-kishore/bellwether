@@ -6,7 +6,8 @@
 /**
  * @typedef {object} Poke
  * @property {() => void} poke wakes the loop; kept until the next `wait` when nobody waits
- * @property {() => Promise<void>} wait
+ * @property {(other?: Promise<unknown>) => Promise<unknown>} wait settles at the next poke or when `other`
+ *   (the loop's sleep) settles; pass the sleep, or a poke made after the sleep won is lost
  */
 
 /**
@@ -31,8 +32,6 @@ const IDLE_MS = 60000;
 
 /** @returns {Poke} */
 export function createPoke() {
-  /** @type {Promise<void> | null} */
-  let waiting = null;
   /** @type {(() => void) | null} */
   let wake = null;
   let pending = false;
@@ -40,21 +39,33 @@ export function createPoke() {
     poke() {
       if (wake) {
         const w = wake;
-        waiting = null;
         wake = null;
         w();
       } else {
         pending = true;
       }
     },
-    // One shared promise, so a loop that wakes by timer many times leaves no pile of waiters behind.
-    wait() {
+    wait(other) {
       if (pending) {
         pending = false;
         return Promise.resolve();
       }
-      if (!waiting) waiting = new Promise((resolve) => (wake = resolve));
-      return waiting;
+      /** @type {() => void} */
+      let mine = () => {};
+      const poked = new Promise((resolve) => (mine = () => resolve(undefined)));
+      wake = mine;
+      if (!other) return poked;
+      // When `other` wins, the caller is no longer waiting: a later poke must stay pending, not
+      // wake this waiter. Only this wait's own waiter is dropped, never a newer one.
+      const gone = Promise.resolve(other).then(
+        () => {
+          if (wake === mine) wake = null;
+        },
+        () => {
+          if (wake === mine) wake = null;
+        },
+      );
+      return Promise.race([poked, gone]);
     },
   };
 }
@@ -131,6 +142,6 @@ export async function runRefresher(cx, { schedule, run, onResult, watchFolder, n
     for (const dir of schedule.watchedFolders()) if (!watching.has(dir) && !rejected.has(dir)) watch(dir);
 
     const ms = schedule.wakeIn(now());
-    await Promise.race([cx.sleep(ms ?? IDLE_MS), poke.wait()]);
+    await poke.wait(cx.sleep(ms ?? IDLE_MS));
   }
 }

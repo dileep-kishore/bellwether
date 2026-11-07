@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   buildProjects,
+  countTargets,
   forgetProject,
   placeKey,
   placeOf,
@@ -217,6 +218,39 @@ describe("buildProjects", () => {
     const gamma = rowOf(projectOf(tree, "macmini", "gamma"), "/home/u/gamma");
     expect(gamma.agents.map((a) => [a.address, a.subagents])).toEqual([["macmini/t5", 1]]);
     expect(tree.agentOrder).toEqual(["t1", "t2", "t3", "macmini/t5"]);
+  });
+
+  test("agent lines add in-process sub-agents and requests", () => {
+    const input = load("two-machines");
+    input.counts = { t1: { subagents: 2, requests: 0 }, t2: { subagents: 0, requests: 1 }, t3: { subagents: 1, requests: 3 }, "macmini/t5": { subagents: 0, requests: 0 } };
+    const tree = buildProjects(input);
+    const lines = (machine, project, path) => rowOf(projectOf(tree, machine, project), path).agents.map((a) => [a.address, a.subagents, a.requests]);
+    expect(lines(null, "alpha", "/r/alpha")).toEqual([["t1", 2, 0], ["t2", 0, 1]]);
+    // t3 already counts its terminal sub-agent t4.
+    expect(lines(null, "alpha", "/r/alpha-wt/feat")).toEqual([["t3", 2, 3]]);
+    expect(lines("macmini", "gamma", "/home/u/gamma")).toEqual([["macmini/t5", 1, 0]]);
+  });
+
+  test("agent lines read 0 for a terminal with no counts or a malformed one", () => {
+    const input = load("two-machines");
+    input.counts = { t1: { subagents: -1, requests: "2" }, t2: null };
+    const main = rowOf(projectOf(buildProjects(input), null, "alpha"), "/r/alpha");
+    expect(main.agents.map((a) => [a.address, a.subagents, a.requests])).toEqual([["t1", 0, 0], ["t2", 0, 0]]);
+  });
+
+  test("count targets: each ready machine's agent lines with their local addresses", () => {
+    const tree = buildProjects(load("two-machines"));
+    expect(countTargets(tree)).toEqual([
+      { machine: null, terminals: [{ address: "t1", local: "t1" }, { address: "t2", local: "t2" }, { address: "t3", local: "t3" }] },
+      { machine: "macmini", terminals: [{ address: "macmini/t5", local: "t5" }] },
+    ]);
+    const offline = buildProjects(
+      load("two-machines", (f) => {
+        f.machines[1].layout = "unavailable";
+        return f;
+      }),
+    );
+    expect(countTargets(offline).map((c) => c.machine)).toEqual([null]);
   });
 
   test("a sub-agent whose parent has no line keeps a line", () => {
