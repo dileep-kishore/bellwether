@@ -5,32 +5,39 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex, VirtualListScrollHandle } from "gpui-base";
 import { exec, home, nextCommand, panes, run, shared, spaces, theme } from "herdr";
-import { entryForTerminal, isShown } from "./chat-tabs.js";
+import { isShown } from "./chat-tabs.js";
 import { Composer } from "./composer.js";
 import { columnWidth, rowHeight } from "./estimate.js";
 import { applyFeed, applyOlder, emptyFeed, freshChat, olderFrom } from "./feedstate.js";
 import { createHelper, parseLines } from "./helper.js";
 import { createPictures } from "./pictures.js";
 import { createPoke } from "./refresh-driver.js";
-import { agentName, helperText, pollMs, sendText, targetOf, waitingText } from "./target.js";
+import { agentName, helperText, pollMs, resolveTarget, sendText, targetOf, waitingText } from "./target.js";
 import { timeline, waitsInTerminal } from "./timeline.js";
 import { ICONS, machineTag, programIcon } from "./ui.js";
 
-const CHAT_TABS = "bw.chat-tabs";
+const WINDOW_ID = "bw.window-id";
 
 /** @typedef {import("./target.js").Target} Target */
+/** @typedef {import("./target.js").Found} Found */
+/** @typedef {import("./target.js").Located} Located */
 /** @typedef {{ title: string, message: string, exited: boolean }} Problem */
 
 export default class Chat extends View {
   /** @param {unknown} props @param {any} cx */
   init(props, cx) {
-    /** @type {Target | null} */
-    this.target = targetOf(props);
+    /** What the props name, in the namespace of the window that wrote them. @type {Target | null} */
+    this.id = targetOf(props);
+    /** @type {string | null} */
+    this.window = typeof (/** @type {any} */ (props))?.window === "string" ? /** @type {any} */ (props).window : null;
     this.alive = true;
-    if (!this.target) return;
-    const target = this.target;
-    this.name = agentName(target.kind);
-    this.feed = emptyFeed(target.terminal);
+    if (!this.id) return;
+    this.name = agentName(this.id.kind);
+    /** The terminal in this chat's own tab, as this window names it; null while it is not found. @type {Found | null} */
+    this.target = null;
+    /** @type {Located} */
+    this.located = { state: "missing" };
+    this.feed = emptyFeed(this.id.terminal);
     this.poke = createPoke();
     this.pictures = createPictures();
     this.picturesBusy = false;
@@ -49,7 +56,8 @@ export default class Chat extends View {
     this.note = null;
     /** @type {string | null} the machine the helper is being installed on */
     this.installing = null;
-    // Read once here so the loop's first sleep already has the right length; render keeps it current.
+    // Read once here so the first feed and the loop's first sleep are right; render keeps both current.
+    this.locate(spaces(), panes());
     this.shown = this.readShown(spaces(), panes());
     this.composer = new Composer({ placeholder: `Message ${this.name}…`, onSend: (text, cx) => this.send(text, cx) });
 
@@ -79,9 +87,11 @@ export default class Chat extends View {
         while (this.alive) {
           const started = Date.now();
           try {
-            await this.readFeed(cx);
-            if (this.wantOlder) await this.readOlder(cx);
-            this.startPictures(cx);
+            if (this.target) {
+              await this.readFeed(cx);
+              if (this.wantOlder) await this.readOlder(cx);
+              this.startPictures(cx);
+            }
           } catch (e) {
             // A thrown error would end the loop and freeze the chat; name it and keep polling.
             applyFeed(this.feed, { ok: false, state: "failed", message: e instanceof Error ? e.message : String(e) });
@@ -104,25 +114,49 @@ export default class Chat extends View {
     this.poke?.poke();
   }
 
+  /**
+   * Finds this chat's terminal again; a different one than before starts the feed over, so rows and a
+   * send never mix two terminals. Returns whether the target changed.
+   * @param {any[]} all SpaceInfo[] @param {any[]} ps PaneInfo[]
+   */
+  locate(all, ps) {
+    const id = /** @type {Target} */ (this.id);
+    const located = resolveTarget(id, this.window !== null && this.window === shared(WINDOW_ID), all, ps);
+    this.located = located;
+    const next = located.state === "found" ? located.target : null;
+    const prev = this.target;
+    this.target = next;
+    if (!next || !prev) return next !== prev;
+    if (next.machine === prev.machine && next.local === prev.local) return false;
+    this.feed = emptyFeed(next.terminal);
+    this.open.clear();
+    this.follow = true;
+    this.note = null;
+    return true;
+  }
+
+  /** The chat's tab: its terminal's, or the one it was left alone in. */
+  tab() {
+    const l = this.located;
+    return l.state === "found" ? l.target.tab : l.state === "exited" ? l.tab : null;
+  }
+
   /** @param {any[]} all SpaceInfo[] @param {any[]} ps PaneInfo[] */
   readShown(all, ps) {
-    const target = /** @type {Target} */ (this.target);
-    let entry = entryForTerminal(shared(CHAT_TABS), target.terminal);
-    if (!entry) {
-      // A chat placed by hand has no entry: its tab is the terminal's, its pane the bw-chat pane there.
-      const term = ps.find((p) => p.terminal === target.terminal);
-      const chat = term ? ps.find((p) => p.tab === term.tab && p.mod === "bw-chat") : null;
-      entry = term ? /** @type {any} */ ({ tab: term.tab, chatPane: chat?.pane ?? null }) : null;
-    }
-    return isShown(entry, all, ps);
+    const tab = this.tab();
+    if (tab === null) return false;
+    const chat = ps.find((p) => p.tab === tab && p.mod === "bw-chat");
+    return isShown({ tab, chatPane: chat?.pane ?? null }, all, ps);
   }
 
   /** @param {any} cx */
   async readFeed(cx) {
-    const t = /** @type {Target} */ (this.target);
+    const t = /** @type {Found} */ (this.target);
+    const feed = this.feed;
     const args = ["feed", "--terminal", t.local, "--pictures"];
-    if (this.feed.cursor) args.push("--cursor", this.feed.cursor);
+    if (feed.cursor) args.push("--cursor", feed.cursor);
     const answer = await this.helper.call(t.machine, args);
+    if (this.feed !== feed) return;
     const installed = this.installing !== null;
     this.installing = null;
     const at = applyFeed(this.feed, answer);
@@ -136,13 +170,14 @@ export default class Chat extends View {
    * @param {any} cx */
   async readOlder(cx) {
     this.wantOlder = false;
-    const t = /** @type {Target} */ (this.target);
-    const before = olderFrom(this.feed);
+    const t = /** @type {Found} */ (this.target);
+    const feed = this.feed;
+    const before = olderFrom(feed);
     if (before === null) return;
     this.olderBusy = true;
     try {
       const answer = await this.helper.call(t.machine, ["feed", "--terminal", t.local, "--before", String(before), "--pictures"]);
-      const added = applyOlder(this.feed, answer, before);
+      const added = applyOlder(feed, answer, before);
       // The row that was first stays where it was.
       if (added) this.scroll.scroll_to_item(added, "top");
     } finally {
@@ -156,7 +191,7 @@ export default class Chat extends View {
   startPictures(cx) {
     if (this.picturesBusy || !this.pictures.wanted(this.feed.rows).length) return;
     this.picturesBusy = true;
-    const t = /** @type {Target} */ (this.target);
+    const t = /** @type {Found} */ (this.target);
     cx.spawn(async (/** @type {any} */ cx) => {
       try {
         for (let p = this.pictures.wanted(this.feed.rows)[0]; p && this.alive; p = this.pictures.wanted(this.feed.rows)[0]) {
@@ -178,7 +213,8 @@ export default class Chat extends View {
 
   /** Runs from the composer's submit, an event. @param {string} text @param {any} cx */
   send(text, cx) {
-    const t = /** @type {Target} */ (this.target);
+    const t = this.target;
+    if (!t) return;
     const fresh = freshChat(this.feed, t.kind);
     const { session, path } = fresh ? { session: "none", path: "none" } : this.feed;
     if (this.sending || !session || !path) return;
@@ -254,13 +290,13 @@ export default class Chat extends View {
 
   /** @param {Record<string, string>} t @param {any} term @param {boolean} gone */
   header(t, term, gone) {
-    const target = /** @type {Target} */ (this.target);
+    const target = this.target;
     return h_flex().id("chat-header").h(36).flex_none().w_full().px(12).gap(8).items_center().border_b(1).border_color(t.border)
       .child(programIcon(term?.program ?? null, t, 14))
       .child(div().flex_none().text_size(13).font_semibold().text_color(t.foreground).child(this.name))
       .when(Boolean(term?.branch), (el) => el.child(h_flex().min_w(0).gap(4).items_center().text_size(12).text_color(t.muted)
         .child(svg(ICONS.branch).size(12).flex_none()).child(div().min_w(0).truncate().child(String(term.branch)))))
-      .when(target.machine !== null, (el) => el.child(machineTag(String(target.machine), t)))
+      .when(Boolean(target?.machine), (el) => el.child(machineTag(String(target?.machine), t)))
       .child(div().flex_1())
       .when(!gone, (el) => el.child(h_flex().id("flip").h(24).px(8).gap(6).flex_none().items_center().rounded(6).cursor_pointer()
         .text_size(12).text_color(t.muted).hover((s) => s.bg(t.hover))
@@ -277,8 +313,7 @@ export default class Chat extends View {
         this.width = size.width;
         cx.notify();
       });
-    const target = this.target;
-    if (!target) {
+    if (!this.id) {
       return root.child(v_flex().id("chat-state").flex_1().items_center().justify_center().gap(6).px(24)
         .child(div().text_size(13.5).text_color(t.foreground).child("This chat names no terminal"))
         .child(div().text_size(12).text_color(t.dim).child("Start a chat from + in the tab bar.")));
@@ -286,23 +321,27 @@ export default class Chat extends View {
 
     const all = spaces();
     const ps = panes();
+    const moved = this.locate(all, ps);
     const shown = this.readShown(all, ps);
-    if (shown !== this.shown) {
+    if (shown !== this.shown || moved) {
       this.shown = shown;
       this.poke.poke();
     }
-    const term = ps.find((p) => p.terminal === target.terminal) ?? null;
-    const tab = entryForTerminal(shared(CHAT_TABS), target.terminal)?.tab ?? term?.tab ?? null;
+    const target = this.target;
+    const term = target ? ps.find((p) => p.pane === target.pane) ?? null : null;
+    const tab = this.tab();
     const f = this.feed;
-    const gone = !term || f.waiting?.state === "no_terminal";
-    const fresh = !gone && freshChat(f, target.kind);
+    const lost = this.located.state === "missing";
+    const gone = this.located.state === "exited" || (!lost && f.waiting?.state === "no_terminal");
+    const fresh = !gone && !lost && freshChat(f, /** @type {Target} */ (this.id).kind);
 
     /** @type {Problem | null} */
     let problem = null;
-    if (gone) problem = { title: `${this.name} exited`, message: "", exited: true };
+    if (lost) problem = { title: "Chat target not found", message: `No single ${this.name} terminal in this window's chat tabs matches this chat.`, exited: false };
+    else if (gone) problem = { title: `${this.name} exited`, message: "", exited: true };
     else if (this.installing !== null) problem = { title: helperText("installing", this.installing), message: "", exited: false };
-    else if (f.error) problem = { title: helperText(f.error.state, target.machine), message: f.error.message, exited: false };
-    else if (f.waiting && !fresh) problem = { title: waitingText(f.waiting.state, this.name, target.machine), message: f.waiting.message, exited: false };
+    else if (f.error) problem = { title: helperText(f.error.state, target?.machine ?? null), message: f.error.message, exited: false };
+    else if (f.waiting && !fresh) problem = { title: waitingText(f.waiting.state, this.name, target?.machine ?? null), message: f.waiting.message, exited: false };
 
     root.child(this.header(t, term, gone));
     const rows = f.rows;

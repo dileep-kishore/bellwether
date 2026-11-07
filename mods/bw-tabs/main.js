@@ -9,6 +9,7 @@ import { createPoke } from "./refresh-driver.js";
 import { ICONS, machineTag, programIcon, statusIcon } from "./ui.js";
 
 const CHAT_TABS = "bw.chat-tabs";
+const WINDOW_ID = "bw.window-id";
 const MIN_WAKE_MS = 1000;
 
 /** @param {any} node @param {string} id @returns {any} */
@@ -37,6 +38,8 @@ export default class Tabs extends View {
     /** The wake time render last asked the wake task for. @type {number | null} */
     this.wakeFor = null;
     this.wake = createPoke();
+    /** This app home's id if it has none stored yet; stored with the first chat pane that names it. */
+    this.newWindowId = `w-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
     // Tasks never read live data: this one only marks the flip, and render reads panes().
     cx.spawn(async (/** @type {any} */ cx) => {
@@ -73,7 +76,10 @@ export default class Tabs extends View {
    * @param {any} space the active space
    */
   chatTabs(all, ps, space) {
-    const r = adopt(shared(CHAT_TABS), all, ps, Date.now());
+    const stored = shared(WINDOW_ID);
+    const windowId = typeof stored === "string" && stored !== "" ? stored : this.newWindowId;
+    const r = adopt(shared(CHAT_TABS), all, ps, Date.now(), windowId);
+    if (windowId !== stored && r.actions.some(([cmd]) => cmd === "pane.split")) setShared(WINDOW_ID, windowId);
     if (r.next) setShared(CHAT_TABS, r.next);
     for (const [cmd, args] of r.actions) run(cmd, args);
     for (const n of r.notices) notify({ ...n, level: "warning" });

@@ -104,6 +104,106 @@ describe("target", () => {
   });
 });
 
+/** chat-tab.json as a Herdr window on macmini sees it: macmini's space is local, this Mac's is `macbook/`. */
+function fromMacmini() {
+  const data = live("chat-tab");
+  const book = (/** @type {string | null} */ id) => (id === null ? null : `macbook/${id}`);
+  const mini = (/** @type {string | null} */ id) => (id === null ? null : id.replace(/^macmini\//, ""));
+  data.spaces = data.spaces.map((sp) => sp.machine === "macmini"
+    ? { ...sp, id: mini(sp.id), machine: null, tabs: sp.tabs.map((t) => ({ ...t, id: mini(t.id) })) }
+    : { ...sp, id: book(sp.id), machine: "macbook", tabs: sp.tabs.map((t) => ({ ...t, id: book(t.id) })) });
+  data.panes = data.panes.map((p) => p.pane.startsWith("macmini/")
+    ? { ...p, pane: mini(p.pane), tab: mini(p.tab), terminal: mini(p.terminal) }
+    : { ...p, pane: book(p.pane), tab: book(p.tab), terminal: book(p.terminal) });
+  data.shared = { "bw.window-id": "w-mini" };
+  return data;
+}
+
+/** A second Codex chat tab on this Mac whose terminal has macmini's chat's address, t5. @param {Record<string, any>} data */
+function withLocalT5Chat(data) {
+  const codex = data.panes.find((/** @type {any} */ p) => p.terminal === "macmini/t5");
+  data.spaces[0].tabs.push({ ...data.spaces[0].tabs[0], id: "tb40", name: "Codex", active: false });
+  data.panes.push({ ...codex, pane: "p40", tab: "tb40", terminal: "t5" }, { pane: "p41", terminal: null, mod: "bw-chat", tab: "tb40", title: "bw-chat", focused: false, zoomed: false });
+  return data;
+}
+
+/** @param {Record<string, any>} data */
+const recording = (data) => {
+  data.exec = bw({ feed: () => out([{ type: "state", state: "no_log", agent: null, message: "" }]), send: () => out([{ type: "send", result: "sent", message: "" }]) });
+  return data;
+};
+/** Where the chat read its feed: [on, --terminal]. @param {any} m */
+const fedFrom = (m) => calls(m, "feed").map(([, a, o]) => [o.on, a[5]]);
+
+describe("chat target", () => {
+  const BOOK = "w-book";
+  test("the window that made the chat: its props name the terminal, even when machines reuse the address", async () => {
+    const data = recording(withLocalT5Chat(live("chat-tab")));
+    data.shared["bw.window-id"] = BOOK;
+    const local = await mount("bw-chat", { props: { terminal: "t5", machine: null, kind: "codex", window: BOOK }, live: data });
+    expect(fedFrom(local)).toEqual([[null, "t5"]]);
+    await typeAndSend(local, "hi");
+    expect(calls(local, "send").map(([, a, o]) => [o.on, a[5]])).toEqual([[null, "t5"]]);
+  });
+
+  test("a remote space in the window that made it reads on that machine, beside a local t5 chat", async () => {
+    const data = recording(withLocalT5Chat(live("chat-tab")));
+    data.shared["bw.window-id"] = BOOK;
+    const m = await mount("bw-chat", { props: { ...CODEX_REMOTE, window: BOOK }, live: data });
+    expect(fedFrom(m)).toEqual([["macmini", "t5"]]);
+    expect(textOf(byId(m.el, "chat-header"))).toContain("macmini");
+  });
+
+  test("a second window on the other machine finds the chat's own tab: machine prefixes swapped", async () => {
+    const codex = await mount("bw-chat", { props: { ...CODEX_REMOTE, window: BOOK }, live: recording(fromMacmini()) });
+    expect(fedFrom(codex)).toEqual([[null, "t5"]]);
+    expect(textOf(byId(codex.el, "chat-header"))).not.toContain("macmini");
+    await typeAndSend(codex, "hi");
+    expect(calls(codex, "send").map(([, a, o]) => [o.on, a[5]])).toEqual([[null, "t5"]]);
+
+    const claude = await mount("bw-chat", { props: { ...CLAUDE, window: BOOK }, live: recording(fromMacmini()) });
+    expect(fedFrom(claude)).toEqual([["macbook", "t8"]]);
+    expect(textOf(byId(claude.el, "chat-header"))).toContain("macbook");
+  });
+
+  test("an unrelated terminal with the same address is never the target", async () => {
+    // macmini made this Codex chat in its own space; this Mac sees it as macmini/t5 and has its own t5.
+    const data = recording(live("chat-remote"));
+    data.spaces[0].tabs.push({ ...data.spaces[0].tabs[0], id: "tb40", active: false });
+    data.panes.push({ ...data.panes.find((/** @type {any} */ p) => p.terminal === "macmini/t5"), pane: "p40", tab: "tb40", terminal: "t5" });
+    const m = await mount("bw-chat", { props: { terminal: "t5", machine: null, kind: "codex", window: "w-mini" }, live: data });
+    expect(fedFrom(m)).toEqual([["macmini", "t5"]]);
+
+    const unrelated = fromMacmini();
+    unrelated.spaces[0].tabs.push({ ...unrelated.spaces[0].tabs[0], id: "tb40", active: false });
+    unrelated.panes.push({ ...unrelated.panes.find((/** @type {any} */ p) => p.terminal === "macbook/t8"), pane: "p40", tab: "tb40", terminal: "t8" });
+    const n = await mount("bw-chat", { props: { ...CLAUDE, window: BOOK }, live: recording(unrelated) });
+    expect(fedFrom(n)).toEqual([["macbook", "t8"]]);
+  });
+
+  test("two chat tabs that could be it: named, nothing read or sent", async () => {
+    // Seen from macmini, this Mac's Codex chat on t5 and macmini's own on t5 both match.
+    const data = fromMacmini();
+    data.spaces[0].tabs.push({ ...data.spaces[0].tabs[0], id: "macbook/tb40", active: false });
+    data.panes.push({ ...data.panes.find((/** @type {any} */ p) => p.terminal === "t5"), pane: "macbook/p40", tab: "macbook/tb40", terminal: "macbook/t5" },
+      { pane: "macbook/p41", terminal: null, mod: "bw-chat", tab: "macbook/tb40", title: "bw-chat", focused: false, zoomed: false });
+    const m = await mount("bw-chat", { props: { terminal: "t5", machine: null, kind: "codex", window: BOOK }, live: recording(data) });
+    expect(textOf(byId(m.el, "chat-state"))).toContain("Chat target not found");
+    expect(textarea(m).attrs.disabled).toBe(true);
+    await typeAndSend(m, "hi");
+    expect(calls(m, "feed")).toHaveLength(0);
+    expect(calls(m, "send")).toHaveLength(0);
+    expect(byId(m.el, "show-terminal")).toBe(null);
+  });
+
+  test("a terminal of the other agent in the chat's tab is not its target", async () => {
+    const data = recording(live("chat-tab"));
+    const m = await mount("bw-chat", { props: { terminal: "t8", machine: null, kind: "codex" }, live: data });
+    expect(calls(m, "feed")).toHaveLength(0);
+    expect(textOf(m.el)).toContain("Chat target not found");
+  });
+});
+
 describe("pictures", () => {
   const rows = [{ k: "tools", id: "r1", pics: [{ digest: "a".repeat(16), format: "png", width: 2, height: 1, offset: 9, index: 0 }] },
     { k: "user", id: "r2", pics: [{ digest: "b".repeat(16), format: "jpeg", width: 1, height: 1, offset: 20, index: 1 }, { digest: "a".repeat(16), format: "png", width: 2, height: 1, offset: 9, index: 0 }] }];

@@ -1,4 +1,5 @@
 // Which terminal a chat shows, how often it reads, and the words for each state. Pure.
+import { paneKind } from "./chat-tabs.js";
 
 /** @typedef {"claude" | "codex"} Kind */
 
@@ -8,6 +9,11 @@
  * @property {string} terminal full address, `machine/t` when remote (what `bw picture` takes here)
  * @property {string} local the address on its own machine (what `bw feed` and `bw send` take there)
  * @property {Kind} kind
+ */
+
+/**
+ * @typedef {Target & { tab: string, pane: string }} Found The terminal in the chat's own tab, as this window names it.
+ * @typedef {{ state: "found", target: Found } | { state: "exited", tab: string } | { state: "missing" }} Located
  */
 
 export const POLL_SHOWN_MS = 2000;
@@ -23,7 +29,7 @@ const isStr = (/** @type {unknown} */ s) => typeof s === "string" && s !== "";
 
 /**
  * The chat's props as a target; null when they name no Claude or Codex terminal.
- * @param {unknown} props `{ terminal, machine, kind }` as bw-tabs splits the pane with
+ * @param {unknown} props `{ terminal, machine, kind, window? }` as bw-tabs splits the pane with, in its window's namespace
  * @returns {Target | null}
  */
 export function targetOf(props) {
@@ -35,6 +41,44 @@ export function targetOf(props) {
   const local = p.terminal.startsWith(`${machine}/`) ? p.terminal.slice(machine.length + 1) : p.terminal;
   if (!local || local.includes("/")) return null;
   return { machine, terminal: `${machine}/${local}`, local, kind: p.kind };
+}
+
+/**
+ * The terminal a chat shows, found in this window's live panes. A mod pane is never told its own pane
+ * id, so the chat's tab is the one holding a bw-chat pane beside a terminal with the props' address on
+ * its own machine; props from another window (`mine` false) are in that window's namespace, so only a
+ * single such tab counts, with no chat tab missing its terminal that could be this one.
+ * @param {Target} id `targetOf(props)`
+ * @param {boolean} mine the props were written by this app home, so `id.terminal` is this window's address
+ * @param {any[]} spaces SpaceInfo[]
+ * @param {any[]} panes PaneInfo[]
+ * @returns {Located}
+ */
+export function resolveTarget(id, mine, spaces, panes) {
+  /** @type {Map<string, string | null>} */
+  const machineOf = new Map();
+  for (const sp of spaces) for (const t of sp.tabs) machineOf.set(t.id, sp.machine ?? null);
+  const chatTabs = [...new Set(panes.filter((p) => p.mod === "bw-chat").map((p) => p.tab))].filter((t) => machineOf.has(t));
+  /** @type {Found[]} */
+  const found = [];
+  /** @type {string[]} */
+  const orphans = [];
+  for (const tab of chatTabs) {
+    const machine = /** @type {string | null} */ (machineOf.get(tab));
+    const terms = panes.filter((p) => p.tab === tab && !p.mod && isStr(p.terminal));
+    if (!terms.length) orphans.push(tab);
+    for (const p of terms) {
+      const local = machine !== null && p.terminal.startsWith(`${machine}/`) ? p.terminal.slice(machine.length + 1) : p.terminal;
+      const kind = paneKind(p);
+      if (local !== id.local || (kind !== null && kind !== id.kind)) continue;
+      found.push({ machine, terminal: p.terminal, local, kind: id.kind, tab, pane: p.pane });
+    }
+  }
+  const hits = mine ? found.filter((f) => f.terminal === id.terminal) : found;
+  if (hits.length === 1 && (mine || !orphans.length)) return { state: "found", target: hits[0] };
+  // An agent exiting closes its pane, leaving the chat alone in its tab.
+  if (!hits.length && orphans.length === 1) return { state: "exited", tab: orphans[0] };
+  return { state: "missing" };
 }
 
 /** @param {string | null} machine */

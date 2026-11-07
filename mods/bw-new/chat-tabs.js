@@ -121,7 +121,7 @@ const terminalPaneIn = (panes, tabId) => panes.find((p) => p.tab === tabId && !p
 
 /** The agent a terminal pane runs, from Herdr's program table or the agent's own report. @param {any} pane
  * @returns {ChatKind | null} */
-function kindOf(pane) {
+export function paneKind(pane) {
   const key = pane.program?.key;
   if (isKind(key)) return key;
   return pane.app === "codex" ? "codex" : pane.app === "claude-code" ? "claude" : null;
@@ -130,9 +130,14 @@ function kindOf(pane) {
 /** @param {unknown} f */
 const trimSlash = (f) => String(f ?? "").replace(/\/+$/, "");
 
-/** @param {Entry} e @returns {Action} */
-const splitAction = (e) => ["pane.split", {
-  direction: "right", pane: e.terminalPane, mod: "bw-chat", props: { terminal: e.terminal, machine: e.machine, kind: e.kind },
+/**
+ * Props are stored as given and read by every window on the space's core, so `window` names whose
+ * address namespace `terminal` and `machine` are in.
+ * @param {Entry} e @param {string | null} windowId @returns {Action}
+ */
+const splitAction = (e, windowId) => ["pane.split", {
+  direction: "right", pane: e.terminalPane, mod: "bw-chat",
+  props: { terminal: e.terminal, machine: e.machine, kind: e.kind, ...(windowId ? { window: windowId } : {}) },
 }];
 
 /**
@@ -168,9 +173,10 @@ function newTabFor(p, spaces, panes, tabs) {
  * @param {any[]} spaces SpaceInfo[]
  * @param {any[]} panes PaneInfo[]
  * @param {number} now
+ * @param {string | null} [windowId] this app home's `bw.window-id`, put in the chat panes' props
  * @returns {{ next: ChatTabs | null, actions: Action[], notices: Notice[] }}
  */
-export function adopt(value, spaces, panes, now) {
+export function adopt(value, spaces, panes, now, windowId = null) {
   const s = readChatTabs(value);
   /** @type {Action[]} */
   const actions = [];
@@ -197,7 +203,7 @@ export function adopt(value, spaces, panes, now) {
         terminalPane: pane.pane, chatPane: null, split: { at: now, tries: 1 }, zoomed: false, failed: false, created: now,
       };
       s.tabs[e.tab] = e;
-      actions.push(splitAction(e));
+      actions.push(splitAction(e, windowId));
       changed = true;
     } else if (now - p.at > CHAT_PENDING_MS) {
       notices.push({ title: `${p.name} chat did not start`, body: "No new tab appeared within 30 s." });
@@ -215,7 +221,7 @@ export function adopt(value, spaces, panes, now) {
       if (s.tabs[t.id]) continue;
       const terms = panes.filter((p) => p.tab === t.id && !p.mod && isStr(p.terminal));
       const chats = panes.filter((p) => p.tab === t.id && p.mod === "bw-chat");
-      const kind = terms.length === 1 ? kindOf(terms[0]) : null;
+      const kind = terms.length === 1 ? paneKind(terms[0]) : null;
       if (!kind || chats.length !== 1) continue;
       s.tabs[t.id] = {
         tab: t.id, space: space.id, machine: space.machine ?? null, kind, terminal: terms[0].terminal, terminalPane: terms[0].pane,
@@ -235,7 +241,7 @@ export function adopt(value, spaces, panes, now) {
       } else if (!e.failed && e.split && now >= e.split.at + SPLIT_RETRY_MS) {
         if (e.split.tries < SPLIT_TRIES) {
           e.split = { at: now, tries: e.split.tries + 1 };
-          actions.push(splitAction(e));
+          actions.push(splitAction(e, windowId));
         } else {
           e.failed = true;
           notices.push({ title: "Chat pane did not open", body: "The agent keeps running in this tab." });

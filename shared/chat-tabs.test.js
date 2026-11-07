@@ -23,6 +23,7 @@ describe("adopt", () => {
     const r1 = adopt(s, spacesWithNewTab, panesTerminalOnly, 100);
     expect(r1.actions).toEqual([["pane.split", { direction: "right", pane: "p8", mod: "bw-chat", props: { terminal: "t8", machine: null, kind: "claude" } }]]);
     expect(r1.next?.pending).toEqual([]);
+    expect(adopt(s, spacesWithNewTab, panesTerminalOnly, 100, "w-1").actions[0][1].props).toEqual({ terminal: "t8", machine: null, kind: "claude", window: "w-1" });
     expect(r1.next?.tabs.tb8).toMatchObject({ tab: "tb8", space: "s1", terminal: "t8", terminalPane: "p8", chatPane: null, split: { at: 100, tries: 1 } });
     const r2 = adopt(r1.next, spacesWithNewTab, panesTerminalOnly, 200);
     expect(r2.actions).toEqual([]);

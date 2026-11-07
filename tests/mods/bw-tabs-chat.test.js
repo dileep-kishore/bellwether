@@ -32,11 +32,12 @@ function pendingClaude(at) {
   data.panes = data.panes.filter((p) => p.pane !== "p9");
   data.spaces[0].tabs[1].zoomed = false;
   data.spaces[0].tabs[1].name = "Claude Code";
+  data.shared["bw.window-id"] = "w-book";
   return data;
 }
 
 const chatPane = { pane: "p9", terminal: null, mod: "bw-chat", tab: "tb8", title: "Chat", focused: false, zoomed: false };
-const split = ["pane.split", { direction: "right", pane: "p8", mod: "bw-chat", props: { terminal: "t8", machine: null, kind: "claude" } }];
+const split = ["pane.split", { direction: "right", pane: "p8", mod: "bw-chat", props: { terminal: "t8", machine: null, kind: "claude", window: "w-book" } }];
 
 /** Runs the i-th timer.after callback as Herdr would, with phase "timer". @param {any} m @param {number} i */
 async function fireAfter(m, i) {
@@ -70,6 +71,16 @@ describe("bw-tabs chat adoption", () => {
     expect(m.log.run).toEqual([split, ["pane.zoom", { pane: "p9" }]]);
     expect(m.log.shared.length).toBe(writes + 1);
     expect(m.log.notify).toEqual([]);
+  });
+
+  test("an app home with no window id stores one before the first split names it", async () => {
+    const data = pendingClaude(Date.now());
+    delete data.shared["bw.window-id"];
+    const m = await mount("bw-tabs", { live: data });
+    const id = m.log.shared.find(([k]) => k === "bw.window-id")?.[1];
+    expect(typeof id).toBe("string");
+    expect(m.log.shared[0][0]).toBe("bw.window-id");
+    expect(m.log.run).toEqual([["pane.split", { ...split[1], props: { ...split[1].props, window: id } }]]);
   });
 
   test("nothing to adopt writes nothing and runs nothing", async () => {
