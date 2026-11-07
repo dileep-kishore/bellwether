@@ -1133,3 +1133,41 @@ fn claude_picker_changed_at_the_second_read_presses_nothing() {
     assert_eq!(result(&line), "stale", "{line}");
     assert!(x.typed().is_empty(), "{:?}", x.log());
 }
+
+#[test]
+fn multi_question_claude_picker_is_show_only() {
+    let x = Scratch::new();
+    let picker = "❯ Ask me.\n────────────────────\n←  ☐ Color  ☐ Size  ✔ Submit  →\nWhich color?\n❯ 1. Red\n  2. Blue\n  3. Type something.\n────────────────────\n  4. Chat about this\nEnter to select · ↑/↓ to navigate · Esc to cancel\n";
+    let (_claude, log) = claude_picker(&x, picker);
+    let r = x.request("t1");
+    assert_eq!(
+        (
+            r["kind"].as_str(),
+            r["answerable"].as_bool(),
+            r["reason"].as_str(),
+            r["unread"].as_u64()
+        ),
+        (
+            Some("question"),
+            Some(false),
+            Some("multi_question"),
+            Some(1)
+        ),
+        "{r}"
+    );
+    for answers in [r#"[{"picks":[1]}]"#, r#"[{"picks":[1]},{"picks":[0]}]"#] {
+        let line = x.answer(
+            "t1",
+            &r,
+            ("claude", CLAUDE_SID, &log),
+            &["--answers", answers],
+        );
+        assert_eq!(result(&line), "not-answerable", "{line}");
+    }
+    assert!(x.typed().is_empty(), "{:?}", x.log());
+    assert!(x
+        .bw(&["cards", "--terminal", "t1"])
+        .1
+        .iter()
+        .any(|l| l["state"] == "pending"));
+}

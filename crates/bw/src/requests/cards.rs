@@ -783,6 +783,8 @@ fn picker(pass: &Pass, store: &mut Store, text: &str) -> Option<String> {
     let ambiguous = pass.ambiguity();
     if pass.input.agent == "claude" {
         let (req, unread) = claude_picker(text)?;
+        // Reading the other questions takes navigation keys, which no pass presses.
+        let reason = ambiguous.or((unread > 0).then_some("multi_question"));
         let asked = Asked {
             kind: "question",
             screen_id: Some(req.tool_use_id.clone()),
@@ -791,8 +793,8 @@ fn picker(pass: &Pass, store: &mut Store, text: &str) -> Option<String> {
             command: String::new(),
             detail: String::new(),
             actions: Vec::new(),
-            answerable: ambiguous.is_none(),
-            reason: ambiguous,
+            answerable: reason.is_none(),
+            reason,
             question: Some(json!(rows::question(&req))),
             unread,
         };

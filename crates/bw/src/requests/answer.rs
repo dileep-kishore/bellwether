@@ -527,20 +527,15 @@ impl Answer<'_> {
                 .as_ref()
                 .is_some_and(|s| s["question"]["questions"] == json!(rows::question(q).questions))
         });
-        let Some(mut q) = q else {
+        // A picker with questions not shown is answered in the terminal: no key reads them here.
+        let Some(q) = q.filter(|q| q.unread() == 0) else {
             self.claims.release(&o.id);
             return Sent::Nothing("stale", STALE.into());
         };
-        let r = (|| {
-            if q.unread() > 0 {
-                q = question::load_all_questions(&screen, &pane, Some(&gate), Some(&q))?
-                    .ok_or(HerdrError::Question(QuestionFailure::NotOnScreen))?;
-            }
-            if let Some(why) = refusal(&q, answers) {
-                return Err(HerdrError::Question(QuestionFailure::Unsupported(why)));
-            }
-            question::answer_question(&screen, &pane, &q, answers, Some(&gate))
-        })();
+        let r = match refusal(&q, answers) {
+            Some(why) => Err(HerdrError::Question(QuestionFailure::Unsupported(why))),
+            None => question::answer_question(&screen, &pane, &q, answers, Some(&gate)),
+        };
         match r {
             Ok(()) => Sent::Out,
             Err(e) => self.after_error(o, &screen, e),
