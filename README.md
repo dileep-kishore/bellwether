@@ -20,6 +20,7 @@ shared/                   JavaScript used by several mods; scripts/sync.sh copie
 scripts/sync.sh           copy layouts and bw-* mods into ~/.config/herdr-app
 scripts/check.sh          herdr-app check on every mod, and shared copies match
 crates/                   Rust helpers; crates/bw is the bw binary the mods run
+crates/vendor/            code copied from other projects, in its own Cargo workspace
 docs/brief/               the requests this work answers, verbatim
 docs/research/            what the reference projects do, with evidence
 ```

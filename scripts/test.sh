@@ -17,6 +17,8 @@ step() { echo "==> $*"; "$@"; }
 step cargo fmt --check
 step cargo clippy --workspace --all-targets --locked -- -D warnings
 step cargo test --workspace --locked
+# Vendored crates have their own workspace: tested here, never formatted or linted.
+step cargo test --manifest-path crates/vendor/Cargo.toml --workspace --locked --target-dir target/vendor
 
 js_tests=$(find . \( -name node_modules -o -name target -o -name .git -o -path ./docs/drafts \) -prune -o \
   -type f \( -name '*.test.js' -o -name '*.test.ts' -o -name '*_test.js' -o -name '*_test.ts' \

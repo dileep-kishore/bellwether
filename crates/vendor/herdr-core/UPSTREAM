@@ -1,0 +1,26 @@
+Repository: https://github.com/minchenlee/flockbook
+Path: xplat/herdr-core
+Commit: c0420c7f9a720631108f2d269dcf9f4bd62634ff
+License: MIT, Copyright (c) 2026 Min-Chen Lee
+
+Copied unchanged; every later change listed below with its test.
+
+Built outside the bellwether workspace:
+- crates/vendor/Cargo.toml is its workspace. It repeats the
+  [workspace.package] and [workspace.dependencies] of Flockbook's
+  xplat/Cargo.toml, which this manifest reads with `*.workspace = true`.
+- crates/vendor/Cargo.lock started as Flockbook's xplat/Cargo.lock at
+  the same commit; cargo kept only this crate's packages, at the same
+  versions.
+- The root workspace excludes crates/vendor because this code is not
+  rustfmt-formatted and fails clippy -D warnings on Rust 1.99.1
+  (redundant_guard, unnecessary_map_or, needless_lifetimes,
+  collapsible_match, int_plus_one, type_complexity). Its tests run in
+  scripts/test.sh.
+- tests/common/mod.rs and tests/parser.rs read fixtures from
+  ../../Tests/HerdrKitTests/Fixtures. The 14 files they use are copied
+  unchanged from Flockbook's Tests/HerdrKitTests/Fixtures to
+  crates/Tests/HerdrKitTests/Fixtures (the hub/ folder is not used).
+
+Changes:
+None.
