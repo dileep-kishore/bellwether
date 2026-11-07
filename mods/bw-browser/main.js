@@ -3,11 +3,13 @@
 // live data; render reads the layout and the active space, decides shown, and pokes the loop.
 import { View, div, image, svg } from "gpui-kit";
 import { Input, InputState, h_flex, v_flex } from "gpui-base";
-import { exec, layout, spaces, theme } from "herdr";
+import { exec, layout, spaces } from "herdr";
 import { createHelper } from "./helper.js";
 import { canForward, canStart, forwardKey, forwardLabel, isShown, portOf, resultText, viewOf } from "./model.js";
 import { createPoke } from "./refresh-driver.js";
-import { ICONS } from "./ui.js";
+import { ICONS, themeColors } from "./ui.js";
+
+/** @typedef {import("./ui.js").Theme} Theme */
 
 const POLL_MS = 2000;
 const MIN_SLEEP_MS = 1000;
@@ -27,7 +29,7 @@ export default class Browser extends View {
     this.alive = true;
     /** @type {PanelView} */
     this.view = viewOf(null, null);
-    /** Whether the layout shows the panel, as render last read it. */
+    /** Whether the layout shows the panel, as render last read it. @type {boolean} */
     this.shown = false;
     // Herdr draws only shown copies: a read whose notify brought no render means the copy is hidden.
     this.drawn = false;
@@ -142,7 +144,7 @@ export default class Browser extends View {
   }
 
   render() {
-    const t = theme();
+    const t = themeColors();
     const shown = isShown(layout());
     const space = spaces().find((s) => s.active) ?? null;
     this.space = space ? { id: space.id, machine: space.machine ?? null } : null;
@@ -204,7 +206,7 @@ export default class Browser extends View {
     return root;
   }
 
-  /** @param {Record<string, string>} t @param {PanelView} v */
+  /** @param {Theme} t @param {PanelView} v */
   header(t, v) {
     const running = v.chrome.state === "running";
     return h_flex()
@@ -250,7 +252,7 @@ export default class Browser extends View {
 
   /**
    * A small header or row button; it shows a spinner while its own action runs.
-   * @param {Record<string, string>} t @param {string} id @param {string | null} iconName @param {string} label
+   * @param {Theme} t @param {string} id @param {string | null} iconName @param {string} label
    * @param {(cx: any) => void} onClick
    */
   button(t, id, iconName, label, onClick) {
@@ -280,7 +282,7 @@ export default class Browser extends View {
       .child(label);
   }
 
-  /** @param {Record<string, string>} t @param {Tab} tab */
+  /** @param {Theme} t @param {Tab} tab */
   tabRow(t, tab) {
     const hovered = this.hovered === tab.id;
     const picture = tab.favicon
@@ -341,7 +343,7 @@ export default class Browser extends View {
       );
   }
 
-  /** @param {Record<string, string>} t @param {Forward[]} list */
+  /** @param {Theme} t @param {Forward[]} list */
   forwards(t, list) {
     const can = canForward(this.space);
     const section = v_flex()
@@ -404,7 +406,7 @@ export default class Browser extends View {
     return section;
   }
 
-  /** @param {Record<string, string>} t @param {Forward} f */
+  /** @param {Theme} t @param {Forward} f */
   forwardRow(t, f) {
     const key = forwardKey(f);
     const ready = f.state === "ready";

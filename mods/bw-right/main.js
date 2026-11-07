@@ -2,8 +2,11 @@
 // `right-body` stack; with `panel` it is that stack child's placeholder until its phase fills it.
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { layout, run, setShared, shared, spaces, theme } from "herdr";
+import { layout, run, setShared, shared, spaces } from "herdr";
 import { PANELS, choose, chosen, wanted } from "./choice.js";
+import { themeColors } from "./ui.js";
+
+/** @typedef {import("./ui.js").Theme} Theme */
 
 const KEY = "bw.right.tab";
 const STACK = "right-body";
@@ -31,7 +34,7 @@ export default class Right extends View {
   }
 
   render() {
-    const t = theme();
+    const t = themeColors();
     if (this.panel !== null) return this.placeholder(t);
 
     const all = spaces();
@@ -86,7 +89,7 @@ export default class Right extends View {
       );
   }
 
-  /** @param {Record<string, string>} t */
+  /** @param {Theme} t */
   placeholder(t) {
     const p = PANELS.find((x) => x.id === this.panel);
     const copy = p ? `${p.label}: coming in phase ${p.phase}` : `Unknown panel: ${this.panel}`;

@@ -97,6 +97,7 @@ export async function runRefresher(
     }
   }
 
+  /** @param {Target} target */
   function launch(target) {
     schedule.start(target.key, now());
     let call;
@@ -114,6 +115,7 @@ export async function runRefresher(
       });
   }
 
+  /** @param {string} dir */
   function watch(dir) {
     watching.add(dir);
     cx.spawn(async () => {

@@ -292,7 +292,9 @@ function agentLines(spaces, agents, terminals, counts) {
     if (root) subagents.set(root, (subagents.get(root) ?? 0) + 1);
   }
 
-  const tabs = new Map(spaces.flatMap((s) => (s.tabs ?? []).map((t) => [t.id, t])));
+  const tabs = new Map(
+    spaces.flatMap((s) => (s.tabs ?? []).map((/** @type {import("herdr").TabInfo} */ t) => [t.id, t])),
+  );
   return agents
     .filter((a) => lined.has(a.address))
     .map((a) => {
@@ -323,6 +325,7 @@ export function buildProjects(input) {
   const spaces = input.spaces ?? [];
   const panes = input.panes ?? [];
   const stored = input.stored ?? [];
+  /** @type {GitCache} */
   const git = { places: {}, worktrees: {}, counts: {}, unreachable: [], ...input.git };
   const unreachable = new Set(git.unreachable.map((u) => u || null));
   const layouts = new Map(machines.map((m) => [m.name ?? null, m.layout]));
@@ -495,6 +498,7 @@ export function countTargets(tree) {
       ...m.plain.flatMap((s) => s.agents),
     ];
     const prefix = m.name === null ? "" : `${m.name}/`;
+    /** @type {CountTarget["terminals"]} */
     const terminals = [];
     for (const { address } of lines) {
       const local = address.startsWith(prefix) ? address.slice(prefix.length) : address;

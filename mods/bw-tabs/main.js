@@ -2,24 +2,11 @@
 // Always shown, so it also turns the tabs "+" starts into chat tabs and runs ⌘J (bw-tabs.chat-flip).
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import {
-  home,
-  layout,
-  nextCommand,
-  notify,
-  openOverlay,
-  panes,
-  run,
-  setShared,
-  shared,
-  spaces,
-  theme,
-  window,
-} from "herdr";
+import { home, layout, nextCommand, notify, openOverlay, panes, run, setShared, shared, spaces, window } from "herdr";
 import { adopt, flipActions, wakeAt } from "./chat-tabs.js";
 import { moveIndex, tabItems } from "./model.js";
 import { createPoke } from "./refresh-driver.js";
-import { ICONS, machineTag, programIcon, statusIcon } from "./ui.js";
+import { ICONS, machineTag, programIcon, statusIcon, themeColors } from "./ui.js";
 
 const CHAT_TABS = "bw.chat-tabs";
 const WINDOW_ID = "bw.window-id";
@@ -112,7 +99,7 @@ export default class Tabs extends View {
   }
 
   render() {
-    const t = theme();
+    const t = themeColors();
     const all = spaces();
     const ps = panes();
     const space = all.find((s) => s.active) ?? null;
@@ -188,6 +175,7 @@ export default class Tabs extends View {
       );
     };
 
+    /** @type {{ space: string } | { machine: string | null, folder: string }} */
     const props = space ? { space: space.id } : { machine: null, folder: home() };
     return (
       h_flex()

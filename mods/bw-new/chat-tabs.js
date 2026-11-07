@@ -381,7 +381,7 @@ export function entryForTerminal(value, terminal) {
 
 /**
  * Shown: its tab is the active tab of the active space, and its chat pane is zoomed or the tab is not.
- * @param {Entry | null} entry
+ * @param {Pick<Entry, "tab" | "chatPane"> | null} entry
  * @param {any[]} spaces SpaceInfo[]
  * @param {any[]} panes PaneInfo[]
  */

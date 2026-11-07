@@ -299,11 +299,12 @@ const isMulti = (q) => Boolean(q?.multi ?? q?.multi_select ?? q?.multiSelect);
  * @returns {Draft}
  */
 export function emptyDraft(question) {
+  /** @type {{ options?: unknown }[]} */
   const qs = Array.isArray(question?.questions) ? question.questions : [];
   return {
     counts: qs.map((q) => (Array.isArray(q?.options) ? q.options.length : 0)),
     multi: qs.map(isMulti),
-    picks: qs.map(() => []),
+    picks: qs.map(() => /** @type {number[]} */ ([])),
     other: qs.map(() => ""),
     step: 0,
   };

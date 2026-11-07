@@ -4,7 +4,7 @@
 // through the helper on the space's machine; pictures and hook setup through this Mac's helper.
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, VirtualListScrollHandle } from "gpui-base";
-import { exec, focused, home, nextCommand, panes, run, setShared, shared, spaces, terminals, theme } from "herdr";
+import { exec, focused, home, nextCommand, panes, run, setShared, shared, spaces, terminals } from "herdr";
 import { isShown } from "./chat-tabs.js";
 import { Composer } from "./composer.js";
 import { dock } from "./dock.js";
@@ -41,7 +41,9 @@ import {
 import { subagentBar, threadsButton, threadsCard, threadsPill } from "./threads.js";
 import { barText, cardOpen, pillText, threadRows, toggleCard } from "./threads-model.js";
 import { timeline, waitsInTerminal } from "./timeline.js";
-import { ICONS, machineTag, programIcon } from "./ui.js";
+import { ICONS, machineTag, programIcon, themeColors } from "./ui.js";
+
+/** @typedef {import("./ui.js").Theme} Theme */
 
 const WINDOW_ID = "bw.window-id";
 const DISMISSED = "bw.hooks-dismissed";
@@ -161,6 +163,7 @@ export default class Chat extends View {
     // Read once here so the first feed and the loop's first sleep are right; render keeps them current.
     const ps = panes();
     this.locate(spaces(), ps);
+    /** @type {boolean} */
     this.shown = this.readShown(spaces(), ps);
     this.status = this.statusOf(ps);
     this.composer = new Composer({ placeholder: `Message ${this.name}…`, onSend: (text, cx) => this.send(text, cx) });
@@ -530,7 +533,7 @@ export default class Chat extends View {
         const answer = await this.helper.call(st.machine, args);
         const line = answer.ok ? answer.lines.find((/** @type {any} */ l) => l.type === "send") : null;
         const result = typeof line?.result === "string" ? line.result : "failed";
-        const message = answer.ok ? String(line?.message || "bw send printed no result") : answer.message;
+        const message = answer.ok === true ? String(line?.message || "bw send printed no result") : answer.message;
         const went = result === "sent" || result === "unconfirmed";
         this.note = result === "sent" ? null : { text: sendText(result, st.name, message), bad: !went };
         if (went) this.composer.clear();
@@ -624,14 +627,15 @@ export default class Chat extends View {
       let text = "";
       try {
         const answer = await this.helper.call(t.machine, args);
-        const line = answer.ok
-          ? answer.lines.find((/** @type {any} */ l) => l?.type === "answer" && typeof l.result === "string")
-          : null;
+        // The find keeps only an answer line whose result is a string.
+        const line = /** @type {{ result: string, state?: string, message?: string } | null} */ (
+          answer.ok ? answer.lines.find((l) => l?.type === "answer" && typeof l.result === "string") : null
+        );
         if (line && WENT_OUT.has(line.result)) this.wentOut.add(req.id);
         text = line
           ? answerNote(line, req.kind, name)
           : answerNote(
-              { result: "failed", message: answer.ok ? "bw answer printed no result" : answer.message },
+              { result: "failed", message: answer.ok === true ? "bw answer printed no result" : answer.message },
               req.kind,
               name,
             );
@@ -775,7 +779,7 @@ export default class Chat extends View {
           : {
               machine: key,
               phase: "failed",
-              message: `Could not read the changes: ${answer.ok ? (error?.message ?? "bw printed no diff") : answer.message}`,
+              message: `Could not read the changes: ${answer.ok === true ? (error?.message ?? "bw printed no diff") : answer.message}`,
             };
         cx.notify();
       });
@@ -793,7 +797,7 @@ export default class Chat extends View {
           : {
               machine: key,
               phase: "failed",
-              message: `Not applied: ${answer.ok ? (error?.message ?? "bw printed no result") : answer.message}`,
+              message: `Not applied: ${answer.ok === true ? (error?.message ?? "bw printed no result") : answer.message}`,
             };
         this.poke.poke();
         cx.notify();
@@ -862,7 +866,7 @@ export default class Chat extends View {
     }
   }
 
-  /** @param {Record<string, string>} t @param {Problem} p @param {any} term @param {string | null} tab */
+  /** @param {Theme} t @param {Problem} p @param {any} term @param {string | null} tab */
   buttons(t, p, term, tab) {
     const button = (/** @type {string} */ id, /** @type {string} */ label, /** @type {() => void} */ act) =>
       div()
@@ -890,7 +894,7 @@ export default class Chat extends View {
       );
   }
 
-  /** @param {Record<string, string>} t @param {any} term @param {boolean} gone @param {number} subs sub-agent rows */
+  /** @param {Theme} t @param {any} term @param {boolean} gone @param {number} subs sub-agent rows */
   header(t, term, gone, subs) {
     const target = this.target;
     return h_flex()
@@ -949,7 +953,7 @@ export default class Chat extends View {
   }
 
   render() {
-    const t = theme();
+    const t = themeColors();
     const root = v_flex()
       .id("chat-root")
       .size_full()

@@ -222,7 +222,7 @@ export function resultText(action, answer, title = "") {
     stop: "Stop",
     dev: "Forward port",
   }[action];
-  if (!answer.ok) return `${verb} failed: ${answer.message.trim()}`;
+  if (answer.ok === false) return `${verb} failed: ${answer.message.trim()}`;
   const lines = /** @type {any[]} */ (answer.lines);
   if (action === "up") {
     const c = lineOf(lines, "chrome");

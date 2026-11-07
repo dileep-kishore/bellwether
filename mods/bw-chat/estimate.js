@@ -14,7 +14,10 @@ export const BUBBLE = 0.8;
 export const PIC_MAX = 320,
   PIC_GAP = 8;
 
-const isWide = (c) =>
+/** @typedef {import("./feedstate.js").Row} Row */
+/** A drawn code box: px from the text's top and its source lines. @typedef {{ top: number, bottom: number, lines: string[] }} Span */
+
+const isWide = (/** @type {number} */ c) =>
   c >= 0x1100 &&
   (c <= 0x115f ||
     (c >= 0x2e80 && c <= 0xa4cf) ||
@@ -42,6 +45,7 @@ const HELV = [
 ];
 const LATIN_SCALE = 1.06; // more puts the long VM-measured message (Linux font) a line over
 // Other narrow characters (an en dash, an accented letter): 0.6 em.
+/** @param {string} u @param {number} fs */
 const latinWidth = (u, fs) => {
   let w = 0;
   for (const ch of u) {
@@ -62,13 +66,14 @@ const NO_END = new Set("（「『【〈《〔｛");
 // punctuation start a line (measured in the VM: 35 full-width characters fit 564 px, 36 wrap), so no
 // slack is kept: a character of slack per line counted a line too many on 5 of 54 measured paragraphs
 // and none too few without it. Latin letters, counted wide, keep their own margin.
+/** @param {string} text @param {number} width @param {number} [fs] */
 export function proseLines(text, width, fs = FS) {
   width = Math.max(fs, width);
   // A word: letters, digits, brackets and the marks gpui keeps inside one. A slash starts a new word:
   // gpui breaks "HC_SESSION/HC_SOCKET" before the slash (measured in the VM).
   const units = String(text).match(/`[^`]+`|\/?[A-Za-z0-9_\-+.:@#%&=?!'"$<>~^*()[\]{}]+|\s+|./gsu) ?? [];
-  const wide = (u) => isWide(u.codePointAt(0));
-  const size = (u) =>
+  const wide = (/** @type {string} */ u) => isWide(u.codePointAt(0));
+  const size = (/** @type {string} */ u) =>
     u[0] === "`" && u.length > 1
       ? (u.length - 2) * CODE_CH + CODE_PAD
       : /^\s+$/.test(u)
@@ -109,6 +114,7 @@ export function proseLines(text, width, fs = FS) {
   return n;
 }
 
+/** @param {string} text @param {number} width @param {number} [fs] */
 export function wrapLines(text, width, fs = 14) {
   let w = 0,
     n = 1;
@@ -127,6 +133,7 @@ export const FENCE = /^\s*(```|~~~)\s*([\w+#.-]*)\s*$/;
 
 // `spans`, when given, gets each code box as drawn: { top, bottom, lines } in px from the text's top
 // (the box itself, without its 6 px margin) and its source lines, for finding the box under a point.
+/** @param {string} text @param {number} width @param {Span[] | null} [spans] */
 export function markdownHeight(text, width, spans = null) {
   const CODE_LH = 21; // TextView at 13 px (Menlo): its own line height, as table text (13.5 px) draws 21
   // inCode: the open fence's marker; only the same marker closes it, as mdblocks.js draws it.
@@ -143,7 +150,9 @@ export function markdownHeight(text, width, spans = null) {
   // The open paragraph, list item or quote. Markdown joins a line that starts no new block to it (a soft
   // break draws as a space), so its lines are counted once, joined: counted one by one, a long pasted
   // message with short source lines came out many lines too tall.
+  /** @type {{ text: string, width: number, fs: number, lh: number, extra: number, item?: boolean } | null} */
   let para = null,
+    /** @type {number | null} */
     lastLevel = null; // lastLevel: the last list item's nesting, while in a list
   // "**" (bold) is markup, not drawn.
   const close = () => {
@@ -251,6 +260,7 @@ export function markdownHeight(text, width, spans = null) {
 const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 
 // "| a | b |" → ["a", "b"]. An escaped pipe and pipes inside `code` stay in the cell.
+/** @param {string} line @returns {string[]} */
 export function tableCells(line) {
   let s = line.trim();
   if (s.startsWith("|")) s = s.slice(1);
@@ -278,6 +288,7 @@ export function tableCells(line) {
 }
 
 // One line of text, in px at font size fs (markdown marks left out; leans wide like wrapLines).
+/** @param {string} text @param {number} [fs] */
 export function textWidth(text, fs = 13.5) {
   let w = 0;
   for (const ch of String(text).replace(/\*\*|__|`/g, "")) w += isWide(ch.charCodeAt(0)) ? fs : fs * 0.58;
@@ -289,6 +300,7 @@ export function textWidth(text, fs = 13.5) {
 // left is shared out in proportion. If not, the columns that fit their share keep their width and the
 // rest split what is left in proportion to what they want, never under MIN_COL.
 const MIN_COL = 64;
+/** @param {number} width @param {string[][]} rows @param {number} n @returns {number[]} */
 export function colWidths(width, rows, n) {
   const inner = Math.max(n * MIN_COL, width - 2);
   const want = Array.from({ length: n }, (_v, c) =>
@@ -316,18 +328,26 @@ export function colWidths(width, rows, n) {
   return out;
 }
 
-export const columnWidth = (paneWidth) => Math.max(240, Math.min(READ_W, (paneWidth || 800) - GUTTER * 2));
+export const columnWidth = (/** @type {number} */ paneWidth) =>
+  Math.max(240, Math.min(READ_W, (paneWidth || 800) - GUTTER * 2));
 
 // A picture whose size the log did not record gets the tallest guess.
+/** @param {{ width?: number, height?: number }} p @param {number} width */
 const picHeight = (p, width) =>
   p.width > 0 && p.height > 0 ? Math.min(PIC_MAX, (width * p.height) / p.width) : PIC_MAX;
 
 // The height of a row. `open`: a tools row shows its calls, one line each.
+/** @param {Row} row @param {number} width @param {boolean} [open] */
 export function rowHeight(row, width, open = false) {
-  const pics = (row.pics || []).reduce((h, p) => h + picHeight(p, width) + PIC_GAP, 0);
+  const pics = (row.pics || []).reduce(
+    (/** @type {number} */ h, /** @type {{ width?: number, height?: number }} */ p) =>
+      h + picHeight(p, width) + PIC_GAP,
+    0,
+  );
   return textHeight(row, width, open) + pics;
 }
 
+/** @param {Row} row @param {number} width @param {boolean} open */
 function textHeight(row, width, open) {
   switch (row.k) {
     case "user":
@@ -335,7 +355,10 @@ function textHeight(row, width, open) {
     case "assistant":
       return markdownHeight(row.text || "", width) + 16;
     case "tools": {
-      const calls = (row.chips || []).reduce((n, c) => n + (c.calls || []).length, 0);
+      const calls = (row.chips || []).reduce(
+        (/** @type {number} */ n, /** @type {{ calls?: unknown[] }} */ c) => n + (c.calls || []).length,
+        0,
+      );
       return 28 + (open ? calls * 22 : 0);
     }
     case "changed":
@@ -354,6 +377,7 @@ function textHeight(row, width, open) {
   }
 }
 
+/** @param {Row[]} rows @param {number} width @param {Set<string>} [open] */
 export function sizes(rows, width, open = new Set()) {
   return rows.map((r) => rowHeight(r, width, open.has(r.id)));
 }

@@ -14,6 +14,7 @@
       "!**/*.html",
       "!**/*.md",
       "!tests/harness/api.json",
+      "!types/herdr",
       "!mods/*/chat-tabs.js",
       "!mods/*/git-parse.js",
       "!mods/*/git.js",

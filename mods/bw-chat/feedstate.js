@@ -2,16 +2,25 @@
 // herdr-app/mods/flockbook/feedstate.js (MIT, see THIRD_PARTY_NOTICES.md).
 
 /**
- * @typedef {{ type: string, [key: string]: any }} Line
+ * @typedef {import("./helper.js").Line} Line
  * One parsed `bw feed` line: `log`, `unchanged`, `splice`, `row`, `state` or `older`.
  */
+
+// The fields each line type carries, as bw feed writes them; a line's `type` names its shape.
+/** @typedef {{ type: "older", path?: string | null, start?: number | null }} OlderLine */
+/** @typedef {{ type: "state", state?: string, agent?: string | null, message?: string, session?: unknown }} StateLine */
+/**
+ * @typedef {{ type: "log", path?: string | null, session?: string | null, start?: number | null,
+ *   agent?: string | null, cursor?: string | null, model?: string | null }} LogLine
+ */
+/** @typedef {{ type: "splice", at: number }} SpliceLine */
 
 /**
  * @typedef {{ type: "row", k: string, id: string, [key: string]: any }} Row
  */
 
 /**
- * @typedef {{ ok: true, lines: Line[] } | { ok: false, state: string, message: string }} Answer
+ * @typedef {import("./helper.js").Output | import("./helper.js").Failure} Answer
  * What `helper.call` resolves.
  */
 
@@ -85,11 +94,13 @@ export function olderFrom(state) {
  */
 export function applyOlder(state, answer, before) {
   if (!answer.ok) return 0;
-  const head = answer.lines.find((l) => l.type === "older");
+  const head = /** @type {OlderLine | undefined} */ (answer.lines.find((l) => l.type === "older"));
   // An answer that arrives after the log moved on belongs to rows no longer shown.
   if (!head || head.path !== state.path || before !== olderFrom(state)) return 0;
   const have = new Set(state.rows.map((r) => r.id));
-  const add = /** @type {Row[]} */ (answer.lines.filter((l) => l.type === "row" && !have.has(l.id)));
+  const add = /** @type {Row[]} */ (
+    answer.lines.filter((l) => l.type === "row" && !have.has(/** @type {string} */ (l.id)))
+  );
   state.older = add.concat(state.older);
   state.olderStart = head.start;
   state.first = head.start === 0;
@@ -103,7 +114,7 @@ export function applyOlder(state, answer, before) {
  * @param {FeedState} state @param {Answer} answer @returns {number}
  */
 export function applyFeed(state, answer) {
-  if (!answer.ok) {
+  if (answer.ok === false) {
     // Rows stay: an offline machine or a helper being reinstalled says nothing about the log.
     const changed = !state.error || state.error.state !== answer.state || state.error.message !== answer.message;
     state.error = { state: answer.state, message: answer.message };
@@ -114,12 +125,14 @@ export function applyFeed(state, answer) {
   state.error = null;
   state.loaded = true;
   let changedAt = -1,
+    /** @type {SpliceLine | null} */
     splice = null,
     waited = false;
   /** @type {Row[]} */
   const rows = [];
-  for (const l of answer.lines) {
-    if (l.type === "state") {
+  for (const line of answer.lines) {
+    if (line.type === "state") {
+      const l = /** @type {StateLine} */ (line);
       const w = {
         state: String(l.state),
         agent: l.agent ?? null,
@@ -143,7 +156,8 @@ export function applyFeed(state, answer) {
         state.seen = true;
         changedAt = 0;
       }
-    } else if (l.type === "log") {
+    } else if (line.type === "log") {
+      const l = /** @type {LogLine} */ (line);
       const path = l.path ?? null,
         session = l.session ?? null;
       if (path !== state.path || session !== state.session) {
@@ -161,8 +175,8 @@ export function applyFeed(state, answer) {
       state.agent = l.agent ?? state.agent;
       state.cursor = l.cursor ?? null;
       if (l.model) state.model = l.model;
-    } else if (l.type === "splice") splice = l;
-    else if (l.type === "row") rows.push(/** @type {Row} */ (l));
+    } else if (line.type === "splice") splice = /** @type {SpliceLine} */ (line);
+    else if (line.type === "row") rows.push(/** @type {Row} */ (line));
   }
   if (!waited && state.waiting) {
     state.waiting = null;

@@ -6,6 +6,8 @@ import { READ_W } from "./estimate.js";
 import { icon } from "./timeline.js";
 import { ICONS } from "./ui.js";
 
+/** @typedef {import("./ui.js").Theme} Theme */
+
 /** @typedef {import("./dock-model.js").Card} Card */
 /** @typedef {import("./dock-model.js").Button} Button */
 /** @typedef {import("./dock-model.js").Draft} Draft */
@@ -38,7 +40,7 @@ import { ICONS } from "./ui.js";
 
 /**
  * @typedef {object} DockView
- * @property {Record<string, string>} t theme()
+ * @property {Theme} t themeColors()
  * @property {Card[]} cards
  * @property {Notice | null} notice
  * @property {(card: Card) => Draft} draftOf
@@ -50,7 +52,7 @@ import { ICONS } from "./ui.js";
 
 const MONO = "Menlo";
 
-/** @param {string} id @param {string} label @param {boolean} enabled @param {boolean} primary @param {Record<string, string>} t @param {(cx: any) => void} act */
+/** @param {string} id @param {string} label @param {boolean} enabled @param {boolean} primary @param {Theme} t @param {(cx: any) => void} act */
 function pushButton(id, label, enabled, primary, t, act) {
   return div()
     .id(id)
@@ -296,7 +298,7 @@ function card(c, v, h) {
     );
 }
 
-/** @param {Notice} n @param {Record<string, string>} t @param {DockHandlers} h */
+/** @param {Notice} n @param {Theme} t @param {DockHandlers} h */
 function notice(n, t, h) {
   return v_flex()
     .id("hooks-notice")

@@ -5,6 +5,8 @@ import { h_flex, v_flex, Textarea, TextareaState } from "gpui-base";
 import { READ_W } from "./estimate.js";
 import { ICONS } from "./ui.js";
 
+/** @typedef {import("./ui.js").Theme} Theme */
+
 const SEND_ICON = "mods/bw-chat/icons/send.svg";
 
 /**
@@ -76,7 +78,7 @@ export class Composer {
     this.input.focus();
   }
 
-  /** @param {Record<string, string>} t theme() @param {ComposerView} v */
+  /** @param {Theme} t themeColors() @param {ComposerView} v */
   render(t, v) {
     this.blocked = v.disabled;
     const live = !v.disabled;

@@ -65,7 +65,7 @@ function norm(p) {
   return p.length > 1 ? p.replace(/\/+$/, "") : p;
 }
 
-/** True when `path` is `folder` or lies under it; "/r/alpha-wt" is not under "/r/alpha". */
+/** True when `path` is `folder` or lies under it; "/r/alpha-wt" is not under "/r/alpha". @param {string} path @param {string} folder */
 function under(path, folder) {
   return path === folder || path.startsWith(folder === "/" ? "/" : `${folder}/`);
 }
@@ -92,7 +92,8 @@ function same(a, b) {
  * @returns {Schedule}
  */
 export function createSchedule(times = TIMES) {
-  /** @type {Map<string, { target: Target, added: number, lastStart: number | null, marked: boolean, failed: boolean }>} */
+  /** @typedef {{ target: Target, added: number, lastStart: number | null, marked: boolean, failed: boolean }} State */
+  /** @type {Map<string, State>} */
   const states = new Map();
   // Kept apart from `states` so a call still runs, and holds its machine, after its target is dropped.
   /** @type {Map<string, string | null>} */
@@ -100,6 +101,7 @@ export function createSchedule(times = TIMES) {
   /** @type {Set<string>} */
   const rejectedFolders = new Set();
 
+  /** @param {State} state */
   function dueAt(state) {
     const t = state.target;
     if (running.has(t.key)) return null;
@@ -121,12 +123,14 @@ export function createSchedule(times = TIMES) {
     return due === Infinity ? null : due;
   }
 
+  /** @param {string | null} machine */
   function inFlight(machine) {
     for (const m of running.values()) if (m === machine) return true;
     return false;
   }
 
   function watchedFolders() {
+    /** @type {string[]} */
     const all = [];
     // Herdr's Linux watch skips Git-ignored directories, so a parent watch may miss a nested worktree.
     const own = new Set();

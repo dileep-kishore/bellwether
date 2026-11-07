@@ -3,6 +3,8 @@ import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { ICONS, ago, programIcon, statusIcon } from "./ui.js";
 
+/** @typedef {import("./ui.js").Theme} Theme */
+
 /** @typedef {import("./projects-model.js").MachineNode} MachineNode */
 /** @typedef {import("./projects-model.js").ProjectNode} ProjectNode */
 /** @typedef {import("./projects-model.js").WorktreeNode} WorktreeNode */
@@ -12,7 +14,7 @@ import { ICONS, ago, programIcon, statusIcon } from "./ui.js";
 
 /**
  * @typedef {object} Draw
- * @property {Record<string, string>} t theme()
+ * @property {Theme} t themeColors()
  * @property {number} now
  * @property {string | null} active the active space's id
  * @property {string | null} hovered the project header under the pointer
@@ -38,14 +40,14 @@ export const projectFold = (key) => `p${key}`;
 /** @param {string} key */
 export const worktreeFold = (key) => `w${key}`;
 
-/** A stable colour per project, so a tile keeps its colour as projects come and go. @param {string} key */
+/** A stable colour per project, so a tile keeps its colour as projects come and go. @param {Theme} t @param {string} key */
 function tileColor(t, key) {
   let h = 0;
   for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return t[TILE_COLORS[h % TILE_COLORS.length]];
 }
 
-/** @param {Record<string, string>} t @param {ProjectNode} p @param {number} size */
+/** @param {Theme} t @param {ProjectNode} p @param {number} size */
 export function letterTile(t, p, size) {
   return div()
     .size(size)
@@ -61,7 +63,7 @@ export function letterTile(t, p, size) {
     .child(p.letter);
 }
 
-/** @param {Record<string, string>} t @param {boolean} open */
+/** @param {Theme} t @param {boolean} open */
 const chevron = (t, open) =>
   svg(open ? ICONS["chevron-down"] : ICONS["chevron-right"])
     .size(10)

@@ -16,7 +16,6 @@ import {
   shared,
   spaces,
   terminals,
-  theme,
   watchFolder,
   window,
 } from "herdr";
@@ -34,7 +33,7 @@ import { createPoke, runRefresher } from "./refresh-driver.js";
 import { createSchedule } from "./refresh-schedule.js";
 import { machineSection, rail } from "./rows.js";
 import { makeRun, mergeResult } from "./run-git.js";
-import { ICONS } from "./ui.js";
+import { ICONS, themeColors } from "./ui.js";
 
 const STORE = "bw.projects";
 const FOLDED = "bw-projects.folded";
@@ -63,6 +62,7 @@ function loadFolded() {
 }
 
 export default class Projects extends View {
+  /** @param {unknown} _props @param {import("gpui-kit").AsyncContext} cx */
   init(_props, cx) {
     this.alive = true;
     /** @type {import("./projects-model.js").GitCache} */
@@ -174,7 +174,9 @@ export default class Projects extends View {
         const address = new Map(part.map((t) => [t.local, t.address]));
         for (const l of r.lines) {
           const a = l.type === "count" && typeof l.terminal === "string" ? address.get(l.terminal) : undefined;
-          if (a) got[a] = { subagents: l.subagents, requests: l.requests };
+          // bw counts writes both as numbers on every count line.
+          if (a)
+            got[a] = { subagents: /** @type {number} */ (l.subagents), requests: /** @type {number} */ (l.requests) };
         }
       }
       if (this.alive && loop.live && this.mergeCounts(got)) cx.notify();
@@ -240,7 +242,10 @@ export default class Projects extends View {
     cx.notify();
   }
 
-  /** @param {any} tree @param {any} input @param {string | null} active @param {unknown} stored */
+  /**
+   * @param {import("./projects-model.js").ProjectTree} tree @param {any} input @param {string | null} active
+   * @param {unknown} stored
+   */
   sync(tree, input, active, stored) {
     const order = JSON.stringify(tree.agentOrder);
     if (order !== this.order) {
@@ -258,7 +263,7 @@ export default class Projects extends View {
   }
 
   render() {
-    const t = theme();
+    const t = themeColors();
     const win = window();
     const stored = shared(STORE);
     const all = spaces();
@@ -346,7 +351,7 @@ export default class Projects extends View {
     );
 
     if (narrow) {
-      const openFirst = (/** @type {any} */ p) => {
+      const openFirst = (/** @type {import("./projects-model.js").ProjectNode} */ p) => {
         const w = p.worktrees.find((x) => x.open) ?? p.worktrees.find((x) => !x.prunable);
         if (w) d.openWorktree(w, p);
       };

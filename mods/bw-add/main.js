@@ -2,10 +2,10 @@
 // rev-parse there to find the repository it belongs to.
 import { View, div, svg } from "gpui-kit";
 import { Input, InputState, h_flex, v_flex } from "gpui-base";
-import { closeOverlay, exec, home, machines, pickFolder, props, setShared, shared, theme, window } from "herdr";
+import { closeOverlay, exec, home, machines, pickFolder, props, setShared, shared, window } from "herdr";
 import { readPlace } from "./git.js";
 import { projectKey, readStored, rememberProjects } from "./projects-model.js";
-import { ICONS } from "./ui.js";
+import { ICONS, themeColors } from "./ui.js";
 
 const KEY = "bw.projects";
 
@@ -64,7 +64,7 @@ export default class Add extends View {
     cx.spawn(async (/** @type {any} */ cx) => {
       try {
         const r = await readPlace(exec, machine, path);
-        if (!r.ok) {
+        if (r.ok === false) {
           this.error =
             r.state === "not_git"
               ? "Not a Git repository"
@@ -103,7 +103,7 @@ export default class Add extends View {
   }
 
   render() {
-    const t = theme();
+    const t = themeColors();
     const local = window()?.platform === "macos" ? "This Mac" : "This computer";
     const all = machines();
     // A chosen machine that drops stays chosen: its typed path is never read on another machine.

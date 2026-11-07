@@ -5,6 +5,8 @@ import { h_flex, v_flex } from "gpui-base";
 import { icon } from "./timeline.js";
 import { statusIcon } from "./ui.js";
 
+/** @typedef {import("./ui.js").Theme} Theme */
+
 /** @typedef {import("./threads-model.js").Row} Row */
 
 export const CARD_W = 312;
@@ -19,7 +21,7 @@ const GLYPH = { running: "working", done: "done", asks: "blocked" };
 export const rowId = (row) => (row.kind === "parent" ? "row-parent" : `row-${row.kind}-${row.id}`);
 
 /**
- * @param {Row} row @param {Record<string, string>} t @param {boolean} current the view shows this row
+ * @param {Row} row @param {Theme} t @param {boolean} current the view shows this row
  * @param {(row: Row, cx: any) => void} onRow
  */
 function threadRow(row, t, current, onRow) {
@@ -61,7 +63,7 @@ function threadRow(row, t, current, onRow) {
 
 /**
  * The card at the timeline's top right, at most half the pane's height and scrolling.
- * @param {Row[]} rows @param {{ t: Record<string, string>, current: string | null, onRow: (row: Row, cx: any) => void }} o
+ * @param {Row[]} rows @param {{ t: Theme, current: string | null, onRow: (row: Row, cx: any) => void }} o
  *   `current` is the row id the view shows; null for the parent
  */
 export function threadsCard(rows, o) {
@@ -84,7 +86,7 @@ export function threadsCard(rows, o) {
     .children(rows.map((r) => threadRow(r, t, (o.current ?? null) === (r.kind === "parent" ? null : r.id), o.onRow)));
 }
 
-/** The folded card. @param {string} text pillText(rows) @param {Record<string, string>} t @param {(cx: any) => void} onClick */
+/** The folded card. @param {string} text pillText(rows) @param {Theme} t @param {(cx: any) => void} onClick */
 export function threadsPill(text, t, onClick) {
   return h_flex()
     .id("threads-pill")
@@ -107,7 +109,7 @@ export function threadsPill(text, t, onClick) {
     .child(text);
 }
 
-/** The header button with the sub-agent count. @param {number} count @param {Record<string, string>} t @param {(cx: any) => void} onClick */
+/** The header button with the sub-agent count. @param {number} count @param {Theme} t @param {(cx: any) => void} onClick */
 export function threadsButton(count, t, onClick) {
   return h_flex()
     .id("threads-button")
@@ -128,7 +130,7 @@ export function threadsButton(count, t, onClick) {
 
 /**
  * The 44 px bar of a sub-agent's view: "Explore · sub-agent of Claude · running · Back to Claude".
- * @param {string} text barText(row, parentName) @param {string} parentName @param {Record<string, string>} t
+ * @param {string} text barText(row, parentName) @param {string} parentName @param {Theme} t
  * @param {(cx: any) => void} onBack
  */
 export function subagentBar(text, parentName, t, onBack) {

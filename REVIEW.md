@@ -27,6 +27,7 @@
 - Upstream code in `crates/vendor/herdr-core` that this change did not
   touch.
 - Generated `jsconfig.json` and `.d.ts` files in mod folders.
+- `types/herdr/`, Herdr's type files that `scripts/gen-herdr-api.js` copies.
 
 ## Human review
 - `hooks/`

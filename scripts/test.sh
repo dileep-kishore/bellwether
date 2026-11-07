@@ -20,9 +20,11 @@ step cargo test --workspace --locked
 # Vendored crates have their own workspace: tested here, never formatted or linted.
 step cargo test --manifest-path crates/vendor/Cargo.toml --workspace --locked --target-dir target/vendor
 
-# Without node_modules, bunx would fetch whatever npm calls "biome" instead of the pinned one.
-[ -x node_modules/.bin/biome ] || { echo "the pinned JavaScript tools are missing: run bun install" >&2; exit 1; }
+# Without node_modules, bunx would fetch whatever npm calls "biome" or "tsc" instead of the pinned tools.
+[ -x node_modules/.bin/biome ] && [ -x node_modules/.bin/tsc ] ||
+  { echo "the pinned JavaScript tools are missing: run bun install" >&2; exit 1; }
 step bunx biome ci --error-on-warnings .
+step bunx tsc -p types
 
 js_tests=$(find . \( -name node_modules -o -name target -o -name .git -o -path ./docs/drafts \) -prune -o \
   -type f \( -name '*.test.js' -o -name '*.test.ts' -o -name '*_test.js' -o -name '*_test.ts' \

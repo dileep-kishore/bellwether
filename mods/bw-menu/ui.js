@@ -1,5 +1,12 @@
 // Small drawing pieces every Bellwether mod shares: icons, status glyphs, program icons, ages.
 import { div, image, svg } from "gpui-kit";
+import { theme } from "herdr";
+
+/** @typedef {import("gpui-kit").Color} Color */
+/** Theme colours by name, as `themeColors()` returns them. @typedef {Record<string, Color>} Theme */
+
+/** Herdr's `theme()`, typed as the `#rrggbb` colours it returns; herdr.d.ts declares them as plain strings. */
+export const themeColors = () => /** @type {Theme} */ (theme());
 
 /** @typedef {"working" | "blocked" | "done" | "idle"} Status */
 /** @typedef {{ icon?: string | null, tint?: boolean } | null | undefined} ProgramLike */
@@ -33,7 +40,7 @@ const STATUS_ICON = {
 
 /**
  * An agent's state as a theme-coloured glyph; null draws an empty box so rows stay aligned.
- * @param {Record<string, string>} t theme()
+ * @param {Theme} t themeColors()
  * @param {Status | null | undefined} status
  * @param {number} [size]
  */
@@ -50,7 +57,7 @@ export function statusIcon(t, status, size = 12) {
 /**
  * A program's icon from Herdr's table: a one-colour glyph is tinted, a picture drawn as is.
  * @param {ProgramLike} program
- * @param {Record<string, string>} t theme()
+ * @param {Theme} t themeColors()
  * @param {number} [size]
  */
 export function programIcon(program, t, size = 14) {
@@ -62,7 +69,7 @@ export function programIcon(program, t, size = 14) {
 /**
  * The name of a space's machine as a small bordered label.
  * @param {string} name
- * @param {Record<string, string>} t theme()
+ * @param {Theme} t themeColors()
  */
 export function machineTag(name, t) {
   return div()

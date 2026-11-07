@@ -7,17 +7,28 @@ import { FENCE, tableCells, colWidths, markdownHeight } from "./estimate.js";
 
 export { tableCells };
 
+/** @typedef {import("./ui.js").Theme} Theme */
+/** @typedef {"left" | "center" | "right"} Align */
+/** @typedef {{ k: "md", text: string }} MdBlock */
+/** @typedef {{ k: "code", lang: string, text: string }} CodeBlock */
+/** @typedef {{ k: "table", head: string[], align: Align[], rows: string[][] }} TableBlock */
+/** @typedef {MdBlock | CodeBlock | TableBlock} Block */
+
 const SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 
+/** @param {string} cell @returns {Align} */
 const alignOf = (cell) => {
   const c = cell.trim();
   return c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : "left";
 };
 
 // [{k:"md", text}, {k:"code", lang, text}, {k:"table", head, align, rows}] in order.
+/** @param {unknown} text @returns {Block[]} */
 export function splitBlocks(text) {
   const lines = String(text ?? "").split("\n");
+  /** @type {Block[]} */
   const out = [];
+  /** @type {string[]} */
   let md = [];
   const flush = () => {
     if (md.length && md.join("\n").trim()) out.push({ k: "md", text: md.join("\n") });
@@ -51,6 +62,7 @@ export function splitBlocks(text) {
 }
 
 // The block as written, for Copy: CRs dropped, normal spaces and tabs.
+/** @param {{ text: string }} b */
 export function codeCopyText(b) {
   return b.text
     .split("\n")
@@ -62,6 +74,7 @@ export function codeCopyText(b) {
 // escaped (drawn as text, not markup), leading spaces as no-break spaces (markdown drops them), tabs
 // as 4, an empty line as one no-break space (else the paragraph ends), lines joined by hard breaks.
 const NBSP = "\u00a0";
+/** @param {string} text */
 export function codeMarkdown(text) {
   return codeCopyText({ text })
     .split("\n")
@@ -74,13 +87,16 @@ export function codeMarkdown(text) {
 
 // The code box under `y` (px from the text's top, at `width`), as written for Copy; null when `y` is not
 // on one. Box places are the estimate's, the same guess the row heights use.
+/** @param {unknown} text @param {number} width @param {number} y */
 export function codeBlockAt(text, width, y) {
+  /** @type {import("./estimate.js").Span[]} */
   const spans = [];
   markdownHeight(String(text ?? ""), width, spans);
   const s = spans.find((b) => y >= b.top && y <= b.bottom);
   return s ? s.lines.join("\n") : null;
 }
 
+/** @param {string} key @param {CodeBlock} b @param {Theme} t */
 function codeBox(key, b, t) {
   return v_flex()
     .w_full()
@@ -100,9 +116,11 @@ function codeBox(key, b, t) {
 // Cells get a fixed width: a TextView in a flexible cell keeps its full one-line width and spills
 // out of the table. Widths follow the content (colWidths); estimate.js guesses the row heights from
 // the same widths.
+/** @param {string} id @param {TableBlock} b @param {Theme} t @param {number} width */
 function table(id, b, t, width) {
   const n = Math.max(b.head.length, ...b.rows.map((r) => r.length));
   const ws = colWidths(width, [b.head, ...b.rows], n);
+  /** @param {string} key @param {string | undefined} text @param {number} c @param {boolean} head */
   const cell = (key, text, c, head) =>
     div()
       .w(ws[c])
@@ -114,6 +132,7 @@ function table(id, b, t, width) {
       .when(b.align[c] === "center", (el) => el.text_center())
       .when(head, (el) => el.font_semibold())
       .child(TextView.markdown(key, text ?? "").selectable(true));
+  /** @param {string[]} cells @param {string | number} r @param {boolean} head */
   const row = (cells, r, head) =>
     h_flex()
       .w_full()
@@ -135,6 +154,7 @@ function table(id, b, t, width) {
 
 // The whole text: one element. `id` keeps the TextView ids unique per row; `width` is the text's
 // width in px (tables need it).
+/** @param {string} id @param {string} text @param {Theme} t @param {number} width */
 export function markdownView(id, text, t, width) {
   const blocks = splitBlocks(text);
   if (blocks.length === 1 && blocks[0].k === "md")

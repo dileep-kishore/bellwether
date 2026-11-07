@@ -9,6 +9,8 @@ import { markdownView } from "./mdblocks.js";
 import { megabytes } from "./target.js";
 import { ICONS } from "./ui.js";
 
+/** @typedef {import("./ui.js").Theme} Theme */
+
 /** @param {string} name */
 export const icon = (name) => `mods/bw-chat/icons/${name}.svg`;
 
@@ -38,7 +40,7 @@ export function oneLine(text) {
  * @typedef {import("./feedstate.js").Row} Row
  * @typedef {ReturnType<typeof import("./pictures.js").createPictures>} Pictures
  * @typedef {object} Draw
- * @property {Record<string, string>} t theme()
+ * @property {Theme} t themeColors()
  * @property {number} pane the pane's width
  * @property {number} col the reading column's width
  * @property {string} agent "Claude" or "Codex"

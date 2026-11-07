@@ -1,9 +1,9 @@
 // A project's menu, opened by bw-projects (its "⋯" or a right-click) with the project in props.
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { closeOverlay, openOverlay, props, setShared, shared, theme } from "herdr";
+import { closeOverlay, openOverlay, props, setShared, shared } from "herdr";
 import { forgetProject, projectKey } from "./projects-model.js";
-import { ICONS } from "./ui.js";
+import { ICONS, themeColors } from "./ui.js";
 
 /**
  * @typedef {object} MenuProject What bw-projects' projectMenu passes.
@@ -21,7 +21,7 @@ const DIALOG = { new: { width: 460, height: 280 }, open: { width: 560, height: 4
 
 export default class Menu extends View {
   render() {
-    const t = theme();
+    const t = themeColors();
     const p = /** @type {{ project?: MenuProject, overlay?: string }} */ (props() ?? {});
     const project = p.project && typeof p.project.commonDir === "string" ? p.project : null;
     const close = () => {

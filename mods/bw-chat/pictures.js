@@ -37,7 +37,7 @@ export function createPictures() {
 
   return {
     /** Pictures not tried yet, newest row first; none while one is being fetched.
-     * @param {{ pics?: unknown[] }[]} rows @returns {Pic[]} */
+     * @param {{ pics?: unknown[], [key: string]: unknown }[]} rows @returns {Pic[]} */
     wanted(rows) {
       if (inFlight) return [];
       /** @type {Pic[]} */

@@ -204,8 +204,8 @@ export function argsRequest(kind, ctx, run) {
  * @returns {{ extras: string[], notice: string | null }}
  */
 export function extrasFrom(result) {
-  const plain = (/** @type {string} */ notice) => ({ extras: [], notice });
-  if (!result.ok) return plain(result.message || `the browser helper failed (${result.state})`);
+  const plain = (/** @type {string} */ notice) => ({ extras: /** @type {string[]} */ ([]), notice });
+  if (result.ok === false) return plain(result.message || `the browser helper failed (${result.state})`);
   const line = result.lines.find((l) => l.type === "agent-args");
   if (!line) return plain("bw browser agent-args printed no agent-args line");
   if (line.browser !== "ready")

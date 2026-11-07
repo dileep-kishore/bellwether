@@ -13,7 +13,6 @@ import {
   setShared,
   shared,
   spaces,
-  theme,
 } from "herdr";
 import { addPending, chatArgv } from "./chat-tabs.js";
 import {
@@ -26,7 +25,7 @@ import {
   terminalLaunch,
 } from "./entries.js";
 import { createHelper } from "./helper.js";
-import { ICONS, programIcon } from "./ui.js";
+import { ICONS, programIcon, themeColors } from "./ui.js";
 
 // The last agents each machine reported, keyed by machine name ("" for this Mac), shown at once.
 const KNOWN = "bw.known-agents";
@@ -131,7 +130,7 @@ export default class NewMenu extends View {
 
   render() {
     this.launch();
-    const t = theme();
+    const t = themeColors();
     const p = props() ?? {};
     const rows = menuEntries({ agents: this.agents, failed: this.failed, ctx: contextOf(p, spaces(), panes()) });
 
