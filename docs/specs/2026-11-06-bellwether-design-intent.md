@@ -645,3 +645,66 @@ for this build; tests that need the Herdr window are deferred, other tests
   Evidence: phase 3 experiment case (e) (`docs/research/2026-11-06-phase3-requests.md`),
   `CODEX_CHILD_ANSWERABLE = true` with `codex_child_box_is_read`, and
   `requests.sh` `codex-child-approval` PASS (289aff4).
+- 2026-11-07: the forward's kept terminal runs `bw browser forward keep`,
+  which runs the specified `ssh -R` (plus `BatchMode`, `ServerAlive*` and
+  `ControlMaster=no`) and reconnects it with the checks. Original: "the
+  window machine keeps a reverse forward open as an unlabeled kept core
+  terminal: `ssh -o ExitOnForwardFailure=yes -N -R
+  127.0.0.1:<port>:127.0.0.1:9222 <target>`." Evidence:
+  `docs/plans/2026-11-06-bellwether-phase-4.md`, decision 8 (a reconnect
+  needs a process that outlives `exec`, and a mod may not poll).
+- 2026-11-07: the forward's port stays the same across reconnects and is
+  written per window to `~/.local/share/bellwether/agent/ports/<window>`
+  on that machine, which the MCP launcher reads at session start
+  (sentence added to the remote agents bullet). Evidence: phase 4 plan,
+  decisions 5 and 8.
+- 2026-11-07: Claude also gets `--allowedTools mcp__bw-browser`, matching
+  Codex's `approve` and T3 Code's own server (sentence added to the
+  Browser agents bullet). Original, in Tabs: "Claude with `--mcp-config`
+  and `--append-system-prompt-file`". Evidence: phase 4 plan, decision 7
+  (`docs/drafts/research/browser-research.md` section 1; T3 Code
+  `ClaudeAdapterV2.ts:2010-2038`).
+- 2026-11-07: Chrome DevTools MCP runs with `--no-usage-statistics
+  --no-performance-crux --screenshotFormat jpeg --screenshotMaxWidth
+  1280`, so no visited URL goes to Google and screenshots stay under the
+  4 MB picture cap. Original: "one instance per agent session, with
+  `--browserUrl http://127.0.0.1:9222`." Evidence: phase 4 plan, decision
+  5 (the launcher's exact argv).
+- 2026-11-07: Arrange finds the Herdr window through macOS's window list,
+  since `window()` has no bounds, and is macOS only. Original: "the
+  panel's Arrange button places it beside the Herdr window with CDP
+  `Browser.setWindowBounds`." Evidence: phase 4 plan, decision 3
+  (`herdr.d.ts:242-252`).
+- 2026-11-07: `bw browser agent-args` starts the Bellwether Chrome in the
+  background when it is not running, since a forward cannot be checked
+  without its browser id (sentence added to the first Browser bullet).
+  Evidence: phase 4 plan, decision 14.
+- 2026-11-07: a `via` or failed machine starts agents with no additions
+  at all: no MCP, no instructions, and Codex's `developer_instructions`
+  untouched. Original: "a machine connected through `via` (no SSH target)
+  shows "browser forward unavailable" and its agents start without the
+  browser MCP." Evidence: phase 4 plan, decision 7.
+- 2026-11-07: "Forward port" binds `127.0.0.1` explicitly. Original:
+  "(`ssh -o ExitOnForwardFailure=yes -N -L <port>:127.0.0.1:<port>
+  <target>`)". Evidence: phase 4 plan, decision 9.
+- 2026-11-07: `bw browser down` closes only the Bellwether Chrome, for
+  tests and quitting. Original: "`bw browser up` starts it or reuses it;".
+  Evidence: phase 4 plan, decision 1 (`down` sends CDP `Browser.close`
+  only to a listener that passed the checks and never signals a process).
+- 2026-11-07: agent files are written to `~/.local/share/bellwether/agent/`
+  on each machine by `bw machine setup <machine> --agent` and refreshed by
+  every `bw browser agent-args`, with no user setting changed (sentence
+  added to the Seamless machines browser bullet), and the Pieces table's
+  `agent/` row names the launcher and where the files go. Original: "The
+  per-session browser instructions and MCP config Bellwether passes to
+  agents it starts." Evidence: phase 4 plan, decision 5.
+- 2026-11-07: favicons are cached under the app home's
+  `data/bellwether/favicons/` for 7 days. Original: "pictures under the
+  app home's `data/bellwether/pictures/` 7 days." Evidence: phase 4 plan,
+  decision 2.
+- 2026-11-07: build note, not a spec change: done check 6 here runs with
+  `claude -p`, interactive Claude in a private core and Codex on `bwloop`
+  through a scratch `sshd`; the window half is owed (the screenshot inline
+  in a chat tab, the panel, Arrange, the user's own click, and macmini as
+  a real SSH machine). Evidence: phase 4 plan, Build environment and
+  decision 16.
