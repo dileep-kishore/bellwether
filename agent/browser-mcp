@@ -1,0 +1,50 @@
+#!/bin/sh
+# Bellwether's browser MCP launcher: runs Chrome DevTools MCP 1.12.0 against this window's Chrome port.
+#   sh browser-mcp <window>     serve MCP on stdio for the window's Chrome
+#   sh browser-mcp --version    fetch the pinned package into the npx cache and print its version
+set -eu
+
+pkg=chrome-devtools-mcp@1.12.0
+agent_dir=$HOME/.local/share/bellwether/agent
+
+fail() {
+  echo "browser-mcp: $*" >&2
+  exit 1
+}
+
+w=${1:-}
+if [ "$w" != --version ]; then
+  case $w in
+    "" | *[!a-z0-9-]*) fail "window name must be 1-32 of a-z, 0-9 and -, got '$w'" ;;
+  esac
+  [ "${#w}" -le 32 ] || fail "window name must be 1-32 of a-z, 0-9 and -, got '$w'"
+  port_file=$agent_dir/ports/$w
+  [ -f "$port_file" ] || fail "no port file $port_file: start the agent from Bellwether's + menu"
+  port=
+  IFS= read -r port <"$port_file" || true
+  case $port in
+    "" | *[!0-9]*) fail "port file $port_file does not hold a port number" ;;
+  esac
+fi
+
+npx=$(command -v npx 2>/dev/null || true)
+if [ -z "$npx" ]; then
+  # The Background core's PATH lacks Node, so look where Homebrew installs it.
+  for f in ${BW_NPX_FALLBACKS-/opt/homebrew/bin/npx /usr/local/bin/npx}; do
+    if [ -x "$f" ]; then
+      npx=$f
+      break
+    fi
+  done
+fi
+[ -n "$npx" ] || fail "npx not found on PATH or in /opt/homebrew/bin or /usr/local/bin: install Node"
+
+# npx starts with `#!/usr/bin/env node`, so the node beside it must come first on PATH.
+PATH=$(dirname "$npx"):$PATH
+export PATH
+
+if [ "$w" = --version ]; then
+  exec "$npx" -y "$pkg" --version
+fi
+exec "$npx" -y "$pkg" --browserUrl "http://127.0.0.1:$port" \
+  --no-usage-statistics --no-performance-crux --screenshotFormat jpeg --screenshotMaxWidth 1280
