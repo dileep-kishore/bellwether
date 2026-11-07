@@ -1,4 +1,4 @@
-// bw-chat: one agent's chat, fed by `bw feed` on the space's machine and sent with `bw send` here.
+// bw-chat: one agent's chat, fed by `bw feed` and sent with `bw send`, both on the space's machine.
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -193,7 +193,7 @@ describe("bw-chat", () => {
     expect(list(m).attrs.sizes[i]).toBe(closed);
   });
 
-  test("remote chat feeds there with the local address and sends here with the full address", async () => {
+  test("remote chat feeds and sends there with the local address", async () => {
     const m = await mount("bw-chat", { props: CODEX_REMOTE, live: live("chat-remote") });
     const feeds = calls(m, "feed");
     expect(feeds).toHaveLength(1);
@@ -203,8 +203,9 @@ describe("bw-chat", () => {
     await typeAndSend(m, "hi");
     const sends = calls(m, "send");
     expect(sends).toHaveLength(1);
-    expect(sends[0][2]).toEqual({ on: null });
-    expect(sends[0][1].slice(4)).toEqual(["--terminal", "macmini/t5", "--expect-kind", "codex", "--expect-session", CODEX_SESSION, "--expect-path", CODEX_PATH, "--text", "hi"]);
+    // hc wraps text sent from another core as `<hc from=…>`, so the send runs in macmini's own core.
+    expect(sends[0][2]).toEqual({ on: "macmini" });
+    expect(sends[0][1].slice(4)).toEqual(["--terminal", "t5", "--expect-kind", "codex", "--expect-session", CODEX_SESSION, "--expect-path", CODEX_PATH, "--text", "hi"]);
     expect(inspect(textarea(m).attrs.state).value).toBe("");
     await nextPoll(m);
     expect(calls(m, "feed").at(-1)[1].slice(4)).toEqual(["--terminal", "t5", "--pictures", "--cursor", "2.fixture-codex-question"]);

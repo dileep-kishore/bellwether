@@ -1,7 +1,7 @@
 // One agent's chat beside its terminal. One loop task reads `bw feed` on the space's machine (every
 // 2 s while shown, 10 s while hidden, start to start) and never reads live data; render reads the
-// panes, decides shown, and pokes the loop when that changes. Sends and pictures go through this
-// Mac's helper with the terminal's full address.
+// panes, decides shown, and pokes the loop when that changes. Sends go through the helper on the
+// space's machine; pictures through this Mac's helper with the terminal's full address.
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex, VirtualListScrollHandle } from "gpui-base";
 import { exec, home, nextCommand, panes, run, shared, spaces, theme } from "herdr";
@@ -184,10 +184,11 @@ export default class Chat extends View {
     this.sending = true;
     this.note = null;
     cx.notify();
-    const args = ["send", "--terminal", t.terminal, "--expect-kind", t.kind, "--expect-session", session, "--expect-path", path, "--text", text];
+    const args = ["send", "--terminal", t.local, "--expect-kind", t.kind, "--expect-session", session, "--expect-path", path, "--text", text];
     cx.spawn(async (/** @type {any} */ cx) => {
       try {
-        const answer = await this.helper.call(null, args);
+        // hc wraps text sent from another core as `<hc from=…>`, so slash commands only run when sent there.
+        const answer = await this.helper.call(t.machine, args);
         const line = answer.ok ? answer.lines.find((/** @type {any} */ l) => l.type === "send") : null;
         const result = typeof line?.result === "string" ? line.result : "failed";
         const message = answer.ok ? String(line?.message || "bw send printed no result") : answer.message;

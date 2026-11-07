@@ -120,12 +120,12 @@ WINDOW MACHINE (this Mac)                                ANY MACHINE WITH SPACES
 ┌───────────────┬───────────────────────────┬────────────┐  ┌─────────────────────┐
 │ bw-projects   │ bw-tabs [chat][chat][>_] + │ bw-right   │  │ bw helper (installs │
 │ machines      ├───────────────────────────┤ Changes    │  │ itself from here)   │
-│  projects     │ chat tab: bw-chat pane    │ Issues     │  │  feed cards answer  │
-│   worktrees   │  (agent terminal pane     │ Browser    │  │  diff pictures      │
+│  projects     │ chat tab: bw-chat pane    │ Issues     │  │  feed send answer   │
+│   worktrees   │  (agent terminal pane     │ Browser    │  │  cards diff pictures│
 │    agents     │   behind it, ⌘J)          │            │  │ agent logs, hooks,  │
 │               │ terminal tab: Herdr panes │            │  │ git, Chrome DevTools│
 └───────────────┴───────────────────────────┴────────────┘  │ MCP per agent       │
-bw on the window machine: send, linear, picture, browser,   └─────────────────────┘
+bw on the window machine: linear, picture, browser,         └─────────────────────┘
 machine install. Bellwether Chrome (headed, own profile, CDP 127.0.0.1:9222),
 reached from other machines through ssh -R. Keychain: Linear key, read by bw.
 ```
@@ -316,8 +316,8 @@ plus, in a sub-agent view, the child session.
 - `bw send` and `bw answer` carry `--expect-kind`, `--expect-session` and
   `--expect-path` and refuse when the terminal's conversation changed
   (Flockbook's guard, `flockbook-modfeed/src/cards.rs:310-325`). `bw send`
-  runs on the window machine with a `machine/t` address and never uses
-  `--force`.
+  runs on the space's machine with the terminal's local address and never
+  uses `--force`.
 - The `bw-event` hook (only inside Herdr terminals, `$HC_TERMINAL_ID`)
   records `PermissionRequest`, `SubagentStart` and `SubagentStop` events with
   session, agent id and tool use id, and exits 0 silently.

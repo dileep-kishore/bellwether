@@ -486,3 +486,15 @@ for this build; tests that need the Herdr window are deferred, other tests
   and cannot read the login keychain. Evidence: phase 2 plan, Build
   environment and decision 14; `docs/research/2026-11-06-phase0-spike.md`,
   section 3.
+- 2026-11-07: `bw send` runs on the space's machine, through the helper
+  there, with the terminal's local address. Original: "`bw send` runs on
+  the window machine with a `machine/t` address and never uses
+  `--force`." Evidence: phase 2 Task 9, real Codex on `bwloop`: `hc send`
+  from another core types the text as `<hc from="…">…</hc>`, so `/new`
+  never ran there and the agent saw the wrapper; a send from that
+  machine's own core arrives unwrapped.
+- 2026-11-07: build note, not a spec change: macOS 27 hides another
+  process's environment (`ps -E` and `KERN_PROCARGS2` give argv only), so
+  `bw locate` takes `CODEX_HOME` from the rollouts the agent holds open
+  and `CLAUDE_CONFIG_DIR` only from `bw`'s own environment. Evidence:
+  phase 2 Task 7 (`crates/bw/src/chat/dirs.rs`, commit `98cba29`).
