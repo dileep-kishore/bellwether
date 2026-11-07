@@ -554,3 +554,60 @@ for this build; tests that need the Herdr window are deferred, other tests
 - 2026-11-07: build note, not a spec change: dragging the scrollbar away
   from the newest row stops auto-follow. Evidence: phase 2 Codex review,
   P2B-5; commit `61d1729`.
+- 2026-11-07: `bw answer` runs on the space's machine with the terminal's
+  local address, as `bw send` does, so its last screen read and its key
+  are one local step. Original: "`bw send` runs on the space's machine
+  with the terminal's local address and never uses `--force`." Evidence:
+  `docs/plans/2026-11-06-bellwether-phase-3.md`, decision 10.
+- 2026-11-07: Codex 0.167's `/new` folder prompt ("Where should the new
+  conversation run?") is a screen-bound request, shown in the dock and
+  answered with its option's key. Original: "Screen-bound requests
+  (approvals, Claude `AskUserQuestion`, Codex `request_user_input`) are
+  answerable". Evidence: phase 3 plan, decision 8 (in phase 2, a `/new`
+  sent from the chat stopped at that prompt with nothing in the chat to
+  answer it; `scripts/verify/sessions-run.js` presses Enter there).
+- 2026-11-07: `hooks/bw-event` is a `sh` gate that runs the installed `bw
+  event`, which writes `~/.cache/bellwether/events/<terminal>/`. Original:
+  "Records approval and sub-agent events; decides nothing." Evidence:
+  phase 3 plan, decision 5 (parsing JSON in `sh` needs `jq`, which a
+  machine may lack).
+- 2026-11-07: the hooks install when the user applies the diff the chat
+  shows (`bw machine setup <machine> --diff`, then `--apply`), with a
+  backup and an install record; `--remove` takes them out. Original: "The
+  record-only hooks install the same way on each machine (`bw machine
+  setup`), appended after Orca's and the user's own; Codex asks the user to
+  trust them once per machine." and, in the defaults, "The helper and
+  hooks install themselves on each machine; Codex trust is a user step per
+  machine." Evidence: phase 3 plan, decision 6.
+- 2026-11-07: each chat poll carries the tree and the requests with the
+  rows (`bw feed --tree --cards`), one `exec` per poll (sentence added to
+  the request dock bullet). Evidence: phase 3 plan, decision 4 (a 2 s
+  poll plus one round trip leaves no room for a second call within done
+  check 3's 3 s).
+- 2026-11-07: the threads card is open while a sub-agent runs or asks and
+  folds to the pill otherwise; the header's threads button toggles it.
+  Original: "shown when the session has sub-agents and folded to a pill
+  ("2 sub-agents · 1 asks") otherwise." Evidence: phase 3 plan, decision
+  13.
+- 2026-11-07: the dock shows the session's requests in every view, since
+  the parent's terminal shows one prompt at a time. Original: "Request dock
+  above the composer: one card per waiting request". Evidence: phase 3
+  plan, decision 13.
+- 2026-11-07: request states name who answered, and a resolved card stays
+  10 s. Original: "States: pending, sending, answered, answered in the
+  terminal, declined, stale, uncertain." Evidence: phase 3 plan, decision
+  9 (`answered` and `declined` by Bellwether, `answered_terminal` and
+  `declined_terminal` otherwise).
+- 2026-11-07: the sidebar's `+N` counts running sub-agents, and the counts
+  come from `bw counts` every 10 s per machine and on a status change.
+  Original: "`+N` sub-agents, a request badge and the time since its last
+  change." Evidence: phase 3 plan, decision 14.
+- 2026-11-07: conditional on the phase 3 experiment, a background Claude
+  sub-agent whose prompt never shows on the parent's screen gets a
+  show-only card, and done check 3's background half becomes "shows under
+  its sub-agent; answered in the terminal" (sentence added to done check
+  3; the build states or removes it). Evidence: phase 3 plan, decision 1.
+- 2026-11-07: build note, not a spec change: done check 3's remote half
+  runs with Codex on `bwloop`; Claude on another machine is owed to a
+  window run, because bwloop's core cannot read the login keychain.
+  Evidence: phase 3 plan, Build environment and decision 16.
