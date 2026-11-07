@@ -303,8 +303,11 @@ export default class Chat extends View {
   rootEnded(lines) {
     const root = this.feed.session;
     if (!root) return false;
-    return lines.some((l) => typeof l?.session === "string" && l.session !== "" && l.session !== root
-      && (l.type === "log" || (l.type === "state" && l.state === "no_log")));
+    /** @param {unknown} s */
+    const other = (s) => typeof s === "string" && s !== "" && s !== root;
+    // A new root whose log exists already answers tree + no_child + cards, with no log line.
+    return lines.some((l) => (l?.type === "tree" && other(l.root))
+      || (other(l?.session) && (l.type === "log" || l.type === "cards" || (l.type === "state" && l.state === "no_log"))));
   }
 
   /**
