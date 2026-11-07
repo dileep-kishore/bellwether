@@ -25,8 +25,8 @@ const DATA_DIR: &str = ".local/share/bellwether";
 const USAGE: &str =
     "usage: bw hooks check|diff|apply [--expect-sha <claude sha>,<codex sha>]|remove \
     [--claude-settings <file>] [--codex-hooks <file>]";
-const SETUP_USAGE: &str =
-    "usage: bw machine setup <machine|local> --check|--diff|--apply [--expect-sha <claude>,<codex>]|--remove";
+const SETUP_USAGE: &str = "usage: bw machine setup <machine|local> \
+    --check|--diff|--apply [--expect-sha <claude>,<codex>]|--remove|--agent";
 
 pub struct Targets {
     pub claude: PathBuf,
@@ -36,6 +36,8 @@ pub struct Targets {
     pub script: PathBuf,
     /// `~/.local/share/bellwether`: backups and the install record.
     pub data: PathBuf,
+    /// Where `bw agent ensure` writes the agent files.
+    pub home: PathBuf,
 }
 
 /// The files to edit: a flag, else `$CLAUDE_CONFIG_DIR` or `$CODEX_HOME`, else the agent's folder in `home`.
@@ -71,6 +73,7 @@ pub fn targets(
         codex,
         script: data.join("hooks/bw-event"),
         data,
+        home: home.to_path_buf(),
     }
 }
 
@@ -315,7 +318,7 @@ fn untrusted(t: &Targets, hooks: &Value) -> Vec<Value> {
     out
 }
 
-/// `{"type":"hooks","claude","codex"}`; with `codex_trust` listing the untrusted groups when Codex's are.
+/// `{"type":"hooks","claude","codex","agent"}`; with `codex_trust` listing the untrusted groups when Codex's are.
 pub fn check(t: &Targets) -> Value {
     let script_ok = fs::read(&t.script).is_ok_and(|b| b == SCRIPT.as_bytes());
     let load = |p: &Path| {
@@ -334,7 +337,8 @@ pub fn check(t: &Targets) -> Value {
             codex = "untrusted";
         }
     }
-    let mut line = json!({"type": "hooks", "claude": claude, "codex": codex});
+    let agent = crate::agent::check(&t.home);
+    let mut line = json!({"type": "hooks", "claude": claude, "codex": codex, "agent": agent});
     if !trust.is_empty() {
         line["codex_trust"] = json!(trust);
     }
@@ -566,7 +570,8 @@ fn apply(t: &Targets, remove: bool, expect: Option<[String; 2]>) -> ExitCode {
 }
 
 /// `bw machine setup <machine|local> --check|--diff|--apply|--remove`: `bw hooks` on that machine, its lines
-/// relayed as they are; `local` runs it here.
+/// relayed as they are; `local` runs it here. `--agent` runs `bw agent ensure` there instead, with this
+/// machine's window id.
 pub fn setup(args: &[String]) -> ExitCode {
     let Some(machine) = args
         .first()
@@ -574,32 +579,48 @@ pub fn setup(args: &[String]) -> ExitCode {
     else {
         return crate::usage(SETUP_USAGE);
     };
-    let opts = match args::parse(
-        &args[1..],
-        &["check", "diff", "apply", "remove"],
-        &["expect-sha"],
-    ) {
+    const OPS: [&str; 5] = ["check", "diff", "apply", "remove", "agent"];
+    let opts = match args::parse(&args[1..], &OPS, &["expect-sha"]) {
         Ok(o) => o,
         Err(e) => return crate::usage(&format!("{e}; {SETUP_USAGE}")),
     };
-    let ops: Vec<&str> = ["check", "diff", "apply", "remove"]
-        .into_iter()
-        .filter(|o| opts.has(o))
-        .collect();
+    let ops: Vec<&str> = OPS.into_iter().filter(|o| opts.has(o)).collect();
     let [op] = ops[..] else {
-        return crate::usage(SETUP_USAGE);
+        let message = if ops.contains(&"agent") {
+            format!("--agent goes alone; {SETUP_USAGE}")
+        } else {
+            SETUP_USAGE.to_string()
+        };
+        return crate::usage(&message);
     };
-    let mut sub = vec![op.to_string()];
+    let (cmd, mut sub) = if op == "agent" {
+        let window = crate::agent::this_window();
+        (
+            "agent",
+            vec!["ensure".to_string(), "--window".into(), window],
+        )
+    } else {
+        ("hooks", vec![op.to_string()])
+    };
     if let Some(sha) = opts.get("expect-sha") {
         if op != "apply" {
-            return crate::usage(&format!("--expect-sha goes with --apply; {SETUP_USAGE}"));
+            let message = if op == "agent" {
+                format!("--expect-sha goes with --apply, not --agent; {SETUP_USAGE}")
+            } else {
+                format!("--expect-sha goes with --apply; {SETUP_USAGE}")
+            };
+            return crate::usage(&message);
         }
         sub.extend(["--expect-sha".to_string(), sha.to_string()]);
     }
     if machine == "local" {
-        return run(&sub);
+        return if cmd == "agent" {
+            crate::agent::run(&sub)
+        } else {
+            run(&sub)
+        };
     }
-    let mut argv = vec!["sh", "-c", super::RUN_HELPER, "sh", "hooks"];
+    let mut argv = vec!["sh", "-c", super::RUN_HELPER, "sh", cmd];
     argv.extend(sub.iter().map(String::as_str));
     let no_helper = || {
         let message =
@@ -617,7 +638,7 @@ pub fn setup(args: &[String]) -> ExitCode {
     let text = String::from_utf8_lossy(&out.stdout);
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     if lines.is_empty() {
-        let message = format!("bw hooks {op} on {machine} printed nothing");
+        let message = format!("bw {cmd} {} on {machine} printed nothing", sub[0]);
         return crate::chat::error("failed", &message);
     }
     for l in lines {
