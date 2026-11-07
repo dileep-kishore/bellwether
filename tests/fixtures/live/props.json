@@ -1,3 +1,4 @@
 {
-  "bw-right": [{}, { "panel": "changes" }, { "panel": "issues" }, { "panel": "browser" }]
+  "bw-right": [{}, { "panel": "changes" }, { "panel": "issues" }, { "panel": "browser" }],
+  "bw-new": [{ "space": "s1" }, { "space": "macmini/s3" }, { "machine": null, "folder": "/r/beta" }]
 }
