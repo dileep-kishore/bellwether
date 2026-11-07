@@ -148,6 +148,8 @@ pages_of() {
 close_tabs() { for _id in $(pages_of "$1"); do "$bw" browser close --id "$_id" > /dev/null 2>&1; done; }
 show() { sed '/^[[:space:]]*$/d' | tail -"${2:-8}" | cut -c1-200 | sed "s/^/  $1| /"; }
 slug() { printf %s "$1" | sed 's/[^A-Za-z0-9]/-/g'; }
+# The readable part of bw's forward terminal name, which a 6-hex hash of the machine name follows.
+fwd_prefix() { printf %s "$1" | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g' | cut -c1-18 | sed 's/-*$//'; }
 
 before=$(sums)
 chromes_before=$(user_chromes)
@@ -168,9 +170,9 @@ cleanup() {
     "$hc" kill "$t" > /dev/null 2>&1
     "$hc" rm "$t" > /dev/null 2>&1
   done
-  left=$("$hc" ls --all --json 2> /dev/null | jq -r --arg s "$(slug "$machine")" \
-    '[.terminals[]? | select(.state == "live") | select((.name // "") | test("^(bwv-|bw-fwd-" + $s + "$)")) | .address] | join(" ")')
-  [ -z "$left" ] && pass "cleanup-terminals" "the user's core lists no live terminal of this run (bwv-*, bw-fwd-$(slug "$machine"))" ||
+  left=$("$hc" ls --all --json 2> /dev/null | jq -r --arg s "$(fwd_prefix "$machine")" \
+    '[.terminals[]? | select(.state == "live") | select((.name // "") | test("^(bwv-|bw-fwd-" + $s + "-[0-9a-f]{6}$)")) | .address] | join(" ")')
+  [ -z "$left" ] && pass "cleanup-terminals" "the user's core lists no live terminal of this run (bwv-*, bw-fwd-$(fwd_prefix "$machine")-<hash>)" ||
     fail "cleanup-terminals" "still live in the user's core: $left"
   HC_SESSION=$core "$hc" server stop > /dev/null 2>&1
   for p in "$L"/*.pid; do [ -f "$p" ] && kill "$(cat "$p")" 2> /dev/null; done

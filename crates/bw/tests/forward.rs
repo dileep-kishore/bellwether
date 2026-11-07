@@ -192,7 +192,7 @@ impl Scene {
         serde_json::from_str(&text).ok()
     }
 
-    /// Waits up to `limit` for `mac2.json` to say `state`; the record that did.
+    /// Waits up to `limit` for `mac2-a9deae.json` to say `state`; the record that did.
     fn wait_state(&self, name: &str, state: &str, limit: Duration) -> Value {
         let deadline = Instant::now() + limit;
         loop {
@@ -205,7 +205,7 @@ impl Scene {
                 Instant::now() < deadline,
                 "{name} never said {state}: {:?}; keep's screen: {}",
                 self.state(name),
-                self.screen("bw-fwd-mac2")
+                self.screen("bw-fwd-mac2-a9deae")
             );
             thread::sleep(Duration::from_millis(50));
         }
@@ -381,7 +381,7 @@ fn ensure_starts_a_checked_forward() {
     let s = Scene::new();
     let v = s.ensure();
     assert_eq!(v["state"], "ready", "{v}");
-    assert_eq!(v["terminal"], "bw-fwd-mac2");
+    assert_eq!(v["terminal"], "bw-fwd-mac2-a9deae");
     assert_eq!(v["target"], "dk@mac2.local");
     let port = port_of(&v);
     let starts = s.ssh_starts();
@@ -400,7 +400,7 @@ fn ensure_starts_a_checked_forward() {
         checks[0].contains(&format!("--port {port} --browser-id {BROWSER_ID}")),
         "{checks:?}"
     );
-    let st = s.state("mac2.json").unwrap();
+    let st = s.state("mac2-a9deae.json").unwrap();
     assert_eq!(st["state"], "ready");
     assert_eq!(st["kind"], "browser");
     assert_eq!(st["browser_id"], BROWSER_ID);
@@ -408,7 +408,10 @@ fn ensure_starts_a_checked_forward() {
     // The run carries the supervisor and the hc this process found, never through a shell.
     let run = s.log("hc.log");
     let run = run.lines().find(|l| l.starts_with("run ")).unwrap();
-    assert!(run.starts_with("run bw-fwd-mac2 env BW_HC="), "{run}");
+    assert!(
+        run.starts_with("run bw-fwd-mac2-a9deae env BW_HC="),
+        "{run}"
+    );
     assert!(
         run.contains(&format!(
             " browser forward keep --machine mac2 --target dk@mac2.local --port {port}"
@@ -436,10 +439,10 @@ fn ensure_picks_the_stored_port_when_free() {
     let _serial = serial();
     let s = Scene::new();
     let stored = free_port();
-    let file = s.state_file("mac2.json");
+    let file = s.state_file("mac2-a9deae.json");
     fs::create_dir_all(file.parent().unwrap()).unwrap();
     let old = json!({"kind": "browser", "machine": "mac2", "target": "dk@mac2.local", "port": stored,
-        "terminal": "bw-fwd-mac2", "state": "reconnecting", "reason": "ssh exited",
+        "terminal": "bw-fwd-mac2-a9deae", "state": "reconnecting", "reason": "ssh exited",
         "browser_id": BROWSER_ID, "checked_at_ms": 1});
     fs::write(&file, old.to_string()).unwrap();
     let v = s.ensure();
@@ -468,13 +471,13 @@ fn wildcard_listener_fails_closed() {
     let reason = v["reason"].as_str().unwrap();
     assert!(reason.contains("beyond loopback"), "{reason}");
     assert!(reason.contains(&format!("*:{}", port_of(&v))), "{reason}");
-    let pid = s.pid("bw-fwd-mac2").unwrap();
+    let pid = s.pid("bw-fwd-mac2-a9deae").unwrap();
     assert!(
         wait_dead(pid, Duration::from_secs(5)),
         "the supervisor exits"
     );
     assert!(!listening(port_of(&v)), "its ssh is gone");
-    assert_eq!(s.state("mac2.json").unwrap()["state"], "refused");
+    assert_eq!(s.state("mac2-a9deae.json").unwrap()["state"], "refused");
 }
 
 #[test]
@@ -488,7 +491,7 @@ fn other_browser_id_fails_closed() {
     let reason = v["reason"].as_str().unwrap();
     assert!(reason.contains(OTHER_ID), "{reason}");
     assert!(reason.contains(BROWSER_ID), "{reason}");
-    let pid = s.pid("bw-fwd-mac2").unwrap();
+    let pid = s.pid("bw-fwd-mac2-a9deae").unwrap();
     assert!(wait_dead(pid, Duration::from_secs(5)));
     assert!(!listening(port_of(&v)));
 }
@@ -505,8 +508,8 @@ fn refused_is_not_retried() {
     thread::sleep(Duration::from_millis(3500));
     assert_eq!(s.ssh_starts().len(), 1, "{:?}", s.ssh_starts());
     assert_eq!(s.port_checks().len(), checks);
-    assert!(!alive(s.pid("bw-fwd-mac2").unwrap()));
-    assert_eq!(s.state("mac2.json").unwrap()["state"], "refused");
+    assert!(!alive(s.pid("bw-fwd-mac2-a9deae").unwrap()));
+    assert_eq!(s.state("mac2-a9deae.json").unwrap()["state"], "refused");
 }
 
 #[test]
@@ -518,8 +521,8 @@ fn ssh_exit_reconnects_with_checks() {
     let v = s.ensure();
     assert_eq!(v["state"], "ready", "{v}");
     let port = port_of(&v);
-    let first = s.state("mac2.json").unwrap();
-    let down = s.wait_state("mac2.json", "reconnecting", Duration::from_secs(5));
+    let first = s.state("mac2-a9deae.json").unwrap();
+    let down = s.wait_state("mac2-a9deae.json", "reconnecting", Duration::from_secs(5));
     assert!(
         down["reason"]
             .as_str()
@@ -528,7 +531,7 @@ fn ssh_exit_reconnects_with_checks() {
         "{down}"
     );
     let checks_before = s.port_checks().len();
-    let back = s.wait_state("mac2.json", "ready", Duration::from_secs(10));
+    let back = s.wait_state("mac2-a9deae.json", "ready", Duration::from_secs(10));
     assert_eq!(port_of(&back), port, "same port");
     assert!(back["checked_at_ms"].as_u64() > first["checked_at_ms"].as_u64());
     let starts = s.ssh_starts();
@@ -542,7 +545,7 @@ fn ssh_exit_reconnects_with_checks() {
         .port_checks()
         .iter()
         .all(|c| c.contains(&format!("--port {port} "))));
-    assert!(s.screen("bw-fwd-mac2").contains("reconnecting"));
+    assert!(s.screen("bw-fwd-mac2-a9deae").contains("reconnecting"));
 }
 
 #[test]
@@ -554,15 +557,15 @@ fn taken_port_on_reconnect_is_named() {
     let v = s.ensure();
     assert_eq!(v["state"], "ready", "{v}");
     let port = port_of(&v);
-    s.wait_state("mac2.json", "reconnecting", Duration::from_secs(5));
+    s.wait_state("mac2-a9deae.json", "reconnecting", Duration::from_secs(5));
     // Another program takes the port while ssh is down.
     let _thief = TcpListener::bind(("127.0.0.1", port)).unwrap();
-    let st = s.wait_state("mac2.json", "port_taken", Duration::from_secs(8));
+    let st = s.wait_state("mac2-a9deae.json", "port_taken", Duration::from_secs(8));
     assert_eq!(port_of(&st), port);
     let reason = st["reason"].as_str().unwrap();
     assert!(reason.contains(&port.to_string()), "{reason}");
     assert!(wait_dead(
-        s.pid("bw-fwd-mac2").unwrap(),
+        s.pid("bw-fwd-mac2-a9deae").unwrap(),
         Duration::from_secs(5)
     ));
     assert_eq!(s.ssh_starts().len(), 2);
@@ -648,7 +651,7 @@ fn dev_forward_reports_whether_the_server_answers() {
         &n.to_string(),
     ]);
     assert_eq!(v["state"], "ready_no_answer", "{v}");
-    assert_eq!(v["terminal"], format!("bw-dev-mac2-{n}"));
+    assert_eq!(v["terminal"], format!("bw-dev-mac2-a9deae-{n}"));
     let starts = s.ssh_starts();
     assert!(
         starts[0].contains(&format!(
@@ -678,7 +681,7 @@ fn dev_forward_reports_whether_the_server_answers() {
         &n.to_string(),
     ]);
     assert_eq!(v["state"], "ready", "{v}");
-    assert!(s.state(&format!("mac2-dev-{n}.json")).is_some());
+    assert!(s.state(&format!("mac2-a9deae-dev-{n}.json")).is_some());
 }
 
 #[test]
@@ -688,16 +691,22 @@ fn stop_kills_and_removes_the_terminal() {
     let v = s.ensure();
     assert_eq!(v["state"], "ready", "{v}");
     let port = port_of(&v);
-    let pid = s.pid("bw-fwd-mac2").unwrap();
+    let pid = s.pid("bw-fwd-mac2-a9deae").unwrap();
     let (code, stopped) = s.run(&["forward", "stop", "--machine", "mac2"]);
     assert_eq!(code, 0);
     assert_eq!(stopped["state"], "stopped", "{stopped}");
-    assert_eq!(stopped["terminal"], "bw-fwd-mac2");
-    assert!(s.log("hc.log").contains("kill bw-fwd-mac2\n"));
-    assert!(s.log("hc.log").contains("rm bw-fwd-mac2\n"));
+    assert_eq!(stopped["terminal"], "bw-fwd-mac2-a9deae");
+    assert!(s.log("hc.log").contains("kill bw-fwd-mac2-a9deae\n"));
+    assert!(s.log("hc.log").contains("rm bw-fwd-mac2-a9deae\n"));
     assert!(!alive(pid));
-    assert!(s.pid("bw-fwd-mac2").is_none(), "the terminal is removed");
-    assert!(s.state("mac2.json").is_none(), "the state file is deleted");
+    assert!(
+        s.pid("bw-fwd-mac2-a9deae").is_none(),
+        "the terminal is removed"
+    );
+    assert!(
+        s.state("mac2-a9deae.json").is_none(),
+        "the state file is deleted"
+    );
     assert!(!listening(port), "ssh is gone");
     // Stopping again finds nothing and says so the same way.
     let (code, again) = s.run(&["forward", "stop", "--machine", "mac2"]);
@@ -713,7 +722,7 @@ fn supervisor_ends_when_the_test_process_does() {
     s.set("FAKE_SSH_LIFELINE", &lifeline.id().to_string());
     let v = s.ensure();
     assert_eq!(v["state"], "ready", "{v}");
-    let pid = s.pid("bw-fwd-mac2").unwrap();
+    let pid = s.pid("bw-fwd-mac2-a9deae").unwrap();
     lifeline.kill().unwrap();
     lifeline.wait().unwrap();
     assert!(
@@ -721,6 +730,80 @@ fn supervisor_ends_when_the_test_process_does() {
         "the supervisor outlived its test process"
     );
     assert!(!listening(port_of(&v)), "its ssh is gone");
+}
+
+#[test]
+fn machines_that_share_a_prefix_keep_their_own_forwards() {
+    let _serial = serial();
+    let (a, b) = (
+        "builder-production-us-east-1",
+        "builder-production-us-east-2",
+    );
+    let s = Scene::with_machines(json!({"machines": [
+        {"name": a, "state": "connected", "target": "dk@east-1.local", "via": false},
+        {"name": b, "state": "connected", "target": "dk@east-2.local", "via": false},
+    ]}));
+    let (_, va) = s.run(&["forward", "ensure", "--machine", a]);
+    assert_eq!(va["state"], "ready", "{va}");
+    let (_, vb) = s.run(&["forward", "ensure", "--machine", b]);
+    assert_eq!(vb["state"], "ready", "{vb}");
+    let (ta, tb) = (
+        va["terminal"].as_str().unwrap(),
+        vb["terminal"].as_str().unwrap(),
+    );
+    assert_eq!(ta, "bw-fwd-builder-production-becb2d");
+    assert_eq!(tb, "bw-fwd-builder-production-bec614");
+    let (pa, pb) = (s.pid(ta).unwrap(), s.pid(tb).unwrap());
+    assert!(alive(pa), "starting {b}'s forward ended {a}'s");
+    let sa = s.state("builder-production-becb2d.json").unwrap();
+    let sb = s.state("builder-production-bec614.json").unwrap();
+    assert_eq!(
+        (sa["machine"].as_str(), sb["machine"].as_str()),
+        (Some(a), Some(b))
+    );
+    let out = s.command(&["forward", "list"]).output().unwrap();
+    assert_eq!(String::from_utf8(out.stdout).unwrap().lines().count(), 2);
+
+    let (_, stopped) = s.run(&["forward", "stop", "--machine", b]);
+    assert_eq!(stopped["machine"], b, "{stopped}");
+    assert_eq!(stopped["state"], "stopped", "{stopped}");
+    assert!(wait_dead(pb, Duration::from_secs(5)));
+    assert!(alive(pa), "stopping {b}'s forward ended {a}'s");
+    assert!(listening(port_of(&va)), "{a}'s ssh is gone");
+    assert_eq!(
+        s.state("builder-production-becb2d.json").unwrap()["state"],
+        "ready"
+    );
+}
+
+#[test]
+fn a_record_for_another_machine_is_left_alone() {
+    let _serial = serial();
+    let s = Scene::new();
+    let v = s.ensure();
+    assert_eq!(v["state"], "ready", "{v}");
+    let pid = s.pid("bw-fwd-mac2-a9deae").unwrap();
+    // As if another machine's name had the same slug: its record must not be taken for mac2's.
+    let file = s.state_file("mac2-a9deae.json");
+    let mut rec: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    rec["machine"] = json!("other");
+    fs::write(&file, rec.to_string()).unwrap();
+    let kills = s.hc_calls("kill ");
+    let (_, again) = s.run(&["forward", "ensure", "--machine", "mac2"]);
+    assert_eq!(again["state"], "refused", "{again}");
+    assert!(
+        again["reason"].as_str().unwrap().contains("other"),
+        "{again}"
+    );
+    let (_, stopped) = s.run(&["forward", "stop", "--machine", "mac2"]);
+    assert_ne!(stopped["state"], "stopped", "{stopped}");
+    assert!(
+        stopped["reason"].as_str().unwrap().contains("other"),
+        "{stopped}"
+    );
+    assert_eq!(s.hc_calls("kill "), kills, "nothing was killed");
+    assert!(alive(pid));
+    assert!(file.exists());
 }
 
 #[test]
@@ -736,7 +819,7 @@ fn list_marks_a_forward_without_its_terminal_stopped() {
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
     assert_eq!(lines, vec![v.clone()]);
-    let pid = s.pid("bw-fwd-mac2").unwrap();
+    let pid = s.pid("bw-fwd-mac2-a9deae").unwrap();
     Command::new("kill")
         .args(["-KILL", "--", &format!("-{pid}")])
         .status()

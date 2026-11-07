@@ -260,7 +260,10 @@ and to leave its tab open for you to close from the panel.
 
 For a space on another machine, `bw browser forward ensure` keeps one SSH
 reverse forward per machine. The forward is a kept `hc` terminal named
-`bw-fwd-<machine>` that runs `bw browser forward keep`. That command
+`bw-fwd-<machine>-<hash>` that runs `bw browser forward keep`. `<machine>` is
+the name lower-cased, reduced to `[a-z0-9-]` and cut to fit hc's 32
+characters, and `<hash>` is 6 hex of the whole name's FNV-1a, so two machines
+never share a forward's terminal or state file. That command
 supervises
 `ssh -o ExitOnForwardFailure=yes -o BatchMode=yes … -N -R 127.0.0.1:<port>:127.0.0.1:9222 <target>`.
 After each connect it runs `bw browser port-check` on that machine. The port
