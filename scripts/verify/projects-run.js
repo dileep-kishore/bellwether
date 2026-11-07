@@ -5,8 +5,9 @@
 import { appendFileSync, watch } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import { mergeResult } from "../../mods/bw-projects/run-git.js";
 import { readCounts, readPlace, readWorktrees } from "../../shared/git.js";
-import { buildProjects, placeKey, projectKey, refreshTargets, rememberProjects, worktreeKey } from "../../shared/projects-model.js";
+import { buildProjects, refreshTargets, rememberProjects, worktreeKey } from "../../shared/projects-model.js";
 import { createPoke, runRefresher } from "../../shared/refresh-driver.js";
 import { createSchedule } from "../../shared/refresh-schedule.js";
 
@@ -82,25 +83,8 @@ function run(t) {
   return Promise.resolve({ ok: true });
 }
 
-/** Merges one Git result into the cache the model reads, as bw-projects' onResult does. */
-function merge(/** @type {any} */ git, /** @type {any} */ t, /** @type {any} */ r) {
-  if (t.kind === "helper") return false;
-  const before = JSON.stringify(git);
-  if (!r.ok && r.state === "unreachable") {
-    if (!git.unreachable.includes(t.machine)) git.unreachable.push(t.machine);
-    return JSON.stringify(git) !== before;
-  }
-  git.unreachable = git.unreachable.filter((/** @type {string|null} */ m) => m !== t.machine);
-  if (t.kind === "place") {
-    if (r.ok) git.places[placeKey(t.machine, t.path)] = r.place;
-    else if (r.state === "not_git") git.places[placeKey(t.machine, t.path)] = "not_git";
-  } else if (t.kind === "list" && r.ok) {
-    git.worktrees[projectKey(t.machine, t.path)] = { list: r.worktrees, stale: false };
-  } else if (t.kind === "counts" && r.ok) {
-    git.counts[worktreeKey(t.machine, t.path)] = { ...r.counts, stale: false };
-  }
-  return JSON.stringify(git) !== before;
-}
+/** Merges one Git result into the cache the model reads, with bw-projects' own onResult. */
+const merge = (/** @type {any} */ git, /** @type {any} */ t, /** @type {any} */ r) => mergeResult(git, new Map(), t, r);
 
 let ids = 0;
 /** A synthetic open space with one tab and one pane whose cwd is `cwd`. */

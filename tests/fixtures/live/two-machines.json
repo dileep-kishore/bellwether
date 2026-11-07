@@ -374,7 +374,7 @@
       "template": null,
       "parent": null,
       "labels": {},
-      "state": "running",
+      "state": "live",
       "status": "working",
       "report": null,
       "program": {
@@ -397,7 +397,7 @@
       "template": null,
       "parent": null,
       "labels": {},
-      "state": "running",
+      "state": "live",
       "status": "blocked",
       "report": null,
       "program": {
@@ -420,7 +420,7 @@
       "template": null,
       "parent": null,
       "labels": {},
-      "state": "running",
+      "state": "live",
       "status": null,
       "report": null,
       "program": {
@@ -443,7 +443,7 @@
       "template": null,
       "parent": null,
       "labels": {},
-      "state": "running",
+      "state": "live",
       "status": "idle",
       "report": null,
       "program": {
@@ -466,7 +466,7 @@
       "template": null,
       "parent": "t3",
       "labels": {},
-      "state": "running",
+      "state": "live",
       "status": "working",
       "report": null,
       "program": {
@@ -489,7 +489,7 @@
       "template": null,
       "parent": null,
       "labels": {},
-      "state": "running",
+      "state": "live",
       "status": "done",
       "report": null,
       "program": {
