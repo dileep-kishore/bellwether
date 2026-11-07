@@ -185,15 +185,19 @@ fn words(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// A tool name Codex gives a shell command: `Bash` in its hooks, `exec`, `js` and others in its rollouts.
+pub fn codex_command_tool(tool: &str) -> bool {
+    matches!(
+        tool,
+        "Bash" | "exec" | "js" | "exec_command" | "shell" | "local_shell" | "container.exec"
+    )
+}
+
 /// The log's call is the prompt on screen: same tool, same non-empty command. Each line break of the box stands
 /// for one space or none; inside a line, words must match. Codex's log names its command tools as they are
 /// (`exec`, `exec_command`, `shell`…), its box always as a command.
 pub fn same_call(tool: &str, command: &str, p: &ScreenPrompt) -> bool {
-    let codex_command = p.agent == "codex"
-        && matches!(
-            tool,
-            "Bash" | "exec" | "js" | "exec_command" | "shell" | "local_shell" | "container.exec"
-        );
+    let codex_command = p.agent == "codex" && codex_command_tool(tool);
     if p.tool.is_empty() || !(tool == p.tool || codex_command) {
         return false;
     }

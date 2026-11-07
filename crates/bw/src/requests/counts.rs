@@ -12,6 +12,7 @@ use herdr_core::hc::mapper::Term;
 use herdr_core::{ConversationItem, Delivery, FileScope, ItemKind, PermState, QuestionState};
 use serde_json::json;
 
+use super::matchers;
 use crate::chat::locate::{self, LocateFailure};
 use crate::chat::protocol::JsonLines;
 use crate::chat::tree;
@@ -105,7 +106,8 @@ fn items_of(path: &Path, scope: FileScope) -> Vec<ConversationItem> {
 }
 
 /// The calls this session's `PermissionRequest` events ask about that a log read still shows open, each once.
-/// An event whose call is not in a log read (finished, or past the tail) counts for nothing.
+/// A Claude event whose call is not in a log read (finished, or past the tail) counts for nothing; a Codex one
+/// counts its agent's open call with the same command.
 fn open_asks(
     events: &[Event],
     agent: &str,
@@ -134,10 +136,10 @@ fn open_asks(
                 .and_then(|e| e.tool_use_id.clone())
         });
         let found = match call {
-            Some(id) => logs
-                .iter()
-                .any(|(_, items)| is_open(items, &id))
-                .then_some(id),
+            Some(id) if logs.iter().any(|(_, items)| is_open(items, &id)) => Some(id),
+            // Codex's hooks name the call `exec-<uuid>`, its rollout `call_…`: matched by agent and command.
+            Some(_) if agent == "codex" => asked_in_log(pr, logs),
+            Some(_) => None,
             None => asked_in_log(pr, logs),
         };
         if let Some(id) = found {
@@ -167,7 +169,12 @@ fn asked_in_log(pr: &Event, logs: &[(Option<String>, Vec<ConversationItem>)]) ->
     items.iter().rev().find_map(|it| match &it.kind {
         ItemKind::PermissionRequest(p)
             if p.state == PermState::Pending
-                && Some(p.tool_name.as_str()) == pr.tool.as_deref()
+                && pr.tool.as_deref().is_some_and(|t| {
+                    t == p.tool_name
+                        || (pr.agent == "codex"
+                            && matchers::codex_command_tool(t)
+                            && matchers::codex_command_tool(&p.tool_name))
+                })
                 && words(&p.command) == words(pr.command.as_deref().unwrap_or("")) =>
         {
             Some(p.tool_use_id.clone())
@@ -194,4 +201,83 @@ fn async_questions(logs: &[(Option<String>, Vec<ConversationItem>)]) -> usize {
         })
         .collect::<HashSet<_>>()
         .len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    const ROOT: &str = "01a1b589-9d51-7273-946e-30423f02bb68";
+    const CHILD: &str = "01a1b58a-29ac-7de0-b175-10c76abdafbb";
+
+    fn fixture(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/sessions/codex-child-approval")
+            .join(name)
+    }
+
+    fn event(name: &str, at_ms: i64) -> Event {
+        let text = std::fs::read_to_string(fixture(&format!("hooks/{name}.json"))).unwrap();
+        let payload: serde_json::Value = serde_json::from_str(&text).unwrap();
+        events::from_payload("codex", "t1", "core", &payload, at_ms).unwrap()
+    }
+
+    /// The rollout `name`'s items up to and including the line naming `call`.
+    fn cut(name: &str, call: &str, scope: FileScope) -> Vec<ConversationItem> {
+        let text = std::fs::read_to_string(fixture(name)).unwrap();
+        let needle = format!(r#""call_id":"{call}""#);
+        let end = text.lines().position(|l| l.contains(&needle)).unwrap();
+        let lines: Vec<String> = text.lines().take(end + 1).map(String::from).collect();
+        tail::items(&lines, scope)
+    }
+
+    /// Two approvals open at once, the root's `touch d-y.txt` and the child's `touch child.txt`: Codex's hooks
+    /// name each call `exec-<uuid>`, which no rollout `call_…` id equals.
+    #[test]
+    fn codex_exec_ids_count_each_open_call() {
+        let logs = vec![
+            (
+                None,
+                cut(
+                    &format!("rollout-2026-11-07T02-24-17-{ROOT}.jsonl"),
+                    "call_531dd63fb7d24c459c54727c21db2eea",
+                    FileScope::Root,
+                ),
+            ),
+            (
+                Some(CHILD.to_string()),
+                cut(
+                    &format!("rollout-2026-11-07T02-24-53-{CHILD}.jsonl"),
+                    "call_7a91eda49cd4472cbdb8d39940be5c54",
+                    FileScope::CodexChild { from_ordinal: 0 },
+                ),
+            ),
+        ];
+        let events = vec![
+            event("d-y-PreToolUse", 1000),
+            event("d-y-PermissionRequest", 1030),
+            event("e-PreToolUse-4", 2000),
+            event("e-PermissionRequest", 2030),
+        ];
+        assert!(events[0]
+            .tool_use_id
+            .as_deref()
+            .is_some_and(|i| i.starts_with("exec-")));
+        assert_eq!(open_asks(&events, "codex", ROOT, &logs), 2);
+        // The child's call has its result in its whole log: only the root's still waits.
+        let text = std::fs::read_to_string(fixture(&format!(
+            "rollout-2026-11-07T02-24-53-{CHILD}.jsonl"
+        )))
+        .unwrap();
+        let lines: Vec<String> = text.lines().map(String::from).collect();
+        let done = vec![
+            logs[0].clone(),
+            (
+                Some(CHILD.to_string()),
+                tail::items(&lines, FileScope::CodexChild { from_ordinal: 0 }),
+            ),
+        ];
+        assert_eq!(open_asks(&events, "codex", ROOT, &done), 1);
+    }
 }
