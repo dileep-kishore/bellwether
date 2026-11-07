@@ -46,7 +46,8 @@ enum NotShown {
     NoLog {
         agent: String,
     },
-    /// No agent conversation to compare: an agent not running, or no agent at all.
+    /// No agent conversation to compare: an agent not running, no agent at all, or one whose conversation
+    /// bw cannot name.
     Unconfirmed(String),
     Error {
         code: &'static str,
@@ -69,6 +70,7 @@ fn failure(f: LocateFailure) -> NotShown {
         LocateFailure::NoProcess { agent } => {
             NotShown::Unconfirmed(format!("no {agent} process runs in it"))
         }
+        LocateFailure::Ambiguous { message, .. } => NotShown::Unconfirmed(message),
     }
 }
 
@@ -271,5 +273,23 @@ mod tests {
             ),
             Check::Pass
         );
+    }
+
+    #[test]
+    fn none_is_refused_when_discovery_is_unsure() {
+        // Review Focus 1: no candidate, several, or a claimed one says nothing about whether a log exists.
+        let unsure = LocateFailure::Ambiguous {
+            agent: "codex".into(),
+            message: "cannot tell".into(),
+        };
+        assert!(matches!(failure(unsure.clone()), NotShown::Unconfirmed(_)));
+        assert!(matches!(
+            check(Err(failure(unsure.clone())), "codex", None),
+            Check::Refuse(_)
+        ));
+        assert!(matches!(
+            check(Err(failure(unsure)), "codex", Some(("a", "/l/a.jsonl"))),
+            Check::Refuse(_)
+        ));
     }
 }

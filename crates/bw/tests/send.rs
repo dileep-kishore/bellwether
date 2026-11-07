@@ -133,16 +133,25 @@ impl FakeCodex {
         std::fs::create_dir_all(script.parent().unwrap()).unwrap();
         std::fs::write(
             &script,
-            "#!/bin/sh\nfd=3\nfor f; do eval \"exec $fd<\\\"\\$f\\\"\"; fd=$((fd + 1)); done\nwhile :; do sleep 1; done\n",
+            "#!/bin/sh\nfd=3\nfor f; do eval \"exec $fd<\\\"\\$f\\\"\"; fd=$((fd + 1)); done\n: > \"$READY\"\nwhile :; do sleep 1; done\n",
         )
         .unwrap();
+        let ready = dir.join("codex-ready");
+        let _ = std::fs::remove_file(&ready);
         let child = Command::new("/bin/sh")
             .arg(&script)
             .args(files)
             .env("CODEX_HOME", home)
+            .env("READY", &ready)
             .stdin(Stdio::null())
             .spawn()
             .unwrap();
+        // lsof sees the files once the script has opened them all.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !ready.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(ready.exists(), "the fake codex never opened its files");
         FakeCodex(child)
     }
 }
@@ -179,15 +188,6 @@ fn local_codex(x: &Scratch, extra: &[&str]) -> (FakeCodex, String) {
         .to_string(),
     )
     .unwrap();
-    // lsof sees the files only once the script has opened them all.
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
-        let (_, lines) = x.run(&["locate", "--terminal", "t7"]);
-        if lines[0]["type"] == "located" || (!extra.is_empty() && lines[0]["state"] == "no_log") {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
     (codex, day.join(PARENT).to_string_lossy().to_string())
 }
 
@@ -503,5 +503,48 @@ fn none_goes_with_none() {
         "hi",
     ]);
     assert_eq!(code, 2, "--expect-kind is still required");
+    assert!(x.sends().is_empty());
+}
+
+/// A Codex terminal `t7` holding two root rollouts open and no thread lock: the resolver names neither.
+fn unsure_codex(x: &Scratch) -> FakeCodex {
+    let home = x.dir().join("codex-home");
+    let day = home.join("sessions/2026/11/06");
+    std::fs::create_dir_all(&day).unwrap();
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/sessions");
+    let mut files = vec![];
+    for s in ["codex-question", "codex-approval"] {
+        let name = std::fs::read_dir(fixtures.join(s))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .find(|n| n.starts_with("rollout-"))
+            .unwrap();
+        std::fs::copy(fixtures.join(s).join(&name), day.join(&name)).unwrap();
+        files.push(day.join(&name));
+    }
+    let codex = FakeCodex::start(&x.dir(), &home, &files);
+    let pid = codex.0.id();
+    std::fs::write(
+        x.dir().join("gets/t7.json"),
+        json!({"address": "t7", "argv": ["codex"], "cwd": "/scratch/unsure", "pid": pid,
+               "state": "live", "status": {"state": "idle"},
+               "foreground": {"argv": ["codex"], "name": "codex", "pid": pid}})
+        .to_string(),
+    )
+    .unwrap();
+    codex
+}
+
+#[test]
+fn none_is_refused_when_the_log_is_unknown() {
+    // Review Focus 1: the agent has conversations on disk and bw cannot tell which is shown, so nothing proves
+    // the chat's "no log yet".
+    let x = Scratch::new();
+    let _codex = unsure_codex(&x);
+    let (_, lines) = x.run(&["locate", "--terminal", "t7"]);
+    assert_eq!(lines[0]["state"], "ambiguous", "{lines:?}");
+    assert_eq!(lines[0]["agent"], "codex", "{lines:?}");
+    let (code, line) = x.send("t7", "codex", "none", "none", "hi");
+    assert_eq!((code, sent(&line)), (0, "refused-conversation"), "{line}");
     assert!(x.sends().is_empty());
 }

@@ -45,12 +45,18 @@ pub enum LocateFailure {
     NoCore(String),
     NoTerminal(String),
     NotAgent(String),
+    /// The agent runs and named a conversation that has no log yet: the only state a first message may pass.
     NoLog {
         agent: String,
     },
     /// hc names the agent's program but none of its processes runs it: starting, or already gone.
     NoProcess {
         agent: String,
+    },
+    /// The agent runs, but nothing shows which conversation it shows, or that it has none yet.
+    Ambiguous {
+        agent: String,
+        message: String,
     },
 }
 
@@ -75,6 +81,12 @@ impl LocateFailure {
                 "state": "no_log",
                 "agent": agent,
                 "message": format!("no {agent} process in this terminal yet"),
+            }),
+            LocateFailure::Ambiguous { agent, message } => json!({
+                "type": "state",
+                "state": "ambiguous",
+                "agent": agent,
+                "message": message,
             }),
         }
     }
@@ -434,6 +446,7 @@ pub fn locate_with(
         resolve(need, a, &procs, inputs)
     });
     let before = kept.root.clone();
+    let unsure = matches!(found, Some(Answer::Unsure));
     kept.root = match (agent, found) {
         (Some(a), Some(Answer::Log { session, path })) => Some(Root {
             kind: kind.clone(),
@@ -459,10 +472,15 @@ pub fn locate_with(
     if kept.root != before {
         let _ = cache::write(cache_file, &kept);
     }
-    kept.root.as_ref().map(located).ok_or(if running {
-        LocateFailure::NoLog { agent: kind }
-    } else {
+    kept.root.as_ref().map(located).ok_or(if !running {
         LocateFailure::NoProcess { agent: kind }
+    } else if unsure {
+        LocateFailure::Ambiguous {
+            message: format!("cannot tell which {kind} conversation this terminal shows"),
+            agent: kind,
+        }
+    } else {
+        LocateFailure::NoLog { agent: kind }
     })
 }
 
@@ -799,12 +817,11 @@ mod tests {
             &file,
             root("codex", vec![801, 800], 799, &open[0], "kept", now - 60_000),
         );
-        assert_eq!(
+        // Not a fresh conversation either: nothing shows that this agent has no log.
+        assert!(matches!(
             locate_with(&t, &file, &fixed.inputs(), now),
-            Err(LocateFailure::NoLog {
-                agent: "codex".into()
-            })
-        );
+            Err(LocateFailure::Ambiguous { agent, .. }) if agent == "codex"
+        ));
         assert_eq!(cache::read(&file).root, None);
     }
 
@@ -947,15 +964,16 @@ mod tests {
             (PathBuf::from(&b), b_id.to_string())
         );
 
-        // t1 sees a and b; with t2 closed nothing is taken and two candidates name none.
+        // t1 sees a and b; with t2 closed nothing is taken and two candidates name none. That is not a fresh
+        // conversation, so a send with no session must not pass.
         fixed.claimed = claimed_by_others(&core, "t1", &["t1".into()]);
         assert!(fixed.claimed.is_empty());
-        assert_eq!(
-            locate_with(&t1, &f1, &fixed.inputs(), now),
-            Err(LocateFailure::NoLog {
-                agent: "codex".into()
-            })
+        let unsure = locate_with(&t1, &f1, &fixed.inputs(), now);
+        assert!(
+            matches!(&unsure, Err(LocateFailure::Ambiguous { agent, .. }) if agent == "codex"),
+            "{unsure:?}"
         );
+        assert_eq!(unsure.unwrap_err().state_line()["state"], "ambiguous");
 
         // With t2 live, its remembered b is taken and t1 gets a.
         fixed.claimed = claimed_by_others(&core, "t1", &["t1".into(), "t2".into()]);
