@@ -84,6 +84,11 @@ impl Scratch {
             .env("BW_NOW_MS", NOW_MS)
             .env("BW_TZ", "UTC")
             .env("HC_SESSION", "bw-feed-test")
+            .env(
+                "BW_HC",
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fake-hc"),
+            )
+            .env("FAKE_HC_GET_DIR", self.path("gets"))
             .output()
             .expect("run bw");
         let stdout = String::from_utf8(out.stdout).expect("utf-8 stdout");
@@ -624,11 +629,11 @@ fn cache_holds_no_transcript_text() {
 
 #[test]
 fn terminal_mode_prints_the_locate_state() {
-    // Until `bw locate` lands (Task 7) every terminal reads as no core.
+    // fake-hc knows no terminal t1; tests/locate.rs covers the other states and a located terminal.
     let x = Scratch::new();
     let (code, lines) = x.bw(&["feed", "--terminal", "t1", "--pictures"]);
     assert_eq!(code, 0);
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert_eq!(lines[0]["type"], "state");
-    assert_eq!(lines[0]["state"], "no_core");
+    assert_eq!(lines[0]["state"], "no_terminal");
 }
