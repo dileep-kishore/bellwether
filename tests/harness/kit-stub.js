@@ -35,8 +35,8 @@ export function setModRoot(root) { modRoot = root; }
 function checkPath(kind, path) {
   if (typeof path !== "string") refuse(`${kind} path must be a string, got ${typeof path}`);
   if (path.startsWith("icons/")) return;
-  // bw picture copies a log's pictures here, relative to the app home as image() reads them.
-  if (kind === "image" && /^data\/bellwether\/pictures\/[0-9a-f]{16}\.[a-z0-9]+$/.test(path)) return;
+  // bw picture and bw browser tabs copy pictures and favicons here, relative to the app home as image() reads them.
+  if (kind === "image" && /^data\/bellwether\/(pictures|favicons)\/[0-9a-f]{16}\.[a-z0-9]+$/.test(path)) return;
   const m = /^mods\/(bw-[^/]+)\/(.+)$/.exec(path);
   if (m && (existsSync(join(repo, path)) || existsSync(join(repo, modRoot, m[1], m[2])))) return;
   refuse(`${kind} path ${path} is neither an existing mods/bw-* file nor icons/…`);

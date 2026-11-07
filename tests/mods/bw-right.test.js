@@ -40,7 +40,6 @@ describe("choice", () => {
 
 describe("bw-right", () => {
   test("panel copy names its phase", async () => {
-    expect(textOf((await mount("bw-right", { props: { panel: "browser" } })).el)).toContain("Browser: coming in phase 4");
     expect(textOf((await mount("bw-right", { props: { panel: "changes" } })).el)).toContain("Changes: coming in phase 5");
     expect(textOf((await mount("bw-right", { props: { panel: "issues" } })).el)).toContain("Issues: coming in phase 6");
   });

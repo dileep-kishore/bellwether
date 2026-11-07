@@ -162,10 +162,7 @@
               "id": "browser",
               "type": "block",
               "content": {
-                "mod": "bw-right",
-                "props": {
-                  "panel": "browser"
-                }
+                "mod": "bw-browser"
               }
             }
           ]

@@ -35,9 +35,11 @@ test("layout sizes and ids follow the spec", () => {
   expect(node(L, "right")).toMatchObject({ size: { px: 360 }, min: 280, max: 900 });
   expect(node(L, "right-strip")).toMatchObject({ size: { px: 36 }, content: { mod: "bw-right" } });
   expect(node(L, "right-body")).toMatchObject({ type: "stack", active: "changes" });
-  expect(["changes", "issues", "browser"].map((id) => node(L, id).content)).toEqual(
-    ["changes", "issues", "browser"].map((panel) => ({ mod: "bw-right", props: { panel } })),
+  expect(["changes", "issues"].map((id) => node(L, id).content)).toEqual(
+    ["changes", "issues"].map((panel) => ({ mod: "bw-right", props: { panel } })),
   );
+  expect(node(L, "browser").content).toEqual({ mod: "bw-browser" });
+  expect(node(L, "right-body").children.map((c) => c.id)).toEqual(["changes", "issues", "browser"]);
   expect(new Set(allMods(L).filter((m) => !m.startsWith("bw-")))).toEqual(
     new Set(["workspace-chrome", "workspace-status", "pane"]),
   );
