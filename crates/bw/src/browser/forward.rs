@@ -610,7 +610,13 @@ fn resolve(program: OsString) -> String {
 /// What the supervisor needs from this process's settings: a terminal gets the core's environment, not ours.
 fn keep_env() -> Vec<String> {
     let mut env = vec![format!("BW_HC={}", resolve(hc::program()))];
-    for key in ["BW_SSH", "BW_CHROME_PORT", "BW_CHROME_PROFILE", "BW_PS"] {
+    for key in [
+        "BW_SSH",
+        "BW_CHROME_PORT",
+        "BW_CHROME_PROFILE",
+        "BW_PS",
+        "BW_PROC_ARGV",
+    ] {
         if let Some(v) = std::env::var_os(key).filter(|v| !v.is_empty()) {
             env.push(format!("{key}={}", v.to_string_lossy()));
         }

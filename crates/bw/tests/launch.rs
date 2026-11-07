@@ -25,8 +25,11 @@ fn manifest() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+#[path = "support/argv.rs"]
+mod argv;
 #[path = "support/ports.rs"]
 mod ports;
+use argv::{chrome_argv, fake_argv};
 use ports::{free_port, serial};
 
 fn write_script(path: &Path, body: &str) {
@@ -159,15 +162,10 @@ impl Scene {
         );
         let profile = d.join("profile");
         let chrome_port = free_port();
-        // Every pid is the Bellwether Chrome to `ps`: the in-test server is this test process.
-        write_script(
-            &d.join("ps"),
-            &format!(
-                "echo '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir={} \
-                 --remote-debugging-port={chrome_port} --remote-debugging-address=127.0.0.1'",
-                profile.display()
-            ),
-        );
+        // Every pid is the Bellwether Chrome to `ps` and the argv reader: the in-test server is this process.
+        let argv = chrome_argv(&profile, chrome_port);
+        write_script(&d.join("ps"), &format!("echo '{}'", argv.join(" ")));
+        fake_argv(&d.join("argv"), Some(&argv));
         write_script(
             &d.join("open"),
             &format!("echo \"open $*\" >> '{}'", d.join("open.log").display()),
@@ -200,6 +198,7 @@ impl Scene {
             ),
             ("BW_OPEN", d.join("open").display().to_string()),
             ("BW_PS", d.join("ps").display().to_string()),
+            ("BW_PROC_ARGV", d.join("argv").display().to_string()),
             ("HERDR_APP_HOME", d.join("app-home").display().to_string()),
             (
                 "PATH",

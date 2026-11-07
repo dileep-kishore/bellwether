@@ -1,7 +1,7 @@
 //! `bw browser up|down`: start, reuse and close the Bellwether Chrome.
 //!
-//! A listener on the port is used only when it is on loopback, its process runs with our
-//! `--user-data-dir`, and `/json/version` answers; anything else is named and left alone.
+//! A listener on the port is used only when it is on loopback, its process has our `--user-data-dir` as one
+//! whole argument, and `/json/version` answers; anything else is named and left alone.
 
 use std::fs::DirBuilder;
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
@@ -111,7 +111,7 @@ pub fn port() -> u16 {
 }
 
 /// `BW_CHROME_PROFILE` (tests), else `~/.local/share/bellwether/chrome`; always absolute, since the
-/// `ps` check compares it with Chrome's `--user-data-dir` text.
+/// listener check compares it with Chrome's `--user-data-dir` argument.
 pub fn profile_dir() -> PathBuf {
     let path = match std::env::var_os("BW_CHROME_PROFILE").filter(|v| !v.is_empty()) {
         Some(p) => PathBuf::from(p),
@@ -204,10 +204,18 @@ fn check_listeners(port: u16, profile: &Path, ls: &[Listener]) -> Chrome {
         return taken(&ls[0], why);
     }
     for l in ls {
-        let ours =
-            l.pid > 0 && ps_command(l.pid).is_some_and(|command| holds_profile(&command, profile));
-        if !ours {
+        if l.pid <= 0 {
             return taken(l, listen::owner(l));
+        }
+        match process_argv(l.pid) {
+            Ok(argv) if holds_profile(&argv, profile) => {}
+            Ok(_) => return taken(l, listen::owner(l)),
+            Err(e) => {
+                return taken(
+                    l,
+                    format!("{}, whose arguments cannot be read: {e}", listen::owner(l)),
+                )
+            }
         }
     }
     let mut c = Chrome::new(
@@ -235,16 +243,116 @@ fn read_version(port: u16) -> Option<String> {
     v["Browser"].as_str().map(String::from)
 }
 
-/// True when `command` has `--user-data-dir=<profile>` as a whole argument, so `<profile>-2` is not ours.
-fn holds_profile(command: &str, profile: &Path) -> bool {
-    let needle = format!("--user-data-dir={}", profile.display());
-    command.match_indices(&needle).any(|(i, _)| {
-        let after = &command[i + needle.len()..];
-        (i == 0 || command[..i].ends_with(' ')) && (after.is_empty() || after.starts_with(' '))
-    })
+/// True when one argument is exactly `--user-data-dir=<profile>`: `<profile>-2` and `<profile> x` are not ours.
+fn holds_profile(argv: &[String], profile: &Path) -> bool {
+    let want = format!("--user-data-dir={}", profile.display());
+    argv.contains(&want)
 }
 
-/// `ps -ww -o command= -p <pid>`, or None when the process is gone.
+/// The process's arguments, each whole: `ps` joins them with spaces, which a path may hold too.
+/// `BW_PROC_ARGV` names a program that prints them NUL-separated, for tests.
+fn process_argv(pid: i32) -> Result<Vec<String>, String> {
+    let Some(program) = std::env::var_os("BW_PROC_ARGV").filter(|v| !v.is_empty()) else {
+        return os_argv(pid);
+    };
+    let out = Command::new(&program)
+        .arg(pid.to_string())
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|e| format!("cannot run {}: {e}", program.to_string_lossy()))?;
+    if !out.status.success() {
+        return Err(format!("pid {pid} is gone or not readable"));
+    }
+    Ok(split_nul(&out.stdout))
+}
+
+fn split_nul(bytes: &[u8]) -> Vec<String> {
+    let bytes = bytes.strip_suffix(b"\0").unwrap_or(bytes);
+    bytes
+        .split(|b| *b == 0)
+        .map(|a| String::from_utf8_lossy(a).into_owned())
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn os_argv(pid: i32) -> Result<Vec<String>, String> {
+    let err = |what: &str| format!("{what} for pid {pid}: {}", std::io::Error::last_os_error());
+    let mut argmax: libc::c_int = 0;
+    let mut size = std::mem::size_of::<libc::c_int>();
+    let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
+    // SAFETY: mib names a c_int value and `size` is that int's size.
+    let rc = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            2,
+            (&mut argmax as *mut libc::c_int).cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if rc != 0 || argmax <= 0 {
+        return Err(err("sysctl KERN_ARGMAX"));
+    }
+    let mut buf = vec![0u8; argmax as usize];
+    let mut size = buf.len();
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
+    // SAFETY: buf is `size` bytes long, and the kernel writes at most that many and sets `size`.
+    let rc = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            buf.as_mut_ptr().cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if rc != 0 {
+        return Err(err("sysctl KERN_PROCARGS2"));
+    }
+    buf.truncate(size);
+    procargs2(&buf).ok_or_else(|| format!("pid {pid}'s KERN_PROCARGS2 is malformed"))
+}
+
+/// KERN_PROCARGS2: argc as a native int, the executable path, NUL padding, then argc NUL-ended arguments.
+#[cfg(target_os = "macos")]
+fn procargs2(buf: &[u8]) -> Option<Vec<String>> {
+    let n = std::mem::size_of::<libc::c_int>();
+    let argc = libc::c_int::from_ne_bytes(buf.get(..n)?.try_into().ok()?);
+    let rest = buf.get(n..)?;
+    let path_end = rest.iter().position(|b| *b == 0)?;
+    let mut rest = &rest[path_end..];
+    while let [0, tail @ ..] = rest {
+        rest = tail;
+    }
+    let mut argv = Vec::new();
+    for _ in 0..argc {
+        let end = rest.iter().position(|b| *b == 0)?;
+        argv.push(String::from_utf8_lossy(&rest[..end]).into_owned());
+        rest = &rest[end + 1..];
+    }
+    Some(argv)
+}
+
+#[cfg(target_os = "linux")]
+fn os_argv(pid: i32) -> Result<Vec<String>, String> {
+    let bytes = std::fs::read(format!("/proc/{pid}/cmdline"))
+        .map_err(|e| format!("cannot read /proc/{pid}/cmdline: {e}"))?;
+    // Empty for a zombie or a kernel thread: nothing to compare.
+    if bytes.is_empty() {
+        return Err(format!("/proc/{pid}/cmdline is empty"));
+    }
+    Ok(split_nul(&bytes))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn os_argv(_pid: i32) -> Result<Vec<String>, String> {
+    Err("bw cannot read a process's arguments on this system".into())
+}
+
+/// `ps -ww -o command= -p <pid>`, or None when the process is gone; only says whether it runs.
 fn ps_command(pid: i32) -> Option<String> {
     let program = std::env::var_os("BW_PS").unwrap_or_else(|| "ps".into());
     let out = Command::new(program)
@@ -420,5 +528,73 @@ pub fn down(port: u16, profile: &Path) -> Chrome {
             return found;
         }
         thread::sleep(POLL);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(v: &[&str]) -> Vec<String> {
+        v.iter().map(|a| a.to_string()).collect()
+    }
+
+    #[test]
+    fn profile_must_be_one_whole_argument() {
+        let p = Path::new("/u/.local/share/bellwether/chrome");
+        let ours = s(&[
+            "chrome",
+            "--user-data-dir=/u/.local/share/bellwether/chrome",
+        ]);
+        assert!(holds_profile(&ours, p));
+        for other in [
+            "--user-data-dir=/u/.local/share/bellwether/chrome other",
+            "--user-data-dir=/u/.local/share/bellwether/chrome-2",
+            "--user-data-dir=/u/.local/share/bellwether",
+            "x--user-data-dir=/u/.local/share/bellwether/chrome",
+        ] {
+            assert!(!holds_profile(&s(&["chrome", other]), p), "{other}");
+        }
+    }
+
+    #[test]
+    fn nul_lists_split_into_arguments() {
+        assert_eq!(split_nul(b"a b\0\0c\0"), s(&["a b", "", "c"]));
+        assert_eq!(split_nul(b"a"), s(&["a"]));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn procargs2_reads_argc_arguments_past_the_padding() {
+        let mut buf = 3i32.to_ne_bytes().to_vec();
+        buf.extend_from_slice(b"/bin/sh\0\0\0\0sh\0-c\0a b\0HOME=/u\0");
+        assert_eq!(procargs2(&buf), Some(s(&["sh", "-c", "a b"])));
+        assert_eq!(
+            procargs2(&buf[..buf.len() - 12]),
+            None,
+            "cut inside the arguments"
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn real_argv_keeps_spaces_inside_an_argument() {
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "sleep 30; :", "sh", "--user-data-dir=/p other"])
+            .spawn()
+            .unwrap();
+        let argv = os_argv(child.id() as i32);
+        let _ = child.kill();
+        let _ = child.wait();
+        assert_eq!(
+            argv.unwrap(),
+            s(&[
+                "/bin/sh",
+                "-c",
+                "sleep 30; :",
+                "sh",
+                "--user-data-dir=/p other"
+            ])
+        );
     }
 }

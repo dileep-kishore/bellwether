@@ -191,8 +191,10 @@ The Bellwether Chrome is a second Google Chrome instance with its own profile,
 `~/.local/share/bellwether/chrome`, and its DevTools port on 127.0.0.1:9222.
 Bellwether never uses or touches your own Chrome or its default profile.
 `bw browser up` reuses a Chrome on that port only when every listener is on
-127.0.0.1 or [::1], the listening process's command line holds
-`--user-data-dir=<that profile>`, and `/json/version` answers. When the port
+127.0.0.1 or [::1], one of the listening process's arguments is exactly
+`--user-data-dir=<that profile>`, and `/json/version` answers. It reads the
+arguments from the kernel (`KERN_PROCARGS2` on macOS, `/proc/<pid>/cmdline`
+on Linux) and refuses a process whose arguments it cannot read. When the port
 is free and the profile is not running, it starts Chrome with `open -n`.
 `--background` adds `-g`, which keeps focus where it is. Otherwise it starts
 nothing and names the state: `port_taken` with the pid and command of the

@@ -47,6 +47,9 @@ use tungstenite::Message;
 
 use arrange::{arrange, place, Bounds, Rect};
 
+#[path = "support/argv.rs"]
+mod argv;
+
 fn r(x: f64, y: f64, w: f64, h: f64) -> Rect {
     Rect { x, y, w, h }
 }
@@ -416,12 +419,13 @@ fn arrange_on_a_closed_port_is_chrome_not_running() {
     assert_eq!(got.state, "chrome_not_running", "{}", got.message);
 }
 
-fn bw_arrange(port: u16, profile: &Path, ps: &Path) -> (Value, i32) {
+fn bw_arrange(port: u16, profile: &Path, fakes: &Path) -> (Value, i32) {
     let out = Command::new(env!("CARGO_BIN_EXE_bw"))
         .args(["browser", "arrange", "--owner-pid", "1"])
         .env("BW_CHROME_PORT", port.to_string())
         .env("BW_CHROME_PROFILE", profile)
-        .env("BW_PS", ps)
+        .env("BW_PS", fakes.join("ps"))
+        .env("BW_PROC_ARGV", fakes.join("argv"))
         .stdin(Stdio::null())
         .output()
         .expect("run bw");
@@ -431,12 +435,14 @@ fn bw_arrange(port: u16, profile: &Path, ps: &Path) -> (Value, i32) {
     (line, out.status.code().unwrap())
 }
 
-/// A `ps` that prints `command` for any pid.
-fn fake_ps(dir: &Path, command: &str) -> std::path::PathBuf {
+/// A `ps` and an argv reader in `dir` that see `argv` for any pid; `dir`.
+fn fake_ps<'a>(dir: &'a Path, argv: &[String]) -> &'a Path {
     let ps = dir.join("ps");
+    let command = argv.join(" ");
     std::fs::write(&ps, format!("#!/bin/sh\nprintf '%s\\n' '{command}'\n")).unwrap();
     Command::new("chmod").arg("755").arg(&ps).status().unwrap();
-    ps
+    argv::fake_argv(&dir.join("argv"), Some(argv));
+    dir
 }
 
 #[cfg(target_os = "macos")]
@@ -451,9 +457,11 @@ fn arrange_refuses_a_listener_that_is_not_ours() {
             normal: OLD,
         },
     );
-    let other =
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=9222";
-    let (line, code) = bw_arrange(chrome.port, &profile, &fake_ps(dir.path(), other));
+    let other = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".to_string(),
+        "--remote-debugging-port=9222".to_string(),
+    ];
+    let (line, code) = bw_arrange(chrome.port, &profile, fake_ps(dir.path(), &other));
     assert_eq!(code, 0);
     assert_eq!(line["type"], "arrange");
     assert_eq!(line["state"], "chrome_not_running", "{line}");
@@ -479,7 +487,11 @@ fn arrange_with_nothing_listening_is_chrome_not_running() {
         .local_addr()
         .unwrap()
         .port();
-    let (line, code) = bw_arrange(port, &dir.path().join("chrome"), &fake_ps(dir.path(), "x"));
+    let (line, code) = bw_arrange(
+        port,
+        &dir.path().join("chrome"),
+        fake_ps(dir.path(), &["x".to_string()]),
+    );
     assert_eq!(code, 0);
     assert_eq!(line["state"], "chrome_not_running", "{line}");
     assert_eq!(line["side"], Value::Null);
@@ -498,13 +510,9 @@ fn arrange_with_our_chrome_and_no_herdr_window_says_so() {
             normal: OLD,
         },
     );
-    let ours = format!(
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir={} --remote-debugging-port={}",
-        profile.display(),
-        chrome.port
-    );
+    let ours = argv::chrome_argv(&profile, chrome.port);
     // launchd (pid 1) owns no window.
-    let (line, code) = bw_arrange(chrome.port, &profile, &fake_ps(dir.path(), &ours));
+    let (line, code) = bw_arrange(chrome.port, &profile, fake_ps(dir.path(), &ours));
     assert_eq!(code, 0);
     assert_eq!(line["state"], "no_herdr_window", "{line}");
     assert!(chrome.calls.lock().unwrap().is_empty());
