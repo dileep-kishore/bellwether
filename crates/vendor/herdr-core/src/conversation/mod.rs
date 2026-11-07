@@ -513,7 +513,12 @@ impl ConversationParser {
                 let raw = json::str_(payload.get("arguments")).or(json::str_(payload.get("input"))).unwrap_or("");
                 let cmd = codex_command(payload);
                 let call = ToolCall::new(&id, &name, &cmd, &cut(raw));
-                self.open_call(&id, &name, codex_label(&name), Some(cmd), call);
+                self.open_call(&id, &name, codex_call_label(&name, raw), Some(cmd), call);
+            }
+            Some("agent_message") => {
+                let Some(t) = codex_agent_status(payload) else { return };
+                self.flush();
+                self.done.push(ConversationItem::new(&bid, ItemKind::Status(t), self.line_ts));
             }
             Some("custom_tool_call_output") | Some("function_call_output") | Some("local_shell_call_output") => {
                 let Some(id) = json::str_(payload.get("call_id")) else { return };
@@ -566,17 +571,173 @@ impl ConversationParser {
 
 pub fn codex_label(tool: &str) -> ToolLabel {
     match tool {
-        "exec" | "exec_command" | "shell" | "local_shell" | "container.exec" | "write_stdin" => {
+        "exec" | "js" | "exec_command" | "shell" | "local_shell" | "container.exec" | "write_stdin" => {
             ToolLabel::new("terminal", "Ran a command", Some("Ran %d commands"))
         }
         "apply_patch" => ToolLabel::new("pencil", "Edited files", Some("Edited files %d times")),
+        "spawn_agent" => ToolLabel::new("person.2", "Started a sub-agent", Some("Started %d sub-agents")),
+        "wait_agent" => ToolLabel::new("hourglass", "Waited for a sub-agent", Some("Waited for sub-agents %d times")),
         "web_search" | "web.run" => ToolLabel::new("globe", "Searched the web", Some("Searched the web %d times")),
         "update_plan" => ToolLabel::new("checklist", "Updated the plan", None),
         _ => ToolLabel::new("wrench", &format!("Used {tool}"), None),
     }
 }
 
+/// Codex 0.167's `exec` and `js` tools run JavaScript; the label follows the `tools.*` calls inside it: any
+/// `exec_command` is a command, else any `apply_patch` an edit, else a script.
+pub fn codex_call_label(tool: &str, input: &str) -> ToolLabel {
+    if tool != "exec" && tool != "js" {
+        return codex_label(tool);
+    }
+    let inner = codex_inner_calls(input);
+    if inner.iter().any(|c| matches!(c, InnerCall::Command(_))) {
+        codex_label("exec")
+    } else if !inner.is_empty() {
+        codex_label("apply_patch")
+    } else {
+        ToolLabel::new("terminal", "Ran a script", Some("Ran %d scripts"))
+    }
+}
+
+/// One `tools.exec_command` or `tools.apply_patch` call inside Codex's JavaScript.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InnerCall {
+    Command(String),
+    /// The paths the patch adds, updates or deletes.
+    Patch(Vec<String>),
+}
+
+fn inner_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(r#"tools\.exec_command\(\{\s*cmd:\s*"((?:[^"\\]|\\.)*)"|tools\.apply_patch\(\s*(?:"((?:[^"\\]|\\.)*)")?"#).unwrap()
+    })
+}
+
+fn patch_file_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| Regex::new(r"\*\*\* (?:Add|Update|Delete) File: (.+)").unwrap())
+}
+
+/// A JavaScript string literal's body as JSON reads it; as written when JSON cannot.
+fn unescape(body: &str) -> String {
+    serde_json::from_str::<String>(&format!("\"{body}\"")).unwrap_or_else(|_| body.to_string())
+}
+
+/// The `tools.exec_command` and `tools.apply_patch` calls in a Codex `exec` / `js` input, in order.
+pub fn codex_inner_calls(code: &str) -> Vec<InnerCall> {
+    let re = inner_re();
+    let found: Vec<regex::Captures> = re.captures_iter(code).collect();
+    found
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            if let Some(cmd) = c.get(1) {
+                return InnerCall::Command(unescape(cmd.as_str()));
+            }
+            let patch = match c.get(2) {
+                Some(body) => unescape(body.as_str()),
+                // Not a "…" literal (a template or a variable): read up to the next call.
+                None => {
+                    let from = c.get(0).map(|m| m.end()).unwrap_or(0);
+                    let to = found.get(i + 1).and_then(|n| n.get(0)).map(|m| m.start()).unwrap_or(code.len());
+                    code[from..to].to_string()
+                }
+            };
+            InnerCall::Patch(patch_files(&patch))
+        })
+        .collect()
+}
+
+/// The paths a patch adds, updates or deletes (`*** Add File: <path>` and the like), distinct, in order.
+pub fn patch_files(patch: &str) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    for c in patch_file_re().captures_iter(patch) {
+        let p = c[1].trim().to_string();
+        if !p.is_empty() && !out.contains(&p) {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// The files a Codex call edited: an `apply_patch` call's paths, or those of the `tools.apply_patch` calls inside an
+/// `exec` / `js` input.
+pub fn codex_patch_files(tool: &str, input: &str) -> Vec<String> {
+    match tool {
+        "apply_patch" => patch_files(input),
+        "exec" | "js" => {
+            let mut out: Vec<String> = vec![];
+            for c in codex_inner_calls(input) {
+                if let InnerCall::Patch(paths) = c {
+                    for p in paths {
+                        if !out.contains(&p) {
+                            out.push(p);
+                        }
+                    }
+                }
+            }
+            out
+        }
+        _ => vec![],
+    }
+}
+
+/// The summary of an `exec` / `js` call from its inner calls: the first command with " (+N more)" for the other
+/// calls, else the edited paths. None when it makes no such call.
+fn codex_script_summary(input: &str) -> Option<String> {
+    let inner = codex_inner_calls(input);
+    let first = inner.iter().find_map(|c| if let InnerCall::Command(s) = c { Some(s.clone()) } else { None });
+    if let Some(cmd) = first {
+        return Some(if inner.len() > 1 { format!("{cmd} (+{} more)", inner.len() - 1) } else { cmd });
+    }
+    let files = codex_patch_files("exec", input);
+    if files.is_empty() {
+        None
+    } else {
+        Some(files.join(", "))
+    }
+}
+
+/// A Codex `agent_message` between agents as a status line: `FINAL_ANSWER` is "<sender> finished: <payload>",
+/// `NEW_TASK` "Sent a task to <recipient>", each agent by the last part of its path. Other types: None.
+pub fn codex_agent_status(payload: &Obj) -> Option<String> {
+    let parts: Vec<&str> = json::objs(payload.get("content"))
+        .unwrap_or_default()
+        .iter()
+        .filter(|c| json::str_(c.get("type")) == Some("input_text"))
+        .filter_map(|c| json::str_(c.get("text")))
+        .collect();
+    let t = parts.join("\n");
+    let field = |k: &str| t.lines().find_map(|l| l.strip_prefix(k)).map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
+    let last = |p: &str| p.trim_end_matches('/').rsplit('/').next().unwrap_or("").to_string();
+    match field("Message Type:")?.as_str() {
+        "FINAL_ANSWER" => {
+            let sender = field("Sender:").or_else(|| json::str_(payload.get("author")).map(str::to_string))?;
+            let body = t.split_once("Payload:").map(|(_, b)| text::trim(b)).unwrap_or("");
+            let who = last(&sender);
+            Some(if body.is_empty() { format!("{who} finished") } else { format!("{who} finished: {}", text::prefix(body, 200)) })
+        }
+        "NEW_TASK" => {
+            let to = json::str_(payload.get("recipient")).map(str::to_string).or_else(|| field("Task name:"))?;
+            Some(format!("Sent a task to {}", last(&to)))
+        }
+        _ => None,
+    }
+}
+
 pub fn codex_command(payload: &Obj) -> String {
+    let name = json::str_(payload.get("name")).unwrap_or("");
+    if let Some(input) = json::str_(payload.get("input")) {
+        let found = match name {
+            "exec" | "js" => codex_script_summary(input),
+            "apply_patch" => Some(patch_files(input).join(", ")).filter(|s| !s.is_empty()),
+            _ => None,
+        };
+        if let Some(s) = found {
+            return s;
+        }
+    }
     if let Some(o) = json::str_(payload.get("arguments")).and_then(json::parse_obj) {
         for k in ["cmd", "command"] {
             if let Some(s) = json::str_(o.get(k)) {
