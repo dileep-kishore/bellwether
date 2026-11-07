@@ -122,8 +122,14 @@ export function createSchedule(times = TIMES) {
 
   function watchedFolders() {
     const all = [];
-    for (const { target } of states.values()) for (const f of folders(target)) if (!all.includes(f)) all.push(f);
-    return all.filter((f) => !all.some((g) => g !== f && under(f, g)));
+    // Herdr's Linux watch skips Git-ignored directories, so a parent watch may miss a nested worktree.
+    const own = new Set();
+    for (const { target } of states.values()) {
+      const fs = folders(target);
+      for (const f of fs) if (!all.includes(f)) all.push(f);
+      if (target.kind === "counts" && fs.includes(norm(target.path))) own.add(norm(target.path));
+    }
+    return all.filter((f) => own.has(f) || !all.some((g) => g !== f && under(f, g)));
   }
 
   return {
