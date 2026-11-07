@@ -298,7 +298,7 @@ describe("bw-chat", () => {
     const feeds = calls(m, "feed");
     expect(feeds).toHaveLength(1);
     expect(feeds[0][2]).toEqual({ on: "macmini" });
-    expect(feeds[0][1].slice(4)).toEqual(["--terminal", "t5", "--pictures"]);
+    expect(feeds[0][1].slice(4)).toEqual(["--terminal", "t5", "--pictures", "--tree", "--cards"]);
     expect(textarea(m).attrs.disabled).toBe(false);
     await typeAndSend(m, "hi");
     const sends = calls(m, "send");
@@ -308,7 +308,7 @@ describe("bw-chat", () => {
     expect(sends[0][1].slice(4)).toEqual(["--terminal", "t5", "--expect-kind", "codex", "--expect-session", CODEX_SESSION, "--expect-path", CODEX_PATH, "--text", "hi"]);
     expect(inspect(textarea(m).attrs.state).value).toBe("");
     await nextPoll(m);
-    expect(calls(m, "feed").at(-1)[1].slice(4)).toEqual(["--terminal", "t5", "--pictures", "--cursor", "2.fixture-codex-question"]);
+    expect(calls(m, "feed").at(-1)[1].slice(4)).toEqual(["--terminal", "t5", "--pictures", "--tree", "--cards", "--cursor", "2.fixture-codex-question"]);
   });
 
   test("named send results; text kept on refusal; slash commands go as typed", async () => {
@@ -454,7 +454,7 @@ describe("bw-chat", () => {
     await typeAndSend(m, "first of the new one");
     expect(calls(m, "send")).toHaveLength(2);
     expect(calls(m, "send").at(-1)[1].slice(4)).toEqual(["--terminal", "t5", "--expect-kind", "codex", "--expect-session", NEXT, "--expect-path", "none", "--text", "first of the new one"]);
-    expect(calls(m, "feed").at(-1)[1].slice(4)).toEqual(["--terminal", "t5", "--pictures"]);
+    expect(calls(m, "feed").at(-1)[1].slice(4)).toEqual(["--terminal", "t5", "--pictures", "--tree", "--cards"]);
   });
 
   test("a feed state other than no log names the wait and disables the composer", async () => {
