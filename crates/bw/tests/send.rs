@@ -1,4 +1,6 @@
 //! `bw send` against tests/fake-hc: the conversation guard, `hc send`'s answers, and the text typed verbatim.
+//!
+//! bw send runs on the terminal's own machine, so every test names a local terminal and locates it in process.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -7,7 +9,7 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 
 const SID: &str = "01a1b4a1-cd88-7852-b34b-2cf0f36c8fbc";
-const PATH: &str = "/h/.codex/sessions/2026/11/06/rollout-2026-11-06T22-11-05-01a1b4a1-cd88-7852-b34b-2cf0f36c8fbc.jsonl";
+const OTHER_SID: &str = "01a1b512-1f37-7941-98b2-00c2fc7b72f3";
 const PARENT: &str = "rollout-2026-11-06T22-11-05-01a1b4a1-cd88-7852-b34b-2cf0f36c8fbc.jsonl";
 
 struct Scratch {
@@ -30,20 +32,6 @@ impl Scratch {
 
     fn set(&mut self, k: &str, v: &str) {
         self.env.push((k.into(), v.into()));
-    }
-
-    /// What `bw locate --terminal t1 --fresh` prints on bwloop.
-    fn remote_says(&mut self, line: Value) {
-        let file = self.dir().join("exec-out");
-        std::fs::write(&file, format!("{line}\n")).unwrap();
-        self.set("FAKE_HC_EXEC_OUT", file.to_str().unwrap());
-    }
-
-    fn located(&mut self, agent: &str, session: &str, path: &str) {
-        self.remote_says(
-            json!({"type": "located", "terminal": "t1", "agent": agent, "session": session,
-                                "path": path, "pid": 4242, "status": "idle"}),
-        );
     }
 
     fn run(&self, args: &[&str]) -> (i32, Vec<Value>) {
@@ -110,6 +98,17 @@ impl Scratch {
             .filter(|l| l.starts_with("send "))
             .collect()
     }
+
+    fn shell(&self, t: &str) {
+        std::fs::write(
+            self.dir().join(format!("gets/{t}.json")),
+            json!({"address": t, "argv": ["zsh"], "cwd": "/scratch", "pid": 1,
+                   "state": "live", "status": {"state": "idle"},
+                   "foreground": {"argv": ["zsh"], "name": "zsh", "pid": 1}})
+            .to_string(),
+        )
+        .unwrap();
+    }
 }
 
 fn sent(line: &Value) -> &str {
@@ -122,237 +121,6 @@ fn error(code: i32, line: &Value) -> &str {
     assert_eq!(code, 1, "{line}");
     assert_eq!(line["type"], "error", "{line}");
     line["code"].as_str().unwrap()
-}
-
-#[test]
-fn send_types_text_verbatim() {
-    // Review Focus 2: a dash first, quotes, a command substitution, --force and a newline, as one argv element.
-    let text = "--force -x \"q\" $(touch /tmp/no) \nline 2";
-    let mut x = Scratch::new();
-    x.located("codex", SID, PATH);
-    let (code, line) = x.send("bwloop/t1", "codex", SID, PATH, text);
-    assert_eq!((code, sent(&line)), (0, "sent"));
-    // The log keeps the text's newline, so the one send spans two lines there.
-    assert_eq!(
-        x.sends(),
-        vec!["send bwloop/t1 --force -x \"q\" $(touch /tmp/no) "]
-    );
-    let raw = std::fs::read_to_string(x.dir().join("hc.log")).unwrap();
-    assert!(raw.ends_with(&format!("send bwloop/t1 {text}\n")), "{raw}");
-    assert!(!Path::new("/tmp/no").exists(), "no shell read the text");
-    let log = x.log();
-    let exec = log
-        .iter()
-        .find(|l| l.starts_with("exec "))
-        .expect("an exec on bwloop");
-    assert!(
-        exec.ends_with(" bw locate --terminal t1 --fresh"),
-        "the helper there looks again, by its local address: {exec}"
-    );
-    assert!(!log
-        .iter()
-        .any(|l| l.contains("--force") && !l.starts_with("send ")));
-}
-
-#[test]
-fn text_may_be_just_dashes() {
-    let mut x = Scratch::new();
-    x.located("codex", SID, PATH);
-    for text in ["--", "-", "--text"] {
-        let (_, line) = x.send("bwloop/t1", "codex", SID, PATH, text);
-        assert_eq!(sent(&line), "sent", "{text}");
-    }
-    assert_eq!(
-        x.sends(),
-        vec![
-            "send bwloop/t1 --",
-            "send bwloop/t1 -",
-            "send bwloop/t1 --text"
-        ]
-    );
-}
-
-#[test]
-fn other_kind_is_refused_conversation() {
-    let mut x = Scratch::new();
-    x.located("claude", SID, PATH);
-    let (code, line) = x.send("bwloop/t1", "codex", SID, PATH, "hi");
-    assert_eq!((code, sent(&line)), (0, "refused-conversation"));
-    assert!(x.sends().is_empty());
-}
-
-#[test]
-fn other_session_is_refused_conversation() {
-    let mut x = Scratch::new();
-    x.located("codex", "01a1b512-1f37-7941-98b2-00c2fc7b72f3", PATH);
-    let (_, line) = x.send("bwloop/t1", "codex", SID, PATH, "hi");
-    assert_eq!(sent(&line), "refused-conversation");
-    assert!(x.sends().is_empty());
-}
-
-#[test]
-fn other_path_is_refused_conversation() {
-    let mut x = Scratch::new();
-    x.located("codex", SID, "/h/.codex/sessions/other.jsonl");
-    let (_, line) = x.send("bwloop/t1", "codex", SID, PATH, "hi");
-    assert_eq!(sent(&line), "refused-conversation");
-    assert!(x.sends().is_empty());
-}
-
-#[test]
-fn no_log_or_no_agent_there_is_refused_conversation() {
-    // A new conversation with no log yet, or the agent gone back to a shell: nothing confirms what is shown.
-    for state in [
-        json!({"type": "state", "state": "no_log", "agent": "codex", "message": "no codex session log yet"}),
-        json!({"type": "state", "state": "not_agent", "message": "t1 runs zsh"}),
-    ] {
-        let mut x = Scratch::new();
-        x.remote_says(state.clone());
-        let (_, line) = x.send("bwloop/t1", "codex", SID, PATH, "hi");
-        assert_eq!(sent(&line), "refused-conversation", "{state}");
-        assert!(x.sends().is_empty());
-    }
-}
-
-#[test]
-fn blocked_is_refused_prompt() {
-    let mut x = Scratch::new();
-    x.located("codex", SID, PATH);
-    x.set("FAKE_HC_SEND_FAIL", "blocked");
-    let (code, line) = x.send("bwloop/t1", "codex", SID, PATH, "hi");
-    assert_eq!((code, sent(&line)), (0, "refused-prompt"));
-}
-
-#[test]
-fn finished_terminal_is_no_terminal() {
-    for kind in ["finished", "not_found"] {
-        let mut x = Scratch::new();
-        x.located("codex", SID, PATH);
-        x.set("FAKE_HC_SEND_FAIL", kind);
-        let (code, line) = x.send("bwloop/t1", "codex", SID, PATH, "hi");
-        assert_eq!(error(code, &line), "no_terminal", "{kind}");
-    }
-    let mut x = Scratch::new();
-    x.remote_says(json!({"type": "state", "state": "no_terminal", "message": "t1 is finished"}));
-    let (code, line) = x.send("bwloop/t1", "codex", SID, PATH, "hi");
-    assert_eq!(error(code, &line), "no_terminal");
-    assert!(x.sends().is_empty());
-}
-
-#[test]
-fn unreachable_machine_is_named() {
-    let mut x = Scratch::new();
-    x.set("FAKE_HC_OFFLINE", "1");
-    let (code, line) = x.send("bwloop/t1", "codex", SID, PATH, "hi");
-    assert_eq!(error(code, &line), "unreachable");
-    assert!(x.sends().is_empty());
-
-    for kind in ["machine_unknown", "unavailable"] {
-        let mut x = Scratch::new();
-        x.located("codex", SID, PATH);
-        x.set("FAKE_HC_SEND_FAIL", kind);
-        let (code, line) = x.send("bwloop/t1", "codex", SID, PATH, "hi");
-        assert_eq!(error(code, &line), "unreachable", "{kind}");
-    }
-
-    let mut x = Scratch::new();
-    x.remote_says(json!({"type": "state", "state": "no_core", "message": "hc is not answering"}));
-    let (code, line) = x.send("bwloop/t1", "codex", SID, PATH, "hi");
-    assert_eq!(error(code, &line), "unreachable");
-}
-
-#[test]
-fn missing_helper_there_is_named() {
-    // No FAKE_HC_EXEC_OUT: the fake runs the helper script in an empty home, and sh cannot find bw.
-    let x = Scratch::new();
-    let (code, line) = x.send("bwloop/t1", "codex", SID, PATH, "hi");
-    assert_eq!(error(code, &line), "missing");
-    assert!(
-        line["message"].as_str().unwrap().contains("bwloop"),
-        "{line}"
-    );
-    assert!(x.sends().is_empty());
-}
-
-#[test]
-fn an_older_helper_there_fails_closed() {
-    let mut x = Scratch::new();
-    x.remote_says(
-        json!({"type": "error", "code": "usage", "message": "unknown option \"--fresh\""}),
-    );
-    let (code, line) = x.send("bwloop/t1", "codex", SID, PATH, "hi");
-    assert_eq!(error(code, &line), "failed");
-    assert!(x.sends().is_empty());
-}
-
-#[test]
-fn slow_send_is_unconfirmed() {
-    let mut x = Scratch::new();
-    x.located("codex", SID, PATH);
-    x.set("FAKE_HC_SEND_SLEEP", "3");
-    x.set("BW_SEND_TIMEOUT_S", "1");
-    let start = Instant::now();
-    let (code, line) = x.send("bwloop/t1", "codex", SID, PATH, "hi");
-    assert_eq!((code, sent(&line)), (0, "unconfirmed"));
-    assert!(
-        start.elapsed() < Duration::from_millis(2500),
-        "took {:?}",
-        start.elapsed()
-    );
-}
-
-#[test]
-fn missing_expectations_are_usage() {
-    let x = Scratch::new();
-    let all = [
-        ("--terminal", "bwloop/t1"),
-        ("--expect-kind", "codex"),
-        ("--expect-session", SID),
-        ("--expect-path", PATH),
-        ("--text", "hi"),
-    ];
-    for skip in 0..all.len() {
-        let mut args = vec!["send"];
-        for (i, (k, v)) in all.iter().enumerate() {
-            if i != skip {
-                args.extend([*k, *v]);
-            }
-        }
-        let (code, lines) = x.run(&args);
-        assert_eq!(code, 2, "without {}: {lines:?}", all[skip].0);
-        assert_eq!(lines[0]["code"], "usage");
-    }
-    let (code, _) = x.run(&[
-        "send",
-        "--terminal",
-        "t1",
-        "--expect-kind",
-        "codex",
-        "--expect-session",
-        SID,
-        "--expect-path",
-        PATH,
-        "--text",
-        "",
-    ]);
-    assert_eq!(code, 2, "an empty message is refused");
-    let (code, _) = x.run(&[
-        "send",
-        "--terminal",
-        "t1",
-        "--expect-kind",
-        "codex",
-        "--expect-session",
-        SID,
-        "--expect-path",
-        PATH,
-        "--text",
-        "hi",
-        "--force",
-    ]);
-    assert_eq!(code, 2, "bw send takes no --force");
-    assert!(x.sends().is_empty());
-    assert!(x.log().is_empty(), "no hc call for a bad command line");
 }
 
 /// A process named `codex` with `CODEX_HOME` set, holding `files` open as Codex 0.167 holds its rollouts and
@@ -424,24 +192,207 @@ fn local_codex(x: &Scratch, extra: &[&str]) -> (FakeCodex, String) {
 }
 
 #[test]
-fn local_send_locates_in_process() {
+fn send_types_text_verbatim() {
+    // Review Focus 2: a dash first, quotes, a command substitution, --force and a newline, as one argv element.
+    let text = "--force -x \"q\" $(touch /tmp/no) \nline 2";
     let x = Scratch::new();
     let (_codex, path) = local_codex(&x, &[]);
-    let (code, line) = x.send("t7", "codex", SID, &path, "--force hello");
+    let (code, line) = x.send("t7", "codex", SID, &path, text);
     assert_eq!((code, sent(&line)), (0, "sent"), "{line}");
-    assert_eq!(x.sends(), vec!["send t7 --force hello"]);
+    // The log keeps the text's newline, so the one send spans two lines there.
+    assert_eq!(
+        x.sends(),
+        vec!["send t7 --force -x \"q\" $(touch /tmp/no) "]
+    );
+    let raw = std::fs::read_to_string(x.dir().join("hc.log")).unwrap();
+    assert!(raw.ends_with(&format!("send t7 {text}\n")), "{raw}");
+    assert!(!Path::new("/tmp/no").exists(), "no shell read the text");
     assert!(
         !x.log().iter().any(|l| l.starts_with("exec ")),
-        "no hc exec for a local terminal"
+        "the guard and the send run in this machine's own core"
     );
 }
 
 #[test]
-fn local_new_thread_is_refused_conversation() {
+fn text_may_be_just_dashes() {
+    let x = Scratch::new();
+    let (_codex, path) = local_codex(&x, &[]);
+    for text in ["--", "-", "--text"] {
+        let (_, line) = x.send("t7", "codex", SID, &path, text);
+        assert_eq!(sent(&line), "sent", "{text}");
+    }
+    assert_eq!(x.sends(), vec!["send t7 --", "send t7 -", "send t7 --text"]);
+}
+
+#[test]
+fn other_kind_is_refused_conversation() {
+    let x = Scratch::new();
+    let (_codex, path) = local_codex(&x, &[]);
+    let (code, line) = x.send("t7", "claude", SID, &path, "hi");
+    assert_eq!((code, sent(&line)), (0, "refused-conversation"));
+    assert!(x.sends().is_empty());
+}
+
+#[test]
+fn other_session_is_refused_conversation() {
+    let x = Scratch::new();
+    let (_codex, path) = local_codex(&x, &[]);
+    let (_, line) = x.send("t7", "codex", OTHER_SID, &path, "hi");
+    assert_eq!(sent(&line), "refused-conversation");
+    assert!(x.sends().is_empty());
+}
+
+#[test]
+fn other_path_is_refused_conversation() {
+    let x = Scratch::new();
+    let (_codex, _) = local_codex(&x, &[]);
+    let (_, line) = x.send("t7", "codex", SID, "/h/.codex/sessions/other.jsonl", "hi");
+    assert_eq!(sent(&line), "refused-conversation");
+    assert!(x.sends().is_empty());
+}
+
+#[test]
+fn new_thread_is_refused_conversation() {
     // Codex after `/new`: the old rollout still open, a newer thread lock with no rollout yet.
     let x = Scratch::new();
-    let (_codex, path) = local_codex(&x, &["01a1b512-1f37-7941-98b2-00c2fc7b72f3"]);
+    let (_codex, path) = local_codex(&x, &[OTHER_SID]);
     let (_, line) = x.send("t7", "codex", SID, &path, "hi");
     assert_eq!(sent(&line), "refused-conversation", "{line}");
     assert!(x.sends().is_empty());
+}
+
+#[test]
+fn no_agent_is_refused_conversation() {
+    let x = Scratch::new();
+    x.shell("t1");
+    let (_, line) = x.send("t1", "codex", SID, "/l/a.jsonl", "hi");
+    assert_eq!(sent(&line), "refused-conversation");
+    assert!(x.sends().is_empty());
+}
+
+#[test]
+fn blocked_is_refused_prompt() {
+    let mut x = Scratch::new();
+    x.set("FAKE_HC_SEND_FAIL", "blocked");
+    let (_codex, path) = local_codex(&x, &[]);
+    let (code, line) = x.send("t7", "codex", SID, &path, "hi");
+    assert_eq!((code, sent(&line)), (0, "refused-prompt"));
+}
+
+#[test]
+fn finished_terminal_is_no_terminal() {
+    for kind in ["finished", "not_found"] {
+        let mut x = Scratch::new();
+        x.set("FAKE_HC_SEND_FAIL", kind);
+        let (_codex, path) = local_codex(&x, &[]);
+        let (code, line) = x.send("t7", "codex", SID, &path, "hi");
+        assert_eq!(error(code, &line), "no_terminal", "{kind}");
+    }
+    let x = Scratch::new();
+    let (code, line) = x.send("t9", "codex", SID, "/l/a.jsonl", "hi");
+    assert_eq!(error(code, &line), "no_terminal");
+    assert!(x.sends().is_empty());
+}
+
+#[test]
+fn unreachable_core_is_named() {
+    let mut x = Scratch::new();
+    x.set("FAKE_HC_OFFLINE", "1");
+    let (code, line) = x.send("t7", "codex", SID, "/l/a.jsonl", "hi");
+    assert_eq!(error(code, &line), "unreachable");
+    assert!(x.sends().is_empty());
+
+    for kind in ["machine_unknown", "unavailable"] {
+        let mut x = Scratch::new();
+        x.set("FAKE_HC_SEND_FAIL", kind);
+        let (_codex, path) = local_codex(&x, &[]);
+        let (code, line) = x.send("t7", "codex", SID, &path, "hi");
+        assert_eq!(error(code, &line), "unreachable", "{kind}");
+    }
+}
+
+#[test]
+fn slow_send_is_unconfirmed() {
+    let mut x = Scratch::new();
+    x.set("FAKE_HC_SEND_SLEEP", "3");
+    x.set("BW_SEND_TIMEOUT_S", "1");
+    let (_codex, path) = local_codex(&x, &[]);
+    let start = Instant::now();
+    let (code, line) = x.send("t7", "codex", SID, &path, "hi");
+    assert_eq!((code, sent(&line)), (0, "unconfirmed"));
+    assert!(
+        start.elapsed() < Duration::from_millis(2500),
+        "took {:?}",
+        start.elapsed()
+    );
+}
+
+#[test]
+fn a_machine_address_is_usage() {
+    // hc wraps text sent from another core as `<hc from=…>`, so slash commands would never run there.
+    let x = Scratch::new();
+    let (code, lines) = x.run(&[
+        "send",
+        "--terminal",
+        "bwloop/t1",
+        "--expect-kind",
+        "codex",
+        "--expect-session",
+        SID,
+        "--expect-path",
+        "/l/a.jsonl",
+        "--text",
+        "/new",
+    ]);
+    assert_eq!(code, 2, "{lines:?}");
+    assert_eq!(lines[0]["code"], "usage");
+    assert!(
+        lines[0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("own machine"),
+        "{lines:?}"
+    );
+    assert!(x.log().is_empty(), "no hc call");
+}
+
+#[test]
+fn missing_expectations_are_usage() {
+    let x = Scratch::new();
+    let all = [
+        ("--terminal", "t1"),
+        ("--expect-kind", "codex"),
+        ("--expect-session", SID),
+        ("--expect-path", "/l/a.jsonl"),
+        ("--text", "hi"),
+    ];
+    for skip in 0..all.len() {
+        let mut args = vec!["send"];
+        for (i, (k, v)) in all.iter().enumerate() {
+            if i != skip {
+                args.extend([*k, *v]);
+            }
+        }
+        let (code, lines) = x.run(&args);
+        assert_eq!(code, 2, "without {}: {lines:?}", all[skip].0);
+        assert_eq!(lines[0]["code"], "usage");
+    }
+    let base = [
+        "send",
+        "--terminal",
+        "t1",
+        "--expect-kind",
+        "codex",
+        "--expect-session",
+        SID,
+        "--expect-path",
+        "/l/a.jsonl",
+        "--text",
+    ];
+    let (code, _) = x.run(&[&base[..], &[""]].concat());
+    assert_eq!(code, 2, "an empty message is refused");
+    let (code, _) = x.run(&[&base[..], &["hi", "--force"]].concat());
+    assert_eq!(code, 2, "bw send takes no --force");
+    assert!(x.sends().is_empty());
+    assert!(x.log().is_empty(), "no hc call for a bad command line");
 }

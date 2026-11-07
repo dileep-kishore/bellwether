@@ -5,8 +5,8 @@
 /**
  * @typedef {object} Target
  * @property {string | null} machine the space's machine; null for this Mac
- * @property {string} terminal full address, `machine/t` when remote (what `bw send` takes here)
- * @property {string} local the address on its own machine (what `bw feed` takes there)
+ * @property {string} terminal full address, `machine/t` when remote (what `bw picture` takes here)
+ * @property {string} local the address on its own machine (what `bw feed` and `bw send` take there)
  * @property {Kind} kind
  */
 

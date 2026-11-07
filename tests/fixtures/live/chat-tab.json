@@ -598,6 +598,19 @@
         "stdout": "{\"type\":\"send\",\"result\":\"sent\",\"message\":\"\"}\n",
         "stderr": ""
       }
+    },
+    {
+      "on": "macmini",
+      "cmd": "sh",
+      "argsInclude": [
+        "bw",
+        "send"
+      ],
+      "result": {
+        "code": 0,
+        "stdout": "{\"type\":\"send\",\"result\":\"sent\",\"message\":\"\"}\n",
+        "stderr": ""
+      }
     }
   ]
 }
