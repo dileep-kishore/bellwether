@@ -145,14 +145,54 @@ describe("bw-add", () => {
     expect(m.log.shared.at(-1)[1].projects.at(-1).commonDir).toBe("/r/beta/.git");
   });
 
-  test("a machine that stops being ready falls back to this Mac", async () => {
-    const m = await open(data([{ on: null, cmd: "git", argsInclude: ["rev-parse", "/r/beta"], result: ok("/r/beta/.git\n/r/beta\n") }]));
+  test("a chosen machine that goes offline stays chosen and Add waits for it", async () => {
+    const both = ok("/r/alpha/.git\n/r/alpha\n");
+    const m = await open(data([
+      { on: null, cmd: "git", argsInclude: ["rev-parse", "/r/alpha"], result: both },
+      { on: "macmini", cmd: "git", argsInclude: ["rev-parse", "/r/alpha"], result: both },
+    ]));
     await m.click("add-machine-macmini");
-    fake.machines = [{ name: null, layout: "ready" }, { name: "macmini", layout: "unavailable" }];
+    type(m, "/r/alpha");
+    fake.machines.find((x) => x.name === "macmini").layout = "unavailable";
     m.render();
-    expect(byId(m.el, "add-choose")).not.toBe(null);
-    type(m, "/r/beta");
+    expect(byId(m.el, "add-machine-macmini")).not.toBe(null);
+    expect(byId(m.el, "add-choose")).toBe(null);
+    expect(textOf(m.el)).toContain("macmini is offline");
     await m.click("add-go");
-    expect(revParses(m).map(([, , opts]) => opts)).toEqual([{ on: null }]);
+    findAll(m.el, (e) => e.tag === "Input")[0].attrs.state.handlers.submit({}, m.cx);
+    await m.cx.flush();
+    expect(m.log.exec).toEqual([]);
+    expect(m.log.shared).toEqual([]);
+    expect(m.log.closed).toEqual([]);
+
+    fake.machines.find((x) => x.name === "macmini").layout = "ready";
+    m.render();
+    await m.click("add-go");
+    expect(revParses(m).map(([, args, opts]) => [args[1], opts])).toEqual([["/r/alpha", { on: "macmini" }]]);
+    expect(m.log.shared.at(-1)[1].projects.at(-1)).toEqual({ machine: "macmini", commonDir: "/r/alpha/.git", name: "alpha", main: "/r/alpha" });
+  });
+
+  test("a chosen machine that is connecting says so", async () => {
+    const m = await open(data());
+    await m.click("add-machine-macmini");
+    fake.machines.find((x) => x.name === "macmini").layout = "loading";
+    m.render();
+    expect(textOf(m.el)).toContain("macmini is connecting…");
+    await m.click("add-go");
+    expect(m.log.exec).toEqual([]);
+  });
+
+  test("leaving an offline machine clears the path typed for it", async () => {
+    const m = await open(data());
+    await m.click("add-machine-macmini");
+    type(m, "/r/alpha");
+    fake.machines = fake.machines.filter((x) => x.name !== "macmini");
+    m.render();
+    expect(textOf(m.el)).toContain("macmini is offline");
+    await m.click("add-machine-local");
+    expect(findAll(m.el, (e) => e.tag === "Input")[0].attrs.state.value()).toBe("");
+    expect(byId(m.el, "add-machine-macmini")).toBe(null);
+    await m.click("add-go");
+    expect(m.log.exec).toEqual([]);
   });
 });

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { live, mount } from "../harness/mount.js";
 import { fake, phase } from "../harness/herdr-stub.js";
 import { byId, findAll, fire, textOf } from "../harness/kit-stub.js";
-import { projectKey, worktreeKey } from "../../shared/projects-model.js";
+import { forgetProject, projectKey, worktreeKey } from "../../shared/projects-model.js";
 import { COUNTS_SCRIPT } from "../../shared/git.js";
 import { HELPER_SCRIPT } from "../../shared/helper.js";
 
@@ -95,6 +95,33 @@ describe("bw-projects", () => {
       [null, "/r/alpha/.git", "/r/alpha"],
       ["macmini", "/home/u/gamma/.git", "/home/u/gamma"],
     ]);
+  });
+
+  test("a removed project is remembered again when a space reopens it", async () => {
+    const m = await mounted();
+    const stored = () => (fake.shared["bw.projects"]?.projects ?? []).map((p) => p.commonDir);
+    const open = { spaces: structuredClone(fake.spaces), panes: structuredClone(fake.panes), agents: structuredClone(fake.agents), terminals: structuredClone(fake.terminals) };
+    const closeLocal = () => {
+      fake.spaces = open.spaces.filter((s) => s.machine !== null);
+      fake.panes = open.panes.filter((p) => p.terminal.includes("/"));
+      fake.agents = open.agents.filter((a) => a.address.includes("/"));
+      fake.terminals = open.terminals.filter((t) => t.address.includes("/"));
+    };
+    expect(stored()).toEqual(["/r/alpha/.git", "/home/u/gamma/.git"]);
+    closeLocal();
+    await settle(m);
+    expect(byId(m.el, `project-${ALPHA}`)).not.toBe(null);
+    // What bw-menu's Remove writes.
+    fake.shared["bw.projects"] = forgetProject(fake.shared["bw.projects"], ALPHA);
+    await settle(m);
+    expect(byId(m.el, `project-${ALPHA}`)).toBe(null);
+    Object.assign(fake, structuredClone(open));
+    await settle(m);
+    expect(stored()).toEqual(["/home/u/gamma/.git", "/r/alpha/.git"]);
+    closeLocal();
+    await settle(m);
+    expect(byId(m.el, `project-${ALPHA}`)).not.toBe(null);
+    expect(m.log.shared.filter(([k]) => k === "bw.projects")).toHaveLength(2);
   });
 
   test("clicking a dimmed row runs space.new with that folder", async () => {
@@ -246,6 +273,20 @@ describe("bw-projects", () => {
     expect(m.log.overlays.map((o) => [o.mod, o.kind])).toEqual([["bw-add", "dialog"], ["bw-menu", "popup"], ["bw-new", "popup"], ["bw-menu", "popup"]]);
     expect(m.log.overlays[2].props).toEqual({ machine: "macmini", folder: "/home/u/gamma" });
     expect(m.log.overlays[1].props.project).toMatchObject({ key: GAMMA, machine: "macmini", open: true });
+  });
+
+  test("a project with no main checkout has no + to start a terminal", async () => {
+    calls = [];
+    const data = withExec("two-machines");
+    const bare = { machine: null, commonDir: "/r/bare.git", name: "bare", main: null };
+    data.shared = { "bw.projects": { version: 1, projects: [bare] } };
+    const m = await mount("bw-projects", { live: data });
+    await settle(m);
+    const key = projectKey(null, "/r/bare.git");
+    await fire(byId(m.el, `project-${key}`), "on_hover", true, m.cx);
+    m.render();
+    expect(byId(m.el, `project-new-${key}`)).toBe(null);
+    expect(byId(m.el, `project-more-${key}`)).not.toBe(null);
   });
 
   test("spaces outside git show under Other spaces with their agents", async () => {

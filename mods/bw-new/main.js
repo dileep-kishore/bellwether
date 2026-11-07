@@ -45,6 +45,8 @@ export default class NewMenu extends View {
         .when(r.enabled, (el) => el.cursor_pointer().hover((s) => s.bg(t.selected)))
         .on_click(() => {
           if (!r.enabled) return;
+          // The space can close after this render drew the row.
+          if (contextOf(props() ?? {}, spaces(), panes()).closed) return;
           if (typeof p.overlay === "string") closeOverlay(p.overlay);
           if (r.action[0] === "run") run(r.action[1], r.action[2]);
           else openOverlay(r.action[1]);

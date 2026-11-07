@@ -102,8 +102,10 @@ function projectHeader(d, p, m) {
         .child(div().flex_1().min_w(0).truncate().text_size(13).font_semibold().text_color(t.foreground).child(p.name))
         .when(folded, (el) => el.child(statusIcon(t, p.status))),
     )
+    // Without a main checkout "+" would start in the machine's home; the menu beside it names why.
     .when(hovered && m.state !== "not_connected", (el) =>
-      el.child(button(`project-new-${p.key}`, ICONS.plus, () => d.newInMain(p))).child(button(`project-more-${p.key}`, ICONS.more, () => d.projectMenu(p))),
+      el.when(p.main !== null, (el) => el.child(button(`project-new-${p.key}`, ICONS.plus, () => d.newInMain(p))))
+        .child(button(`project-more-${p.key}`, ICONS.more, () => d.projectMenu(p))),
     );
 }
 
