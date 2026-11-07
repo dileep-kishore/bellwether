@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { createHelper } from "../../shared/helper.js";
 import {
-  AGENT_PATH, HC, Term, USER_ENV, changed, claudeReady, codexHome, codexReady, envWith, hcUser, lines, makeRepo,
+  AGENT_PATH, HC, Term, USER_ENV, aboveFooter, changed, claudeReady, codexHome, codexReady, envWith, hcUser, lines, makeRepo,
   reporter, rollouts, short, sleep, spawn, trustHooks, trustProjects, until, viaHc,
 } from "./live.js";
 
@@ -95,7 +95,12 @@ async function cardFor(t, match, o = {}) {
     const req = out.find((l) => l.type === "request" && l.state === "pending" && match(l));
     const ms = Date.now() - since;
     if (req) return { req, ms, calls, cards: one(out, "cards"), tree: one(out, "tree") };
-    if (blocked && ms > CARD_MS) throw new Error(`no pending card ${ms} ms after hc said blocked (${calls} polls): ${short(out.filter((l) => l.type !== "row"))}`);
+    if (blocked && ms > CARD_MS) {
+      const late = await until(async () => (await t.bw(["feed", "--terminal", t.local, "--tree", "--cards"])).some((l) => l.type === "request" && l.state === "pending" && match(l)), 10000, 500);
+      const screen = (await t.screen(40)).split("\n").slice(-25).join("\n");
+      throw new Error(`no pending card ${ms} ms after hc said blocked (${calls} polls; ${late ? "it showed within 10 s more" : "none within 10 s more"}): `
+        + `cards ${JSON.stringify(one(out, "cards"))} requests ${JSON.stringify(out.filter((l) => l.type === "request"))}\nscreen:\n${screen}`);
+    }
     if (!blocked && ms > limit) throw new Error(`no pending card after ${ms} ms: ${short(out.filter((l) => l.type !== "row"))}`);
     await sleep(blocked ? 200 : 2000);
   }
@@ -267,10 +272,10 @@ async function claudeStale(t, dir) {
     await t.wait();
     const cards = await t.bw(["cards", "--terminal", t.local]);
     const was = cards.find((l) => l.type === "request" && l.id === c.req.id);
-    const a = await t.steady();
+    const a = aboveFooter(await t.steady());
     const r = await answer(t, c.req, c.cards, ["--action", "approve"]);
     await sleep(2000);
-    const b = await t.screen();
+    const b = aboveFooter(await t.screen());
     if (was?.state !== "answered_terminal") {
       const why = was && { state: was.state, tool_use_id: was.tool_use_id, event: was.event, screen_id: was.screen_id, at_ms: was.at_ms, resolved_ms: was.resolved_ms };
       return fail("claude-stale-after-terminal-answer", `bw cards after the box left shows ${short(why)}; bw answer then gave ${short(r)}`);
@@ -284,10 +289,10 @@ async function claudeStale(t, dir) {
     rmSync(file, { force: true });
     await t.type(`${CLAUDE_ASK}: touch stale.txt (run it again)`);
     const c = await cardFor(t, (r) => r.command === "touch stale.txt" && r.id !== first.req.id);
-    const a = await t.steady();
+    const a = aboveFooter(await t.steady());
     const r = await answer(t, first.req, first.cards, ["--action", "approve"]);
     await sleep(2000);
-    const b = await t.screen();
+    const b = aboveFooter(await t.screen());
     const absent = !existsSync(file);
     if (r.result !== "stale" || a !== b || !absent) return fail("claude-stale-next-occurrence", `old card gave ${short(r)}; screen ${a === b ? "unchanged" : short(changed(a, b))}; stale.txt ${absent ? "absent" : "present"}`);
     const r2 = await answer(t, c.req, c.cards, ["--action", "approve"]);
@@ -381,7 +386,9 @@ async function codexChecks() {
     await t.wait();
     await check("codex-child-approval", async () => {
       await t.type("Spawn exactly one sub-agent with spawn_agent. Its task: run exactly this shell command with escalated sandbox permissions (asking for approval first) and nothing else: touch child.txt. Wait for it with wait_agent, then reply done.");
-      const c = await cardFor(t, (r) => r.command === "touch child.txt");
+      // Codex may write the child's rollout after the box shows, so the first poll can see the card before the tree
+      // has the child; done check 3 asks for the card under its child within 3 s, so wait for that.
+      const c = await cardFor(t, (r) => r.command === "touch child.txt" && Boolean(r.who?.child));
       const kid = childOf(c.tree, c.req);
       const rollout = rollouts(home).find((r) => r.child && r.id === c.req.who?.child);
       if (!kid || !rollout) return fail("codex-child-approval", `card who ${short(c.req.who)}; tree ${short(c.tree?.children)}`);

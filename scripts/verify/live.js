@@ -196,6 +196,20 @@ export function changed(before, after) {
   return after.split("\n").filter((l) => !was.has(l)).map((l) => l.trim()).filter(Boolean);
 }
 
+/**
+ * A Claude screen without its footer: the lines below the input box's bottom rule (mode, effort, tips) change on
+ * their own while idle, so a check that no key was pressed compares the rest. A screen with no rule near its end
+ * comes back whole.
+ * @param {string} screen
+ */
+export function aboveFooter(screen) {
+  const lines = screen.replace(/\s+$/, "").split("\n");
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 6); i--) {
+    if (/^\s*─{10,}\s*$/.test(lines[i])) return lines.slice(0, i + 1).join("\n");
+  }
+  return lines.join("\n");
+}
+
 /** Every file under `dir` holding `text`. @param {string} dir @param {string} text */
 export function filesWith(dir, text) {
   if (!existsSync(dir)) return [];
