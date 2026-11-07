@@ -24,7 +24,7 @@ pub(crate) const RUN_HELPER: &str =
     r#"exec "$HOME"/.local/share/bellwether/helper/current/bw "$@""#;
 
 const USAGE: &str = "usage: bw machine status <machine> | bw machine install <machine> [--force] \
-    | bw machine setup <machine|local> --check|--diff|--apply|--remove";
+    | bw machine setup <machine|local> --check|--diff|--apply|--remove|--agent";
 
 pub fn run(args: &[String]) -> ExitCode {
     let sub = args.first().map(String::as_str);
