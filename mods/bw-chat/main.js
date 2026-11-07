@@ -164,6 +164,8 @@ export default class Chat extends View {
     /** @type {WeakMap<object, { w: number, open: boolean, h: number }>} */
     this.heights = new WeakMap();
     this.width = 0;
+    /** The pane's height from on_size_change; 0 before the first layout. */
+    this.paneHeight = 0;
     this.follow = true;
     this.topSeen = false;
     this.wantOlder = false;
@@ -977,9 +979,10 @@ export default class Chat extends View {
       .size_full()
       .min_w(0)
       .bg(t.background)
-      .on_size_change((/** @type {{ width: number }} */ size, /** @type {any} */ cx) => {
-        if (Math.abs(size.width - this.width) < 1) return;
+      .on_size_change((/** @type {{ width: number, height: number }} */ size, /** @type {any} */ cx) => {
+        if (Math.abs(size.width - this.width) < 1 && Math.abs((size.height || 0) - this.paneHeight) < 1) return;
         this.width = size.width;
+        this.paneHeight = size.height || 0;
         cx.notify();
       });
     if (!this.id) {
@@ -1140,7 +1143,7 @@ export default class Chat extends View {
       const current = view.child ?? (own ? view.terminal : null);
       body.child(
         cardOpen(rows, this.toggle)
-          ? threadsCard(rows, { t, current, onRow: (row, cx) => this.openRow(row, cx) })
+          ? threadsCard(rows, { t, current, onRow: (row, cx) => this.openRow(row, cx), paneHeight: this.paneHeight })
           : threadsPill(pillText(rows), t, (cx) => {
               this.toggle = toggleCard(this.rows, this.toggle);
               cx.notify();

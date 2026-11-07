@@ -98,6 +98,14 @@ describe("threads card", () => {
     expect(card.attrs.w).toBe(312);
     expect("absolute" in card.attrs).toBe(true);
     expect([card.attrs.top, card.attrs.right]).toEqual([12, 12]);
+    // Herdr drops an absolute element's insets when it scrolls itself, so the rows scroll in an inner box
+    // capped in pixels (a percentage cap collapses it): half the pane, before and after a resize.
+    expect("overflow_y_scrollbar" in card.attrs).toBe(false);
+    const list = byId(card, "threads-rows");
+    expect("overflow_y_scrollbar" in list.attrs).toBe(true);
+    expect(list.attrs.max_h).toBe(320);
+    await fire(byId(m.el, "chat-root"), "on_size_change", { width: 700, height: 900 }, m.cx);
+    expect(byId(m.render(), "threads-rows").attrs.max_h).toBe(450);
     const rows = findAll(card, (e) => typeof e.attrs.id === "string" && e.attrs.id.startsWith("row-"));
     expect(rows.map((r) => r.attrs.id)).toEqual([
       "row-parent",
