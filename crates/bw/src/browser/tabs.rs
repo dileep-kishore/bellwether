@@ -104,16 +104,13 @@ pub fn run(cmd: &str, argv: &[String]) -> ExitCode {
     }
 }
 
+/// Exits 0 either way: `shared/helper.js` drops a failed command's output, and the panel shows `message`.
 fn action(action: &str, id: &str, ok: bool, message: &str) -> ExitCode {
     println!(
         "{}",
         json!({"type": "tab-action", "action": action, "id": id, "ok": ok, "message": message})
     );
-    if ok {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(1)
-    }
+    ExitCode::SUCCESS
 }
 
 /// `BW_CHROME_PORT`, else 9222.

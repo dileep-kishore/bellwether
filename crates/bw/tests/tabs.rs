@@ -437,8 +437,9 @@ fn focus_and_close_hit_the_id() {
     assert_eq!(lines(&out)[0]["action"], "close");
     assert_eq!(lines(&out)[0]["ok"], true);
 
+    // Exit 0 with ok:false: shared/helper.js drops a failed command's output, and the panel shows this message.
     let out = scratch.bw(chrome.port, &["focus", "--id", "GONE"]);
-    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
     let l = lines(&out);
     assert_eq!(l[0]["ok"], false);
     assert_eq!(l[0]["message"], "No such target id: GONE");
