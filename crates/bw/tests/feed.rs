@@ -266,6 +266,49 @@ fn changed_files_row_ends_an_editing_turn() {
 }
 
 #[test]
+fn changed_files_row_reads_the_whole_patch() {
+    // A Codex patch over the 4 KB detail cut: the changed row lists the files past the cut, unescaped.
+    let filler: String = (0..120)
+        .map(|i| format!("+line {i:04} of filler text for the added file\n"))
+        .collect();
+    let patch = format!(
+        "*** Begin Patch\n*** Add File: /w/a.txt\n{filler}*** Update File: /w/b.txt\n@@\n-x\n+y\n*** End Patch"
+    );
+    let js = format!(
+        "text(await tools.apply_patch({}));\n",
+        serde_json::to_string(&patch).unwrap()
+    );
+    let x = Scratch::new();
+    for (name, input) in [("apply_patch", patch.clone()), ("exec", js)] {
+        let ts = "2026-11-06T22:11:50.000Z";
+        let lines = [
+            serde_json::json!({"timestamp": ts, "type": "session_meta", "payload": {"id": "01a1b4a2-0000-7000-8000-000000000001",
+                "timestamp": ts, "cwd": "/w", "source": "cli"}}),
+            serde_json::json!({"timestamp": ts, "type": "response_item", "payload": {"type": "message", "role": "user",
+                "content": [{"type": "input_text", "text": "write the files"}]}}),
+            serde_json::json!({"timestamp": ts, "type": "response_item", "payload": {"type": "custom_tool_call",
+                "name": name, "call_id": "p1", "input": input}}),
+            serde_json::json!({"timestamp": ts, "type": "response_item", "payload": {"type": "custom_tool_call_output",
+                "call_id": "p1", "output": "ok"}}),
+            serde_json::json!({"timestamp": ts, "type": "response_item", "payload": {"type": "message", "role": "assistant",
+                "content": [{"type": "output_text", "text": "Done."}]}}),
+        ];
+        let log = x.path(&format!("{name}.jsonl"));
+        let text: String = lines.iter().map(|l| format!("{l}\n")).collect();
+        std::fs::write(&log, text).unwrap();
+        let rows = rows(&x.feed(&log, "codex", false, None));
+        let changed: Vec<&Value> = rows.iter().filter(|r| r["k"] == "changed").collect();
+        assert_eq!(changed.len(), 1, "{name}: {rows:#?}");
+        assert_eq!(
+            changed[0]["files"],
+            serde_json::json!(["/w/a.txt", "/w/b.txt"]),
+            "{name}"
+        );
+        assert_eq!(changed[0]["text"], "Changed 2 files", "{name}");
+    }
+}
+
+#[test]
 fn live_tool_line_until_result() {
     let x = Scratch::new();
     let full = log_lines(&x.root("claude-subagents"));

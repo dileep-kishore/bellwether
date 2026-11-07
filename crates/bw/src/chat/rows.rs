@@ -4,7 +4,6 @@
 //! Adapted from Flockbook's xplat/flockbook-modfeed/src/rows.rs (MIT, Copyright (c) 2026 Min-Chen Lee).
 
 use chrono::{Datelike, Duration, TimeZone, Timelike};
-use herdr_core::conversation::codex_patch_files;
 use herdr_core::util::Date;
 use herdr_core::*;
 use serde::Serialize;
@@ -356,7 +355,7 @@ pub fn edited_files(call: &ToolCall) -> Vec<String> {
         "Edit" | "MultiEdit" | "NotebookEdit" | "Write" if !call.summary.is_empty() => {
             vec![call.summary.clone()]
         }
-        tool => codex_patch_files(tool, &call.input),
+        _ => call.edited.clone(),
     }
 }
 

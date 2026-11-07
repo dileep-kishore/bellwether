@@ -144,6 +144,8 @@ pub struct ToolCall {
     /// Bash = command, Read/Write/Edit = path, Task/Agent = description, else the first string argument.
     pub summary: String,
     pub input: String,
+    /// The files a Codex patch adds, updates or deletes, read from the whole input before the cut.
+    pub edited: Vec<String>,
     /// `None` until the result arrives.
     pub output: Option<String>,
     pub is_error: bool,
