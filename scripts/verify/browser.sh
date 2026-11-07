@@ -20,6 +20,7 @@ src=$(cd "$(dirname "$0")/../.." && pwd)
 export PATH=/opt/homebrew/opt/rustup/bin:$PATH
 . "$src/scripts/verify/lib-scratch.sh"
 . "$src/scripts/verify/lib-sshd.sh"
+. "$src/scripts/verify/lib-terminals.sh"
 hc=${BW_HC:-hc}
 offline=0 machine=
 while [ $# -gt 0 ]; do
@@ -151,7 +152,7 @@ slug() { printf %s "$1" | sed 's/[^A-Za-z0-9]/-/g'; }
 
 before=$(sums)
 chromes_before=$(user_chromes)
-R= H= local_saved=0 cport= sport= fport= started=false core_pid= forward_up=0 remote_terms= live_before=
+R= H= local_saved=0 cport= sport= fport= started=false core_pid= forward_up=0 remote_terms= terms_before=
 remote_before= helper_before= local_before=
 
 cleanup() {
@@ -162,15 +163,21 @@ cleanup() {
     out=$("$bw" browser forward stop --machine "$machine" 2>&1)
     [ "$(printf %s "$out" | jq -r .state 2> /dev/null)" = stopped ] || fail "cleanup" "bw browser forward stop --machine $machine: $out"
   fi
-  # bw starts its npx warms with --rm; one still running is this run's.
-  for t in $("$hc" ls --all --json 2> /dev/null | jq -r '.terminals[]? | select(.state == "live") | select((.name // "") | test("^bw-(warm|fwd)-")) | .address'); do
-    case " $live_before " in *" $t "*) continue ;; esac
-    "$hc" kill "$t" > /dev/null 2>&1
-    "$hc" rm "$t" > /dev/null 2>&1
+  # A "+" for another machine during the run starts bw-fwd-*/bw-warm-* here too: only the names this
+  # run's machine gets, absent at the start, are this run's.
+  own=$(run_names "$machine")
+  "$hc" ls --all --json 2> /dev/null | sort_new "$terms_before" $own | while read -r k t n; do
+    if [ "$k" = own ]; then
+      "$hc" kill "$t" > /dev/null 2>&1
+      "$hc" rm "$t" > /dev/null 2>&1
+    else
+      echo "NOTE left $n ($t) running: a bw- terminal this run did not start"
+    fi
   done
-  left=$("$hc" ls --all --json 2> /dev/null | jq -r --arg s "$(slug "$machine")" \
-    '[.terminals[]? | select(.state == "live") | select((.name // "") | test("^(bwv-|bw-fwd-" + $s + "$)")) | .address] | join(" ")')
-  [ -z "$left" ] && pass "cleanup-terminals" "the user's core lists no live terminal of this run (bwv-*, bw-fwd-$(slug "$machine"))" ||
+  left=$("$hc" ls --all --json 2> /dev/null | sort_new "$terms_before" $own | awk '$1 == "own" { printf "%s ", $2 }')
+  left=$left$("$hc" ls --all --json 2> /dev/null |
+    jq -r '[.terminals[]? | select(.state == "live") | select((.name // "") | startswith("bwv-")) | .address] | join(" ")')
+  [ -z "$left" ] && pass "cleanup-terminals" "the user's core lists no live terminal of this run (bwv-*, $(echo $own))" ||
     fail "cleanup-terminals" "still live in the user's core: $left"
   HC_SESSION=$core "$hc" server stop > /dev/null 2>&1
   for p in "$L"/*.pid; do [ -f "$p" ] && kill "$(cat "$p")" 2> /dev/null; done
@@ -218,16 +225,14 @@ cleanup() {
   fi
   sleep 2
   [ -n "$core_pid" ] && kill -0 "$core_pid" 2> /dev/null && fail "cleanup" "the $core core (pid $core_pid) still runs"
-  n=$(lsof -a -d cwd -Fn 2> /dev/null | grep -c "^n$L/")
-  [ "$n" -gt 0 ] && fail "cleanup" "$n process(es) still run in $L"
   # Claude writes each folder's log under ~/.claude/projects/<its path with - for others>, and a scratchpad
-  # under /private/tmp/claude-<uid>/<the same name>.
-  for d in "$L" "$L"/*; do
-    [ -d "$d" ] || continue
-    p=$(slug "$d")
-    rm -rf "$HOME/.claude/projects/$p" "/private/tmp/claude-$(id -u)/$p"
-  done
-  scratch_rm "$L" || fail "cleanup" "$L is still there"
+  # under /private/tmp/claude-<uid>/<the same name>; they stay with $L while a process still uses it.
+  logs=$(for d in "$L" "$L"/*; do [ -d "$d" ] && slug "$d"; done)
+  if scratch_rm_idle "$L" $(cat "$L"/*.pid 2> /dev/null) $core_pid; then
+    for p in $logs; do rm -rf "$HOME/.claude/projects/$p" "/private/tmp/claude-$(id -u)/$p"; done
+  else
+    fail "cleanup" "kept $L and its folders' Claude logs for the processes above"
+  fi
   [ "$(sums)" = "$before" ] && pass "settings-unchanged" "sha256 of ~/.claude/settings.json, ~/.codex/hooks.json and ~/.codex/config.toml as before: $(sums | cut -c1-12 | tr '\n' ' ')" ||
     fail "settings-unchanged" "~/.claude/settings.json, ~/.codex/hooks.json or ~/.codex/config.toml changed during the run"
   t=$(grep -lF -e bw-browser -e "$SENT_TOP" -e "$SENT_PROJ" "$HOME/.claude.json" $real 2> /dev/null)
@@ -240,7 +245,8 @@ cleanup() {
   exit 1
 }
 
-[ -e "$L" ] && { scratch_rm "$L" || { echo "FAIL setup: $L is left from another run and has no marker"; exit 1; }; }
+# The pids a killed run recorded count as its processes.
+[ -e "$L" ] && { scratch_rm_idle "$L" $(cat "$L"/*.pid 2> /dev/null) || { echo "FAIL setup: $L is left from another run and was not deleted (above)"; exit 1; }; }
 scratch_make "$L" || { echo "FAIL setup: scratch $L"; exit 1; }
 trap 'cleanup $?' EXIT
 trap 'exit 1' HUP INT TERM
@@ -248,7 +254,7 @@ mkdir -p "$L/app" "$L/cache" "$L/claude-p" "$L/claude-i" "$L/sent/home" "$L/sent
 (umask 077; mkdir "$L/chrome")
 cport=$(free_port)
 export BW_CHROME_PORT=$cport BW_CHROME_PROFILE=$L/chrome HERDR_APP_HOME=$L/app BW_CACHE_DIR=$L/cache
-live_before=$("$hc" ls --all --json 2> /dev/null | jq -r '[.terminals[]? | select(.state == "live") | .address] | join(" ")')
+terms_before=$("$hc" ls --all --json 2> /dev/null)
 
 pass "settings-before" "$(sums | awk '{print $1}' | cut -c1-12 | tr '\n' ' ')for $real; user Chrome pids $(printf %s "$chromes_before" | awk '{print $1}' | tr '\n' ' ')"
 local_before=$(sh -c "$home_files" sh sums "$HOME" $local_paths)

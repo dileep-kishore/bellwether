@@ -238,15 +238,18 @@ with the launcher, `default_tools_approval_mode="approve"`,
 Codex's effective `developer_instructions` followed by `browser-codex.md`.
 Codex's effective value comes from the top-level `config.toml`, then the
 profile file a `--profile` or `-p` names, then a trusted project's
-`.codex/config.toml`.
+`.codex/config.toml`. "+" reads that project file in the folder the agent
+starts in: the space's focused terminal's folder, else the folder of the
+space's first pane. It names the same folder to `tab.new`.
 
 These additions last for that session only. No user setting is written.
 Claude never gets `--strict-mcp-config`, so your own MCP servers stay. When
 the browser is unavailable, the agent starts with no additions and Herdr shows
 "Started without the browser" with the reason. That happens when Chrome
 cannot start, the machine is reached through `via` or is offline, the forward
-is refused, Node is missing, or Codex's `config.toml` does not parse. Shell
-rows are unchanged.
+is refused, Node is missing, or Codex's `config.toml` does not parse. When
+the space closes during the wait, nothing starts and Herdr shows "Nothing
+started". Shell rows are unchanged.
 
 The MCP server is Chrome DevTools MCP 1.12.0, named `bw-browser`. It runs
 through `npx -y chrome-devtools-mcp@1.12.0` and is never installed globally.
@@ -505,7 +508,14 @@ to a scratch `sshd`. The script also runs interactive Claude in a private
 core (`HC_SESSION=bw-browser`, check `interactive-claude`) and looks for each
 agent's screenshot in `bw feed --pictures` (`claude-picture`,
 `codex-picture`). It puts back each file it changed on that machine and here,
-and deletes the files it created. It prints `PASS` or `FAIL` per check and
+and deletes the files it created. In your own hc core it stops only the
+forward and npx warm terminals named for that machine that were absent at the
+start, and prints a `NOTE` for any other new `bw-` terminal, such as one a "+"
+for another machine started meanwhile. A process that still uses its scratch
+folder after cleanup, or a recorded pid that still runs, keeps that folder
+and its Claude logs for diagnosis and is named in a `FAIL`. A later run
+refuses to start until those processes end. `browser-probe.sh` keeps its
+folder the same way. It prints `PASS` or `FAIL` per check and
 exits 1 on any `FAIL`. It fails when `~/.claude/settings.json`,
 `~/.codex/hooks.json` or `~/.codex/config.toml` changed, when
 `~/.claude.json` gained a `bw-browser` trace, or when your own Chrome
