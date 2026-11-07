@@ -1,7 +1,7 @@
 // Runs the `bw` helper on the machine a space lives on. Imports nothing, so mods copy it and `bun test` runs it.
 
-export const PROTOCOL = 2;
-export const HELPER_VERSION = "0.2.0";
+export const PROTOCOL = 3;
+export const HELPER_VERSION = "0.3.0";
 // Arguments reach bw as "$@", never through the shell's parser.
 export const HELPER_SCRIPT = 'exec "$HOME"/.local/share/bellwether/helper/current/bw "$@"';
 

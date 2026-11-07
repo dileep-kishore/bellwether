@@ -40,7 +40,7 @@ impl std::fmt::Display for HcError {
     }
 }
 
-fn program() -> OsString {
+pub(crate) fn program() -> OsString {
     std::env::var_os("BW_HC")
         .filter(|p| !p.is_empty())
         .unwrap_or_else(|| "hc".into())
@@ -238,21 +238,81 @@ pub fn hc_send_with(
     run_timed(program, &args, timeout)
 }
 
+/// `hc read <address> --json`: the terminal's visible screen as plain text, no history.
+#[expect(
+    dead_code,
+    reason = "bw cards and bw answer (phase 3 Tasks 8 and 9) call it"
+)]
+pub fn hc_read(address: &str) -> Result<String, HcError> {
+    hc_read_with(&program(), address)
+}
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "bw cards and bw answer (phase 3 Tasks 8 and 9) call it"
+    )
+)]
+pub fn hc_read_with(program: &OsStr, address: &str) -> Result<String, HcError> {
+    let r = run_with(
+        program,
+        &["read".into(), address.into(), "--json".into()],
+        None,
+    )?;
+    r["text"]
+        .as_str()
+        .map(String::from)
+        .ok_or_else(|| HcError::Failed(format!("hc read {address} printed no text")))
+}
+
+/// Presses `keys` (hc's names: `enter`, `esc`, `1`, ...) in the terminal at `address`, never `--force`.
+#[expect(
+    dead_code,
+    reason = "bw cards and bw answer (phase 3 Tasks 8 and 9) call it"
+)]
+pub fn hc_keys(address: &str, keys: &[&str], timeout: Duration) -> Result<Value, HcError> {
+    hc_keys_with(&program(), address, keys, timeout)
+}
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "bw cards and bw answer (phase 3 Tasks 8 and 9) call it"
+    )
+)]
+pub fn hc_keys_with(
+    program: &OsStr,
+    address: &str,
+    keys: &[&str],
+    timeout: Duration,
+) -> Result<Value, HcError> {
+    // As with send, `--` keeps an address or key that starts with `-` from reading as a flag.
+    let mut args = vec![
+        "keys".to_string(),
+        "--json".into(),
+        "--".into(),
+        address.into(),
+    ];
+    args.extend(keys.iter().map(|k| k.to_string()));
+    run_timed(program, &args, timeout)
+}
+
+/// Test stand-in for hc, shared by this module's tests and `requests::screen`'s.
 #[cfg(test)]
-mod tests {
-    use super::*;
+pub(crate) mod fake {
     use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
-    use std::time::Instant;
 
     /// A script that runs tests/fake-hc with `env` set and writes its argv, one per line, to `argv.txt`.
-    struct Fake {
-        dir: tempfile::TempDir,
-        program: PathBuf,
+    pub struct Fake {
+        pub dir: tempfile::TempDir,
+        pub program: PathBuf,
     }
 
     impl Fake {
-        fn new(env: &[(&str, &str)]) -> Fake {
+        pub fn new(env: &[(&str, &str)]) -> Fake {
             let dir = tempfile::tempdir().unwrap();
             let fake = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fake-hc");
             let mut script = format!(
@@ -270,7 +330,7 @@ mod tests {
             Fake { dir, program }
         }
 
-        fn argv(&self) -> Vec<String> {
+        pub fn argv(&self) -> Vec<String> {
             std::fs::read_to_string(self.dir.path().join("argv.txt"))
                 .unwrap()
                 .lines()
@@ -278,10 +338,17 @@ mod tests {
                 .collect()
         }
 
-        fn log(&self) -> String {
+        pub fn log(&self) -> String {
             std::fs::read_to_string(self.dir.path().join("calls.log")).unwrap_or_default()
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fake::Fake;
+    use super::*;
+    use std::time::Instant;
 
     #[test]
     fn get_parses_json() {
@@ -354,6 +421,79 @@ mod tests {
         let fake = Fake::new(&[("FAKE_HC_SEND_SLEEP", "3")]);
         let start = Instant::now();
         let r = hc_send_with(fake.program.as_os_str(), "t3", "hi", Duration::from_secs(1));
+        assert!(matches!(r, Err(HcError::TimedOut)), "got {r:?}");
+        let took = start.elapsed();
+        assert!(
+            took >= Duration::from_secs(1) && took < Duration::from_millis(2500),
+            "took {took:?}"
+        );
+    }
+
+    #[test]
+    fn read_returns_screen_text() {
+        let screens = tempfile::tempdir().unwrap();
+        let text = "› 1. Yes, proceed (y)\n\tpath \"a\\b\"\n\nPress enter";
+        std::fs::write(screens.path().join("t1.txt"), format!("{text}\n")).unwrap();
+        std::fs::write(screens.path().join("t1.after.txt"), "after\n").unwrap();
+        let fake = Fake::new(&[("FAKE_HC_SCREEN_DIR", screens.path().to_str().unwrap())]);
+        assert_eq!(hc_read_with(fake.program.as_os_str(), "t1").unwrap(), text);
+        assert_eq!(fake.argv(), ["read", "t1", "--json"]);
+        // The fake moves to the after screen only once keys went to that terminal.
+        hc_keys_with(
+            fake.program.as_os_str(),
+            "t1",
+            &["y"],
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        assert_eq!(
+            hc_read_with(fake.program.as_os_str(), "t1").unwrap(),
+            "after"
+        );
+        match hc_read_with(fake.program.as_os_str(), "t9") {
+            Err(HcError::Refused { kind, .. }) => assert_eq!(kind, "not_found"),
+            other => panic!("expected not_found, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn keys_argv_is_double_dash_address_keys() {
+        let fake = Fake::new(&[]);
+        let v = hc_keys_with(
+            fake.program.as_os_str(),
+            "t3",
+            &["--force", "esc"],
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        assert_eq!(v["status"], "working");
+        assert_eq!(
+            fake.argv(),
+            ["keys", "--json", "--", "t3", "--force", "esc"]
+        );
+        assert_eq!(fake.log(), "keys t3 --force esc\n");
+        let fake = Fake::new(&[("FAKE_HC_KEYS_FAIL", "not_found")]);
+        match hc_keys_with(
+            fake.program.as_os_str(),
+            "t3",
+            &["1"],
+            Duration::from_secs(5),
+        ) {
+            Err(HcError::Refused { kind, .. }) => assert_eq!(kind, "not_found"),
+            other => panic!("expected not_found, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn slow_keys_time_out() {
+        let fake = Fake::new(&[("FAKE_HC_KEYS_SLEEP", "3")]);
+        let start = Instant::now();
+        let r = hc_keys_with(
+            fake.program.as_os_str(),
+            "t3",
+            &["1"],
+            Duration::from_secs(1),
+        );
         assert!(matches!(r, Err(HcError::TimedOut)), "got {r:?}");
         let took = start.elapsed();
         assert!(

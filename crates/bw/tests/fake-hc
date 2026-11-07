@@ -1,6 +1,6 @@
 #!/bin/sh
-# Stands in for hc in tests: `exec` and `file write` with FAKE_HC_ROOT as that machine's home, and `get`, `ls`
-# and `send` against canned terminals.
+# Stands in for hc in tests: `exec` and `file write` with FAKE_HC_ROOT as that machine's home, and `get`, `ls`,
+# `send`, `read` and `keys` against canned terminals.
 #   FAKE_HC_UNAME         what `uname -sm` prints there
 #   FAKE_HC_CORRUPT_PART  N: the write of a file ending in .partN lands with its first byte changed
 #   FAKE_HC_OFFLINE       1: every call fails as hc does for a machine it cannot reach
@@ -10,6 +10,10 @@
 #   FAKE_HC_LS            a file: what `ls` prints, else {"terminals":[]}
 #   FAKE_HC_SEND_SLEEP    seconds `send` waits before answering
 #   FAKE_HC_SEND_FAIL     a kind: `send` fails with it (blocked, finished, not_found, machine_unknown, ...)
+#   FAKE_HC_SCREEN_DIR    `read <addr>` prints <addr with / as _>.txt from here, or .after.txt beside it once
+#                         FAKE_HC_LOG holds a `keys` call to that terminal; else fails not_found
+#   FAKE_HC_KEYS_SLEEP    seconds `keys` waits before answering
+#   FAKE_HC_KEYS_FAIL     a kind: `keys` fails with it
 # Argument shapes are the ones bw sends; anything else exits 2 so a changed call shows up in a test.
 set -u
 log=${FAKE_HC_LOG:-/dev/null}
@@ -19,6 +23,12 @@ fail() {
   exit "$3"
 }
 b64() { base64 < "$1" | tr -d '\n'; }
+# A plain-text file as a JSON string's contents: lines joined by \n, the last newline dropped.
+json_text() {
+  tab=$(printf '\t') cr=$(printf '\r')
+  LC_ALL=C sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e "s/$tab/\\\\t/g" -e "s/$cr/\\\\r/g" "$1" |
+    LC_ALL=C awk 'NR > 1 { printf "%s", "\\n" } { printf "%s", $0 }'
+}
 offline() {
   [ "${FAKE_HC_OFFLINE:-}" = 1 ] && fail machine_offline "machine ${1:-here} is not connected" 4
   return 0
@@ -28,9 +38,9 @@ offline() {
 cmd=$1
 shift
 
-# get, ls and send: --on is optional, and send's text is taken verbatim after `--`.
+# get, ls, send, read and keys: --on is optional; send's text and keys' names are taken verbatim after `--`.
 case $cmd in
-  get|ls|send)
+  get|ls|send|read|keys)
     machine= json=0 rest=
     while [ $# -gt 0 ]; do
       case $1 in
@@ -40,7 +50,7 @@ case $cmd in
         --) shift; break ;;
         --force) fail usage "bw never sends --force" 2 ;;
         -*) fail usage "unexpected argument $1" 2 ;;
-        *) [ "$cmd" = send ] && fail usage "send needs -- before the address" 2
+        *) case $cmd in send|keys) fail usage "$cmd needs -- before the address" 2 ;; esac
            [ -z "$rest" ] || fail usage "unexpected argument $1" 2
            rest=$1; shift ;;
       esac
@@ -68,6 +78,28 @@ case $cmd in
         sleep "${FAKE_HC_SEND_SLEEP:-0}"
         [ -n "${FAKE_HC_SEND_FAIL:-}" ] && fail "$FAKE_HC_SEND_FAIL" "terminal $1 refused: $FAKE_HC_SEND_FAIL" 1
         echo '{"started":1,"status":"working","turn":1}'
+        ;;
+      read)
+        [ $# -eq 0 ] && [ -n "$rest" ] || fail usage "read takes one terminal" 2
+        echo "read $rest" >> "$log"
+        offline "$machine"
+        base=${FAKE_HC_SCREEN_DIR:-/nonexistent}/$(printf '%s' "$rest" | tr / _)
+        file=$base.txt
+        if [ -f "$base.after.txt" ] && grep -qF -- "keys $rest " "$log" 2>/dev/null; then
+          file=$base.after.txt
+        fi
+        [ -f "$file" ] || fail not_found "no terminal $rest" 1
+        printf '{"complete":true,"how":"screen","text":"%s"}\n' "$(json_text "$file")"
+        ;;
+      keys)
+        [ $# -ge 2 ] || fail usage "keys takes -- <terminal> <key>..." 2
+        addr=$1
+        shift
+        echo "keys $addr $*" >> "$log"
+        offline "$machine"
+        sleep "${FAKE_HC_KEYS_SLEEP:-0}"
+        [ -n "${FAKE_HC_KEYS_FAIL:-}" ] && fail "$FAKE_HC_KEYS_FAIL" "terminal $addr refused: $FAKE_HC_KEYS_FAIL" 1
+        echo '{"turn":1,"status":"working"}'
         ;;
     esac
     exit 0
