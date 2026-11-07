@@ -228,9 +228,17 @@ holds the space runs the agents, the logs, Git and the hooks.
 - A chat tab is one Herdr tab with two panes: the agent's terminal and a
   `bw-chat` pane beside it. Bellwether records a pending chat in
   `shared("bw.chat-tabs")` and starts the agent with `tab.new {space, argv,
-  name}`; since `run` returns no ids, `bw-tabs` adds the chat when the new
-  tab appears with `pane.split {direction: "right", mod: "bw-chat", props:
-  {terminal}}`, records both pane ids there, and zooms the chat pane. `⌘J`
+  name}`; since `run` returns no ids, `bw-tabs` adds the chat when a new
+  tab with the name it asked for appears (for a chat without a space, the
+  first tab of a new space in its folder) with `pane.split {direction:
+  "right", mod: "bw-chat", props: {terminal, machine, kind, window}}`,
+  records both pane ids there, and zooms the chat pane. A new tab with
+  another name leaves the pending chat waiting. Herdr stores props as given
+  and every window on the space's core reads them, so `window` names the
+  app home that wrote them (`shared("bw.window-id")`). `bw-tabs` also
+  registers a chat tab its app home never recorded, one terminal pane and
+  one `bw-chat` pane made in another window or before this app home
+  existed, with no split or zoom, so `⌘J` works on it. `⌘J`
   is bound to `bw-tabs.chat-flip`, handled by the always-shown `bw-tabs`
   mod (a `<mod>.<command>` reaches shown copies only, and a hidden chat
   pane is not shown); it zooms the other pane and focuses it, so the tab
@@ -260,6 +268,14 @@ holds the space runs the agents, the logs, Git and the hooks.
 
 The chat target is `{machine, terminal, agent kind, root session, log path}`
 plus, in a sub-agent view, the child session.
+
+`bw-chat` finds its terminal in its own tab: the tab holding a `bw-chat`
+pane beside a terminal whose machine-local address and agent kind match the
+props. In the window whose id the props carry, the full address must match
+too, which tells apart two machines that reuse one terminal id. Any other
+window needs exactly one matching tab and no chat tab without a terminal.
+Otherwise the chat says "Chat target not found" and neither reads nor
+sends.
 
 - Header (36 px): agent icon and name, the worktree's branch, the machine tag
   when remote, the threads button with its count, and the `⌘J` hint.
@@ -318,8 +334,23 @@ plus, in a sub-agent view, the child session.
   (Flockbook's guard, `flockbook-modfeed/src/cards.rs:310-325`). `bw send`
   runs on the space's machine with the terminal's local address and never
   uses `--force`. A chat that has never shown a conversation sends its
-  first message with `--expect-session none`, which passes only while that
-  kind's agent runs there with no session log yet.
+  first message with `--expect-session none --expect-path none`, which
+  passes only while that kind's agent runs there in a positively fresh
+  session: the agent names a session that has no log yet.
+- After Claude's `/clear` or Codex's `/new` the agent writes no log until
+  its first message, so the feed's `no_log` line names the new session.
+  The chat then drops the old rows and sends that session's first message
+  with `--expect-session <id> --expect-path none`, which passes only when a
+  fresh lookup names that session, with no log, for a live agent of that
+  kind.
+- A lookup that settles on no single conversation prints the `ambiguous`
+  state, which `bw send` refuses for every expectation. This covers no
+  candidate, several, or one another terminal claims, and a Codex terminal
+  with more than one open root thread: Codex 0.167 keeps a thread it left
+  loaded for 60 s or while it runs, so after `/resume` nothing tells which
+  one it shows. The
+  helper names no conversation and the chat sends nothing until one
+  remains.
 - The `bw-event` hook (only inside Herdr terminals, `$HC_TERMINAL_ID`)
   records `PermissionRequest`, `SubagentStart` and `SubagentStop` events with
   session, agent id and tool use id, and exits 0 silently.

@@ -37,10 +37,11 @@ A space on another machine works the same: Git runs there through
 ## What phase 2 delivers
 
 "+" → New chat → Claude or Codex starts the agent in a new tab on the space's
-machine. `bw-tabs` finds that tab, splits a `bw-chat` pane to the right of the
-agent's terminal and zooms the chat. `⌘J` (`bw-tabs.chat-flip`) flips the zoom
-and focus between the chat and the terminal; the chat header's "Show
-terminal (⌘J)" button does the same. `keys/bellwether.json` binds `cmd-j` in
+machine. `bw-tabs` finds that tab by its name, splits a `bw-chat` pane to the
+right of the agent's terminal and zooms the chat. `⌘J` (`bw-tabs.chat-flip`)
+flips the zoom and focus between the chat and the terminal; the chat header's
+"Show terminal (⌘J)" button does the same. A chat tab made in another Herdr
+window flips too. `keys/bellwether.json` binds `cmd-j` in
 `layout:bellwether`, so merge it with `scripts/keys-merge.js` as below; the
 script reports a terminal binding of `cmd-j` as shadowed, since that one wins
 while a terminal has focus.
@@ -67,12 +68,17 @@ The composer sends with Enter (Shift-Enter adds a line). `bw-chat` runs
 address, because `hc send` from another core wraps the text in
 `<hc from=…>` and slash commands such as `/new` would not run. `bw send`
 looks up the terminal's conversation again and sends nothing when the agent
-kind, session or log path differ from what the chat shows, for example after
-Claude's `/clear` or Codex's `/new`. It never passes `--force`, so a terminal
-waiting on a prompt refuses the text. Claude and Codex write no log until
-their first message, so a fresh chat sends it with `--expect-session none
---expect-path none`, which passes only while that kind of agent runs in the
-terminal and has no log yet. The text stays in the composer after a refusal.
+kind, session or log path differ from what the chat shows, for example when
+Claude's `/clear` or Codex's `/new` ran after the chat's last read. It never
+passes `--force`, so a terminal waiting on a prompt refuses the text. Claude
+and Codex write no log until their first message, so a fresh chat sends it
+with `--expect-session none --expect-path none`, which passes only while that
+kind of agent runs in the terminal in a session that has no log yet. After
+`/clear` or `/new` the feed names the new session, the chat drops the old
+rows, and its first message goes with `--expect-session <id> --expect-path
+none`. When Codex holds several conversations open, as it does for 60 s after
+`/resume`, the chat says so, shows no new rows and sends nothing until one
+remains. The text stays in the composer after a refusal.
 
 ## Layout of this repository
 
@@ -220,7 +226,9 @@ and trusts them for 30 s without a process scan; `--fresh` scans anyway.
 `bw feed` prints a
 `log` line, then `unchanged` or `splice {at, count}` and the rows from `at`
 on; with nothing to read it prints one `state` line: `no_core`,
-`no_terminal`, `not_agent` or `no_log`. `bw send` prints one `send` line
+`no_terminal`, `not_agent`, `no_log` (with `session` when the agent names
+its new conversation) or `ambiguous` (no single conversation found, which
+`bw send` refuses). `bw send` prints one `send` line
 whose result is `sent`, `refused-conversation`, `refused-prompt` or
 `unconfirmed`. `bw picture` runs on the window machine, reads the picture
 through `bw picture-read` on the space's machine (in process when the space

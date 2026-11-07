@@ -505,3 +505,52 @@ for this build; tests that need the Herdr window are deferred, other tests
   `--expect-path` and refuse when the terminal's conversation changed."
   Evidence: phase 2 Task 11, Claude 2.1.319 and Codex 0.167 write no log
   until their first message, so a fresh chat tab could never send it.
+- 2026-11-07: `bw-chat` finds its terminal in its own tab, and new chat
+  props carry the `window` id of the app home that wrote them. Original:
+  "`pane.split {direction: "right", mod: "bw-chat", props: {terminal}}`".
+  Evidence: phase 2 Codex review, P2B-1 (Herdr stores props unchanged, so
+  a window on the other machine read `machine: null` as its own machine
+  and showed or sent to an unrelated terminal); commit `17b4b1d`.
+- 2026-11-07: a pending chat adopts only a new tab with the name it asked
+  for, and without a space only a new space in its folder. Original:
+  "`bw-tabs` adds the chat when the new tab appears". Evidence: phase 2
+  Codex review, P2B-3 (another tab or space appearing during the launch
+  got the chat pane); commit `c529721`.
+- 2026-11-07: `bw-tabs` registers an existing chat tab its app home never
+  recorded, with no split or zoom, so `⌘J` works on it (sentence added to
+  the Tabs bullet). Evidence: phase 2 Codex review, P2B-2 (`⌘J` and the
+  Terminal buttons did nothing in another window or a fresh app home);
+  commit `054fe2e`.
+- 2026-11-07: `--expect-session none` passes only for a positively fresh
+  session, and an unresolved lookup prints the `ambiguous` state, which
+  `bw send` refuses. Original: "sends its first message with
+  `--expect-session none`, which passes only while that kind's agent runs
+  there with no session log yet." Evidence: phase 2 Codex review, P2A-3
+  (no candidate, several, or a claimed one also ended in `no_log`, so a
+  first message could reach a conversation the chat never showed); commit
+  `cec254f`.
+- 2026-11-07: after Claude's `/clear` or Codex's `/new`, `no_log` names the
+  new session and the chat sends its first message with `--expect-session
+  <id> --expect-path none` (bullet added to "Sending and answering").
+  Evidence: phase 2 Codex review, P2A-1 (the composer stayed disabled, so
+  the new conversation could start only from the terminal); commits
+  `47b0479` (helper) and `bda1d0a` (chat).
+- 2026-11-07: a Codex terminal with more than one open root thread gives
+  the `ambiguous` state, which shows and sends nothing until one remains
+  (bullet added to "Sending and answering"). Evidence: phase 2 Codex
+  review, P2A-2 (Codex 0.167 keeps a left thread loaded for 60 s, so after
+  `/resume` the greatest thread id named a conversation the terminal did
+  not show); commit `8585f20`.
+- 2026-11-07: build note, not a spec change: the changed-files line reads
+  a Codex patch's paths from the whole input, before the 4 KB display cut.
+  Evidence: phase 2 Codex review, P2A-4; commit `fc8e4ca`.
+- 2026-11-07: build note, not a spec change: a first `bw feed` keeps the
+  line its 2 MiB window starts inside, up to 16 MiB, so a picture within
+  the 4 MB cap shows. Evidence: phase 2 Codex review, P2A-5; commit
+  `7cecf8d`.
+- 2026-11-07: build note, not a spec change: `~~~` fences are measured as
+  code boxes, as they are drawn. Evidence: phase 2 Codex review, P2B-4;
+  commit `503381e`.
+- 2026-11-07: build note, not a spec change: dragging the scrollbar away
+  from the newest row stops auto-follow. Evidence: phase 2 Codex review,
+  P2B-5; commit `61d1729`.
