@@ -218,16 +218,14 @@ cleanup() {
   fi
   sleep 2
   [ -n "$core_pid" ] && kill -0 "$core_pid" 2> /dev/null && fail "cleanup" "the $core core (pid $core_pid) still runs"
-  n=$(lsof -a -d cwd -Fn 2> /dev/null | grep -c "^n$L/")
-  [ "$n" -gt 0 ] && fail "cleanup" "$n process(es) still run in $L"
   # Claude writes each folder's log under ~/.claude/projects/<its path with - for others>, and a scratchpad
-  # under /private/tmp/claude-<uid>/<the same name>.
-  for d in "$L" "$L"/*; do
-    [ -d "$d" ] || continue
-    p=$(slug "$d")
-    rm -rf "$HOME/.claude/projects/$p" "/private/tmp/claude-$(id -u)/$p"
-  done
-  scratch_rm "$L" || fail "cleanup" "$L is still there"
+  # under /private/tmp/claude-<uid>/<the same name>; they stay with $L while a process still uses it.
+  logs=$(for d in "$L" "$L"/*; do [ -d "$d" ] && slug "$d"; done)
+  if scratch_rm_idle "$L" $(cat "$L"/*.pid 2> /dev/null) $core_pid; then
+    for p in $logs; do rm -rf "$HOME/.claude/projects/$p" "/private/tmp/claude-$(id -u)/$p"; done
+  else
+    fail "cleanup" "kept $L and its folders' Claude logs for the processes above"
+  fi
   [ "$(sums)" = "$before" ] && pass "settings-unchanged" "sha256 of ~/.claude/settings.json, ~/.codex/hooks.json and ~/.codex/config.toml as before: $(sums | cut -c1-12 | tr '\n' ' ')" ||
     fail "settings-unchanged" "~/.claude/settings.json, ~/.codex/hooks.json or ~/.codex/config.toml changed during the run"
   t=$(grep -lF -e bw-browser -e "$SENT_TOP" -e "$SENT_PROJ" "$HOME/.claude.json" $real 2> /dev/null)
@@ -240,7 +238,8 @@ cleanup() {
   exit 1
 }
 
-[ -e "$L" ] && { scratch_rm "$L" || { echo "FAIL setup: $L is left from another run and has no marker"; exit 1; }; }
+# The pids a killed run recorded count as its processes.
+[ -e "$L" ] && { scratch_rm_idle "$L" $(cat "$L"/*.pid 2> /dev/null) || { echo "FAIL setup: $L is left from another run and was not deleted (above)"; exit 1; }; }
 scratch_make "$L" || { echo "FAIL setup: scratch $L"; exit 1; }
 trap 'cleanup $?' EXIT
 trap 'exit 1' HUP INT TERM

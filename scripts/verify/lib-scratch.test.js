@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -97,5 +97,97 @@ describe("scratch_make and scratch_rm", () => {
   test("treats a missing folder as already deleted", () => {
     const { root } = scratch();
     expect(sh("scratch_rm", join(root, "never"), root).code).toBe(0);
+  });
+});
+
+describe("scratch_procs and scratch_rm_idle", () => {
+  /** Each test's background processes, killed afterwards. @type {import("bun").Subprocess[]} */
+  const procs = [];
+  const stop = () => {
+    for (const p of procs.splice(0)) {
+      // The process-group test's leader forks a sleep that outlives a kill of the leader alone.
+      try { process.kill(-p.pid, 9); } catch {}
+      p.kill(9);
+    }
+  };
+  afterEach(stop);
+  const made = () => {
+    const { root } = scratch();
+    const d = join(root, "made");
+    expect(sh("scratch_make", d, root).code).toBe(0);
+    return { root, d };
+  };
+  /** @param {string[]} argv @param {string} [cwd] */
+  const start = (argv, cwd) => {
+    const p = Bun.spawn(argv, { cwd, stdout: "ignore", stderr: "ignore" });
+    procs.push(p);
+    return p.pid;
+  };
+  /** Runs fn with dir and extra pids as arguments; the calling shell's own argv names dir. */
+  const run = (fn, dir, root, pids = []) => {
+    const p = Bun.spawnSync(["sh", "-c", `. "$1"; scratch_root=$2; shift 2; ${fn} "$@"`, "sh", LIB, root, dir, ...pids.map(String)], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    return { code: p.exitCode, out: p.stdout.toString().trim(), err: p.stderr.toString() };
+  };
+  const wait = () => Bun.sleepSync(300);
+
+  test("an idle folder lists nothing, though the calling shell's argv names it", () => {
+    const { root, d } = made();
+    const r = run("scratch_procs", d, root);
+    expect(r.code).toBe(0);
+    expect(r.out).toBe("");
+  });
+
+  test("lists a process whose cwd is inside the folder", () => {
+    const { root, d } = made();
+    mkdirSync(join(d, "sub"));
+    const pid = start(["sleep", "30"], join(d, "sub"));
+    wait();
+    expect(run("scratch_procs", d, root).out.split("\n")).toContain(String(pid));
+  });
+
+  test("lists a process whose command line names a path inside the folder", () => {
+    const { root, d } = made();
+    const pid = start(["perl", "-e", "sleep 30", "--", `--user-data-dir=${d}/profile`]);
+    wait();
+    expect(run("scratch_procs", d, root).out.split("\n")).toContain(String(pid));
+  });
+
+  test("lists a recorded pid that still runs, and a member of its process group", () => {
+    const { root, d } = made();
+    const leader = start(["perl", "-e", "setpgrp(0, 0); my $c = fork(); if (!$c) { exec 'sleep', '30' } sleep 30"]);
+    wait();
+    const out = run("scratch_procs", d, root, [leader, 999999]).out.split("\n");
+    expect(out).toContain(String(leader));
+    expect(out.length).toBeGreaterThanOrEqual(2);
+    expect(out).not.toContain("999999");
+  });
+
+  test("scratch_rm_idle keeps a folder in use, names the pids and the path, then deletes it once idle", () => {
+    const { root, d } = made();
+    writeFileSync(join(d, "chrome.err"), "diagnostics");
+    const pid = start(["sleep", "30"], d);
+    wait();
+    const kept = run("scratch_rm_idle", d, root);
+    expect(kept.code).not.toBe(0);
+    expect(kept.err).toContain("FAIL");
+    expect(kept.err).toContain(String(pid));
+    expect(kept.err).toContain(d);
+    expect(existsSync(join(d, "chrome.err"))).toBe(true);
+    stop();
+    wait();
+    expect(run("scratch_rm_idle", d, root).code).toBe(0);
+    expect(existsSync(d)).toBe(false);
+  });
+
+  test("scratch_rm_idle still refuses an unmarked folder and passes a missing one", () => {
+    const { root } = scratch();
+    const d = join(root, "unmarked");
+    mkdirSync(d);
+    expect(run("scratch_rm_idle", d, root).code).not.toBe(0);
+    expect(existsSync(d)).toBe(true);
+    expect(run("scratch_rm_idle", join(root, "never"), root).code).toBe(0);
   });
 });

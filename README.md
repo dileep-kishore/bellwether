@@ -508,7 +508,11 @@ to a scratch `sshd`. The script also runs interactive Claude in a private
 core (`HC_SESSION=bw-browser`, check `interactive-claude`) and looks for each
 agent's screenshot in `bw feed --pictures` (`claude-picture`,
 `codex-picture`). It puts back each file it changed on that machine and here,
-and deletes the files it created. It prints `PASS` or `FAIL` per check and
+and deletes the files it created. A process that still uses its scratch
+folder after cleanup, or a recorded pid that still runs, keeps that folder
+and its Claude logs for diagnosis and is named in a `FAIL`. A later run
+refuses to start until those processes end. `browser-probe.sh` keeps its
+folder the same way. It prints `PASS` or `FAIL` per check and
 exits 1 on any `FAIL`. It fails when `~/.claude/settings.json`,
 `~/.codex/hooks.json` or `~/.codex/config.toml` changed, when
 `~/.claude.json` gained a `bw-browser` trace, or when your own Chrome

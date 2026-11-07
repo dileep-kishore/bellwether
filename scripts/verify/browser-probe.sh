@@ -46,7 +46,7 @@ done
 APP=${BW_CHROME_APP:-/Applications/Google Chrome.app}
 [ -d "$APP" ] || { echo "FAIL no Chrome at $APP" >&2; exit 1; }
 W=$(scratch_path "${BW_PROBE_DIR:-/private/tmp/claude-501/bw-probe}") || exit 1
-scratch_rm "$W" || exit 1
+scratch_rm_idle "$W" || { echo "FAIL $W is left from another probe and was not deleted (above)" >&2; exit 1; }
 scratch_make "$W" || exit 1
 PROFILE=$W/profile
 mkdir -m 700 "$PROFILE" "$W/fixtures"
@@ -121,8 +121,6 @@ cleanup() {
     hcr server stop > /dev/null 2>&1
   fi
   rm -rf "$CH"
-  [ -z "$claude_proj" ] || rm -rf "$claude_proj"
-  [ -z "$claude_pad" ] || rm -rf "$claude_pad"
   if [ -n "${PORT:-}" ] && _l=$(listener_pid "$PORT") && [ -n "$_l" ] && ours "$_l"; then
     cdp close "$PORT" > /dev/null 2>&1
     _n=50
@@ -136,7 +134,10 @@ cleanup() {
     echo "FAIL a Chrome on $PROFILE is still running after Browser.close:" >&2
     pgrep -fl -- "--user-data-dir=$PROFILE" | cut -c1-160 >&2
   fi
-  scratch_rm "$W"
+  # Claude's logs of the probe's folder stay with $W while a process still uses it.
+  scratch_rm_idle "$W" $SRV_PID $CPID $ssh_pids || exit 1
+  [ -z "$claude_proj" ] || rm -rf "$claude_proj"
+  [ -z "$claude_pad" ] || rm -rf "$claude_pad"
 }
 trap cleanup EXIT INT TERM
 
