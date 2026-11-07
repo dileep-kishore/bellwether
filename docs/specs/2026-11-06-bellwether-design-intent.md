@@ -433,3 +433,11 @@ for this build; tests that need the Herdr window are deferred, other tests
   zoom-flip spike moves to the owed window checks, and remote paths are
   tested against a loopback `hc` machine with its own HOME. Evidence:
   `docs/plans/2026-11-06-bellwether-phase-0.md`, Build environment.
+- 2026-11-06: the selected remote worktree refreshes every 1.5 s, start to
+  start. Original: "refreshes every 2 s". Evidence: a 2 s poll plus one
+  `exec` round trip misses done check 1's "within 2 s"
+  (`docs/plans/2026-11-06-bellwether-phase-1.md`, decision 10).
+- 2026-11-06: in phase 1, done check 1's "+" step runs as "starts Codex from
+  New terminal", since chat entries arrive in phase 2, which reruns the
+  original wording ("starts a Codex chat whose process runs on macmini").
+  Evidence: phase plan, phase 1 step 7.
