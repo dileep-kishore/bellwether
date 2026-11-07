@@ -13,10 +13,13 @@ comes from the user's own sessions.
 | `codex-subagent` | `codex exec` | A parent that calls `spawn_agent` and `wait_agent`, with `SubAgentActivity` items, and the child's own rollout whose `session_meta` names `parent_thread_id`. |
 | `codex-question` | interactive `codex --enable default_mode_request_user_input` | A `request_user_input` question answered `blue` in the TUI (`screen-question.txt`), then a `request_user_input_async` question answered by one user message `large` (`screen-async.txt`, saved before that message). |
 | `codex-approval` | interactive `codex -a on-request -s read-only` | An escalation approval for `touch approved.txt`; `screen-approval.txt` is the prompt before Enter (option 1). |
+| `claude-child-approval` | interactive `claude --permission-mode default`, recorded 2026-11-07 | One session, resumed once: a foreground `toucher` sub-agent's Bash approval (case `a`, key `1`) and a root approval answered with `esc` (`c-esc`) with background tasks disabled, then after `--resume` a background sub-agent's approval (`b`, `1`) and a root approval answered with `2` (`c-always`). Hook payloads, screens, statuses and each child's `meta.json` while it ran. |
+| `codex-child-approval` | interactive `codex -a on-request -s read-only`, recorded 2026-11-07 | Root escalation approvals answered with `y` (`d-y`), `p` (`d-p`) and `esc` (`d-esc`), then a `spawn_agent` child's approval answered with `y` on the parent's screen (`e`). Hook payloads, screens, statuses, the startup "Hooks need review" screen and the rule `p` wrote. |
 
 Every scenario the plan and spec list was recorded. Not covered: a picture the user pastes
-into the prompt (only a tool-result picture), Claude `AskUserQuestion`, and approvals raised by
-a sub-agent; done check 3 exercises those live.
+into the prompt (only a tool-result picture) and Claude `AskUserQuestion`; done check 3 exercises
+those live. `docs/research/2026-11-06-phase3-requests.md` explains the two `*-child-approval`
+recordings case by case.
 
 ## expect.json
 
@@ -36,7 +39,21 @@ entry in `children` has its own counts for its own `file`.
   `history_start_ordinal` (`subagent_history_start_ordinal` in its `session_meta`), and
   `agent_messages` counts the `agent_message` items it received.
 - `requests`: each approval or question, with the call or tool use id, the saved screen and the
-  answer given.
+  answer given. In the two `*-child-approval` scenarios `record-session` writes them itself:
+  `case`, `kind`, `tool` and `command` (from the case's `PermissionRequest` payload), `child`
+  (its `agent_id`, null for the root), `screen`, `keys` pressed, `answer` (the option line those
+  keys chose) and `result` (whether the file the command touches existed afterwards).
+
+## Files beside the logs in the `*-child-approval` scenarios
+
+- `screen-<case>.txt`: `hc read` while the box showed, before any key.
+- `status-<case>.json`: `hc get --json` `.status` at the same moment.
+- `hooks/<case>-<Event>[-<n>].json`: every hook payload recorded from the case's message until
+  its turn ended, as the agent wrote it (one line), then scrubbed. Events: `PermissionRequest`,
+  `PreToolUse`, `SubagentStart`, `SubagentStop`; `-2`, `-3` number repeats in order. `b-after`
+  holds what arrived after case `b`'s turn, `end` what arrived last.
+- `running-<case>.meta.json`: the child's `meta.json` copied while its approval showed.
+- `rules-after-p.txt`: `$CODEX_HOME/rules/default.rules` after `p`.
 
 ## What scrub-fixture changed
 
@@ -55,6 +72,10 @@ entry in `children` has its own counts for its own `file`.
     message, `world_state` `agents_md`, `host_skills.body` and `tools`, and
     `additional_tools.tools`.
 - Re-serialised lines lose nothing but formatting; lines no rule touched are unchanged bytes.
+- One hand edit after scrub-fixture: in `codex-child-approval`'s parent rollout (ordinals 66 and
+  67) the text of a plugin `SKILL.md` that Codex fetched into the scratch `CODEX_HOME` and read
+  became `[scrubbed: a plugin skill file Codex read, removed by hand]`, in the
+  `CommandExecution` item's `aggregated_output` and the `custom_tool_call_output` text.
 
 ## Recording notes
 
@@ -69,3 +90,13 @@ entry in `children` has its own counts for its own `file`.
   rollouts held the user's AGENTS.md, skills, memory guidance and connected apps until the
   scrubber replaced them.
 - Trusting each scratch folder saves an entry in `~/.claude.json` or `~/.codex/config.toml`.
+- The two `*-child-approval` scenarios record hooks with a scratch `hook.sh` named only in the
+  scratch repository's `.claude/settings.json` (read through `--setting-sources project`) or a
+  scratch `CODEX_HOME/hooks.json`. Codex runs there with a bare `HOME`, so the user's skills and
+  instruction files never reach the log, and its trust dialog is answered with "Trust all and
+  continue". The scratch `CODEX_HOME` (an `auth.json` copy) and the Claude project folder are
+  deleted afterwards.
+- In a terminal, Claude 2.1.319 starts every sub-agent in the background and does not offer the
+  model `run_in_background`. `claude-child-approval` starts with
+  `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` for its foreground child, then resumes the same
+  session (same log, same `subagents/` folder) without it for the background one.

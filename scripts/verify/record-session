@@ -1,28 +1,48 @@
 #!/bin/sh
-# record-session <scenario> [--keep]
+# record-session <scenario> [--keep] [--out <dir>]
 # Runs the real agent for one scenario in a fresh scratch git repository, copies its session
 # logs into tests/fixtures/sessions/<scenario>/ and scrubs them. Uses the logged-in Claude and
 # Codex subscriptions, so it spends tokens; scripts/test.sh never runs it.
-#   claude-subagents  claude -p: three direct sub-agents (one in the background), one nested
-#   claude-picture    claude -p: reads a PNG, so the log carries an image block
-#   claude-approval   interactive claude --permission-mode default: touch approved.txt
-#   codex-subagent    codex exec: spawn_agent with one sub-agent
-#   codex-question    interactive codex: request_user_input, then request_user_input_async
-#   codex-approval    interactive codex -a on-request -s read-only: touch approved.txt
-# --keep leaves the scratch repository in place.
+#   claude-subagents       claude -p: three direct sub-agents (one in the background), one nested
+#   claude-picture         claude -p: reads a PNG, so the log carries an image block
+#   claude-approval        interactive claude --permission-mode default: touch approved.txt
+#   codex-subagent         codex exec: spawn_agent with one sub-agent
+#   codex-question         interactive codex: request_user_input, then request_user_input_async
+#   codex-approval         interactive codex -a on-request -s read-only: touch approved.txt
+#   claude-child-approval  interactive claude --permission-mode default: a foreground and a
+#                          background sub-agent's Bash approval (key 1), root approvals answered
+#                          with esc and 2, one session resumed once
+#   codex-child-approval   interactive codex -a on-request -s read-only: root approvals answered
+#                          with y, p and esc, then a spawn_agent child's approval answered with y
+# The two *-child-approval scenarios also record every hook payload with a scratch hook named only
+# in the scratch repository's .claude/settings.json or a scratch CODEX_HOME, save the screen and hc
+# status before each key, print CASE <case>: <result> per prompt, and delete the Claude project
+# folder and the scratch CODEX_HOME (an auth.json copy) when done.
+# --keep leaves the scratch repository in place. --out <dir> writes the scrubbed recording to <dir>
+# instead of tests/fixtures/sessions/<scenario> (requests-probe.sh uses it). BW_REC_CORE names the
+# private hc core (default bw-rec).
 set -eu
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 root=${BW_REC_ROOT:-/private/tmp/claude-501/bw-rec}
+core=${BW_REC_CORE:-bw-rec}
+
+die() { echo "record-session: $*" >&2; exit 1; }
+
 scenario=${1:-}
-keep=0
-[ "${2:-}" = --keep ] && keep=1
+[ $# -gt 0 ] && shift
+keep=0 dest=
+while [ $# -gt 0 ]; do
+  case $1 in
+    --keep) keep=1; shift ;;
+    --out) dest=${2:?--out needs a folder}; shift 2 ;;
+    *) die "unknown option $1" ;;
+  esac
+done
 dir=$root/$scenario
-dest=$repo/tests/fixtures/sessions/$scenario
+dest=${dest:-$repo/tests/fixtures/sessions/$scenario}
 # Logs stay outside the repository until scrub-fixture passes, so a failed run leaves nothing to commit.
 out=$root/$scenario.out
 term=bw-rec-$scenario
-
-die() { echo "record-session: $*" >&2; exit 1; }
 
 # Agents started from inside another Claude session inherit CLAUDE_CODE_CHILD_SESSION, which
 # turns transcript saving off, and its entrypoint; a bare environment records what a user gets.
@@ -33,10 +53,17 @@ clean() {
 
 # The user's own hc core cannot read the login keychain (Claude starts logged out there), so
 # interactive scenarios run in a core of their own, started from this shell.
-hcr() { HC_SESSION=bw-rec hc "$@"; }
+hcr() { HC_SESSION=$core hc "$@"; }
 hc_up() {
-  clean HC_SESSION=bw-rec hc server status >/dev/null
-  trap 'hcr kill "$term" >/dev/null 2>&1 || true; hcr server stop >/dev/null 2>&1 || true' EXIT
+  clean HC_SESSION="$core" hc server status >/dev/null
+  trap on_exit EXIT
+}
+# The scratch CODEX_HOME holds an auth.json copy, so it goes even when a run fails.
+secret=
+on_exit() {
+  hcr kill "$term" >/dev/null 2>&1 || true
+  hcr server stop >/dev/null 2>&1 || true
+  [ -z "$secret" ] || rm -rf $secret
 }
 
 # wait_for <regex> [tries]: polls the terminal's screen every 2 s.
@@ -86,7 +113,7 @@ claude_files() {
 
 codex_files() {
   found=0
-  for f in $(find "$HOME/.codex/sessions" -name 'rollout-*.jsonl' -newer "$mark"); do
+  for f in $(find "${codex_home:-$HOME/.codex}/sessions" -name 'rollout-*.jsonl' -newer "$mark"); do
     [ "$(head -1 "$f" | jq -r .payload.cwd)" = "$dir" ] || continue
     cp "$f" "$out/"
     found=$((found + 1))
@@ -94,10 +121,11 @@ codex_files() {
   [ "$found" -gt 0 ] || die "no Codex rollout with cwd $dir"
 }
 
+# claude_env, when set, is a list of NAME=value words put before claude with env.
 claude_start() {
   sid=$(uuidgen | tr 'A-Z' 'a-z')
   hc_up
-  hcr run --bg --no-parent --name "$term" --cwd "$dir" -- \
+  hcr run --bg --no-parent --name "$term" --cwd "$dir" -- ${claude_env:+env $claude_env} \
     claude --session-id "$sid" --setting-sources project --strict-mcp-config "$@" >/dev/null
   wait_for 'trust this folder|Try "|❯' 20
   if hcr read "$term" | grep -q 'trust this folder'; then type_in keys "$term" down enter; fi
@@ -112,13 +140,106 @@ codex_start() {
   wait_for 'Ask Codex' 20
 }
 
+# recorder: a scratch hook that saves each payload as <ms>-<pid>-<Event>.json in $hookraw and prints
+# nothing; hooks_json prints a settings or hooks.json object naming it for every event recorded.
+recorder() {
+  hookraw=$root/$scenario.hooks
+  hook=$root/$scenario.hook.sh
+  rm -rf "$hookraw"
+  mkdir -p "$hookraw"
+  cat >"$hook" <<'HOOK'
+#!/bin/sh
+ms=$(perl -MTime::HiRes=time -e 'printf "%d", time * 1000')
+cat >"$1/$ms-$$-$2.json"
+exit 0
+HOOK
+}
+hooks_json() {
+  jq -n --arg h "sh $hook $hookraw" '
+    def run($e): [{type: "command", command: "\($h) \($e)", timeout: 5}];
+    {hooks: {PermissionRequest: [{matcher: "*", hooks: run("PermissionRequest")}],
+             PreToolUse: [{matcher: "*", hooks: run("PreToolUse")}],
+             SubagentStart: [{hooks: run("SubagentStart")}],
+             SubagentStop: [{hooks: run("SubagentStop")}]}}'
+}
+
+# collect <case>: moves the payloads recorded since the last collect to hooks/<case>-<Event>[-<n>].json.
+collect() {
+  mkdir -p "$out/hooks"
+  for f in $(ls "$hookraw" | sort); do
+    ev=${f##*-}
+    ev=${ev%.json}
+    name=$1-$ev
+    n=1
+    while [ -e "$out/hooks/$name.json" ]; do n=$((n + 1)); name=$1-$ev-$n; done
+    mv "$hookraw/$f" "$out/hooks/$name.json"
+  done
+}
+
+# answer_text <case> <key>: the option line on the saved screen that <key> chooses.
+answer_text() {
+  case $2 in
+    [0-9]) grep -o "$2\. .*" "$out/screen-$1.txt" | head -1 | sed 's/ *$//' ;;
+    esc) grep -o '[^ ].*(esc)\|Esc to cancel' "$out/screen-$1.txt" | head -1 ;;
+    *) grep -o "[0-9]\. .*($2)" "$out/screen-$1.txt" | head -1 ;;
+  esac
+}
+
+# ask <case> <file> <key> <text>: types <text>, waits for the approval box ($box), saves the screen and
+# hc status before any key, presses <key>, then requires <file> to exist (any key but esc) or not
+# (esc). Appends the case to requests.jsonl and prints its CASE line.
+ask() {
+  c=$1 file=$2 key=$3
+  [ ! -e "$file" ] || die "$file exists before case $c"
+  type_in send -- "$term" "$4"
+  wait_for "$box" 45
+  # The box draws over a few frames; the saved screen should hold all of it.
+  sleep 1
+  hcr read "$term" >"$out/screen-$c.txt"
+  hcr get --json "$term" | jq -c .status >"$out/status-$c.json"
+  [ ! -e "$file" ] || die "$file exists while case $c waits for its answer"
+  if [ -n "${proj:-}" ] && [ -d "$proj/$sid/subagents" ]; then
+    for m in "$proj/$sid/subagents/"*.meta.json; do
+      if [ -f "$m" ] && ! grep -q '"finished"' "$m"; then cp "$m" "$out/running-$c.meta.json"; fi
+    done
+  fi
+  type_in keys -- "$term" "$key"
+  n=20
+  if [ "$key" = esc ]; then
+    want=absent
+    while hcr read "$term" --lines 60 | grep -Eq "$box" && [ "$n" -gt 0 ]; do sleep 1; n=$((n - 1)); done
+  else
+    want=created
+    while [ ! -e "$file" ] && [ "$n" -gt 0 ]; do sleep 2; n=$((n - 1)); done
+  fi
+  got=absent
+  [ -e "$file" ] && got=created
+  hcr wait "$term" --timeout 120 >/dev/null 2>&1 || true
+  sleep 2
+  collect "$c"
+  st=$(jq -r '[.state, .kind // empty] | join("/")' "$out/status-$c.json")
+  who=$(grep -o 'from the [A-Za-z0-9_-]* agent\|Thread: [^ ]*' "$out/screen-$c.txt" | head -1 || true)
+  pr=$out/hooks/$c-PermissionRequest.json
+  [ -f "$pr" ] || pr=/dev/null
+  jq -cn --arg case "$c" --arg screen "screen-$c.txt" --arg key "$key" --arg answer "$(answer_text "$c" "$key")" \
+    --arg result "$file $got" --slurpfile p "$pr" '($p[0] // {}) as $p |
+    {case: $case, kind: "approval", tool: $p.tool_name, command: $p.tool_input.command,
+     child: $p.agent_id, screen: $screen, keys: [$key], answer: $answer, result: $result}' >>"$out/requests.jsonl"
+  echo "CASE $c: box on the parent's screen${who:+ (\"$who\")}; hc $st; $key gave $file $got" \
+    "($(ls "$out/hooks" | grep -c "^$c-") hook payloads)"
+  [ "$got" = "$want" ] || die "case $c: $file is $got after $key, wanted $want"
+}
+
 AGENTS='{"counter":{"description":"Counts files in the current folder","prompt":"Run `ls | wc -l` with Bash and reply with the number only.","tools":["Bash"],"model":"haiku"},"nester":{"description":"Delegates a count to the counter agent","prompt":"Use the Agent tool exactly once with subagent_type counter to count the files, then reply with its answer only.","tools":["Agent"],"model":"haiku"}}'
 DOT_PNG=iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAGElEQVR4nGO4IydHEmIY1TAaSnLDNmkAAJozGBASWxyzAAAAAElFTkSuQmCC
 
 case "$scenario" in
   claude-subagents | claude-picture | claude-approval | codex-subagent | codex-question | codex-approval) ;;
-  *) die "usage: record-session <claude-subagents|claude-picture|claude-approval|codex-subagent|codex-question|codex-approval> [--keep]" ;;
+  claude-child-approval | codex-child-approval) ;;
+  *) die "usage: record-session <claude-subagents|claude-picture|claude-approval|codex-subagent|codex-question|codex-approval|claude-child-approval|codex-child-approval> [--keep] [--out <dir>]" ;;
 esac
+# --out never replaces a folder: requests-probe.sh names a fresh one.
+[ "$dest" = "$repo/tests/fixtures/sessions/$scenario" ] || [ ! -e "$dest" ] || die "$dest exists"
 
 scratch
 rm -rf "$out"
@@ -197,6 +318,81 @@ case "$scenario" in
     hcr wait "$term" --timeout 90 >/dev/null || true
     codex_files
     ;;
+  claude-child-approval)
+    recorder
+    mkdir -p .claude/agents
+    hooks_json >.claude/settings.json
+    cat >.claude/agents/toucher.md <<'AGENT'
+---
+name: toucher
+description: Runs exactly the one shell command it is given
+tools: Bash
+model: haiku
+---
+Run exactly the command you are given with the Bash tool, once, and nothing else. Then reply with the word done.
+AGENT
+    proj=$HOME/.claude/projects/$(printf %s "$dir" | sed 's/[^A-Za-z0-9]/-/g')
+    box='Do you want to proceed'
+    # In a terminal Claude 2.1.319 runs every sub-agent in the background; only this switch gives a foreground one.
+    claude_env=CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1
+    claude_start --permission-mode default --model haiku
+    ask a fg.txt 1 'Use the Agent tool exactly once with subagent_type toucher and the task: touch fg.txt. Wait for it, then reply done.'
+    ask c-esc esc.txt esc 'Run exactly this Bash command yourself (no sub-agent) and nothing else: touch esc.txt'
+    hcr kill "$term" >/dev/null
+    term=bw-rec-claude-resumed
+    hcr run --bg --no-parent --name "$term" --cwd "$dir" -- \
+      claude --resume "$sid" --setting-sources project --strict-mcp-config --permission-mode default --model haiku >/dev/null
+    wait_for 'for shortcuts' 20
+    ask b bg.txt 1 'Use the Agent tool exactly once with subagent_type toucher and the task: touch bg.txt. Wait for it, then reply done.'
+    n=45
+    while grep -L '"finished":true' "$proj/$sid/subagents/"*.meta.json | grep -q . && [ "$n" -gt 0 ]; do sleep 2; n=$((n - 1)); done
+    hcr wait "$term" --timeout 120 >/dev/null 2>&1 || true
+    sleep 3
+    collect b-after
+    for c in a b; do
+      [ -f "$out/running-$c.meta.json" ] || die "case $c: no meta.json without \"finished\" while the child ran"
+    done
+    if grep -L '"finished":true' "$proj/$sid/subagents/"*.meta.json | grep -q .; then die "a child meta.json never got \"finished\":true"; fi
+    echo "CASE g: meta.json had no \"finished\" key while each child ran (running-a, running-b) and \"finished\":true once it ended"
+    # Last, so its permission cannot reach the earlier cases.
+    ask c-always always.txt 2 'Run exactly this Bash command yourself (no sub-agent) and nothing else: touch always.txt'
+    collect end
+    claude_files
+    # Claude also keeps a scratchpad per project under /private/tmp/claude-<uid>/<the same slug>.
+    rm -rf "$proj" "/private/tmp/claude-$(id -u)/${proj##*/}"
+    ;;
+  codex-child-approval)
+    recorder
+    codex_home=$root/$scenario.codex-home
+    # Codex lists the skills and instructions under HOME; a bare one keeps the user's out of the log.
+    codex_user=$root/$scenario.home
+    secret="$codex_home $codex_user"
+    # hc_up arms the trap that deletes the auth.json copy, so it comes before the copy.
+    hc_up
+    rm -rf $secret
+    mkdir -m 700 "$codex_home" "$codex_user"
+    cp "$HOME/.codex/auth.json" "$codex_home/auth.json"
+    printf '[projects."%s"]\ntrust_level = "trusted"\n' "$dir" >"$codex_home/config.toml"
+    hooks_json >"$codex_home/hooks.json"
+    box='Would you like to run the following command'
+    hcr run --bg --no-parent --name "$term" --cwd "$dir" -- /usr/bin/env CODEX_HOME="$codex_home" HOME="$codex_user" \
+      codex -m gpt-6-luna -c 'model_reasoning_effort="low"' -a on-request -s read-only >/dev/null
+    wait_for 'Hooks need review' 20
+    hcr read "$term" >"$out/screen-hooks-review.txt"
+    # A digit only moves the cursor on this dialog; enter picks "2. Trust all and continue".
+    type_in keys -- "$term" 2 enter
+    wait_for 'Ask Codex' 20
+    esc_text='Run exactly this shell command with escalated sandbox permissions (ask me for approval first) and nothing else'
+    ask d-y d-y.txt y "$esc_text: touch d-y.txt"
+    ask d-p d-p.txt p "$esc_text: touch d-p.txt"
+    ask d-esc d-esc.txt esc "$esc_text: touch d-esc.txt"
+    ask e child.txt y 'Spawn exactly one sub-agent with spawn_agent. Its task: run exactly this shell command with escalated sandbox permissions (asking for approval first) and nothing else: touch child.txt. Wait for it with wait_agent, then reply done.'
+    sleep 3
+    collect end
+    codex_files
+    grep -lq '"parent_thread_id"' "$out"/rollout-*.jsonl || die "no Codex child rollout"
+    cp "$codex_home/rules/default.rules" "$out/rules-after-p.txt" 2>/dev/null || die "p wrote no rules/default.rules"
+    ;;
 esac
 
 cd "$repo"
@@ -209,8 +405,13 @@ esac
 cat >"$out/expect.json" <<EOF
 {"agent":"${scenario%%-*}","version":"$version","user_messages":null,"assistant_messages":null,"tool_calls":null,"pictures":null,"children":[]}
 EOF
+if [ -f "$out/requests.jsonl" ]; then
+  jq -s --slurpfile e "$out/expect.json" '$e[0] + {requests: .}' "$out/requests.jsonl" >"$out/expect.json.new"
+  mv "$out/expect.json.new" "$out/expect.json"
+  rm "$out/requests.jsonl"
+fi
 rm -rf "$dest"
 mkdir -p "$(dirname "$dest")"
 mv "$out" "$dest"
-[ "$keep" = 1 ] || rm -rf "$dir" "$root/$scenario.mark"
+[ "$keep" = 1 ] || rm -rf "$dir" "$root/$scenario.mark" "$root/$scenario.hooks" "$root/$scenario.hook.sh"
 echo "recorded $scenario into $dest; fill expect.json by reading the logs"
