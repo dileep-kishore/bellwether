@@ -44,10 +44,9 @@ fn unknown_subcommand_is_a_usage_error() {
 }
 
 #[test]
-fn feed_is_not_built_yet() {
-    let (code, v) = run(&["feed", "--log", "/nowhere.jsonl", "--agent", "claude"]);
-    assert_eq!(code, 1);
+fn feed_without_a_source_is_a_usage_error() {
+    let (code, v) = run(&["feed"]);
+    assert_eq!(code, 2);
     assert_eq!(v["type"], "error");
-    assert_eq!(v["code"], "not_built");
-    assert_eq!(v["message"], "feed arrives in a later task");
+    assert_eq!(v["code"], "usage");
 }
