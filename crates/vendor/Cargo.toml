@@ -1,0 +1,14 @@
+# Workspace for code copied from other projects; its manifests read these with `*.workspace = true`.
+[workspace]
+members = ["herdr-core"]
+resolver = "2"
+
+# Same as Flockbook's xplat/Cargo.toml at c0420c7.
+[workspace.package]
+edition = "2021"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
