@@ -46,8 +46,10 @@ pub enum LocateFailure {
     NoTerminal(String),
     NotAgent(String),
     /// The agent runs and named a conversation that has no log yet: the only state a first message may pass.
+    /// `session` is that conversation's id when the agent named one (a Claude pid file, a Codex thread lock).
     NoLog {
         agent: String,
+        session: Option<String>,
     },
     /// hc names the agent's program but none of its processes runs it: starting, or already gone.
     NoProcess {
@@ -70,12 +72,18 @@ impl LocateFailure {
             LocateFailure::NotAgent(m) => {
                 json!({"type": "state", "state": "not_agent", "message": m})
             }
-            LocateFailure::NoLog { agent } => json!({
-                "type": "state",
-                "state": "no_log",
-                "agent": agent,
-                "message": format!("no {agent} session log yet"),
-            }),
+            LocateFailure::NoLog { agent, session } => {
+                let mut v = json!({
+                    "type": "state",
+                    "state": "no_log",
+                    "agent": agent,
+                    "message": format!("no {agent} session log yet"),
+                });
+                if let Some(s) = session {
+                    v["session"] = json!(s);
+                }
+                v
+            }
             LocateFailure::NoProcess { agent } => json!({
                 "type": "state",
                 "state": "no_log",
@@ -350,7 +358,9 @@ fn codex_thread(open: &[String]) -> Option<Answer> {
             session: id.to_string(),
             path: path.to_string_lossy().to_string(),
         }),
-        [(_, None)] => Some(Answer::NoFile),
+        [(id, None)] => Some(Answer::NoFile {
+            session: Some(id.to_string()),
+        }),
         _ => Some(Answer::Ambiguous),
     }
 }
@@ -362,11 +372,23 @@ enum Answer {
         path: String,
     },
     /// It named a log or session id whose file is not there (yet): a new conversation, not the remembered one.
-    NoFile,
+    NoFile {
+        session: Option<String>,
+    },
     /// No single answer: no candidate, several, or the one it found is taken.
     Unsure,
     /// Codex holds several root threads: any of them may be the one shown, the remembered one included.
     Ambiguous,
+}
+
+/// The session id in what the resolver named: hc Claude's session id, or the id in a Codex rollout's name.
+fn named_session(v: &str, kind: &str) -> Option<String> {
+    let id = if v.starts_with('/') {
+        super::feed::session_of(Path::new(v), kind)
+    } else {
+        v.to_string()
+    };
+    (!id.is_empty()).then_some(id)
 }
 
 /// Asks the resolver about this one terminal, with its agent's own folders.
@@ -404,7 +426,9 @@ fn resolve(need: Need, agent: &Proc, procs: &[Proc], inputs: &Inputs) -> Answer 
             session: session_of(&path, &need.kind),
             path: path.to_string_lossy().to_string(),
         },
-        None => Answer::NoFile,
+        None => Answer::NoFile {
+            session: named_session(v, &need.kind),
+        },
     }
 }
 
@@ -467,6 +491,10 @@ pub fn locate_with(
         }
         _ => None,
     };
+    let fresh_session = match &found {
+        Some(Answer::NoFile { session }) => session.clone(),
+        _ => None,
+    };
     kept.root = match (agent, found) {
         (Some(a), Some(Answer::Log { session, path })) => Some(Root {
             kind: kind.clone(),
@@ -500,7 +528,10 @@ pub fn locate_with(
             message,
         }
     } else {
-        LocateFailure::NoLog { agent: kind }
+        LocateFailure::NoLog {
+            agent: kind,
+            session: fresh_session,
+        }
     })
 }
 
@@ -904,9 +935,11 @@ mod tests {
                 now - 60_000,
             ),
         );
-        pid_file(&config, 700, start, "0b5e1c1e-0000-4000-8000-000000000002");
+        let new_sid = "0b5e1c1e-0000-4000-8000-000000000002";
+        pid_file(&config, 700, start, new_sid);
         let line = format!("claude CLAUDE_CONFIG_DIR={}", config.display());
         let fixed = Fixed::new(vec![proc_(700, 699, start, &line)], vec![]);
+        // The new session is named, so the chat can send its first message to exactly that one.
         assert_eq!(
             locate_with(
                 &term("t1", "claude", 700, "/scratch"),
@@ -915,7 +948,8 @@ mod tests {
                 now
             ),
             Err(LocateFailure::NoLog {
-                agent: "claude".into()
+                agent: "claude".into(),
+                session: Some(new_sid.into()),
             })
         );
         assert_eq!(cache::read(&file).root, None);
@@ -1096,7 +1130,8 @@ mod tests {
         assert_eq!(
             locate_with(&t, &file, &unloaded.inputs(), now),
             Err(LocateFailure::NoLog {
-                agent: "codex".into()
+                agent: "codex".into(),
+                session: Some(NEW_ID.into()),
             })
         );
     }
@@ -1268,10 +1303,20 @@ mod tests {
         );
         assert_eq!(
             LocateFailure::NoLog {
-                agent: "codex".into()
+                agent: "codex".into(),
+                session: None,
             }
             .state_line(),
             json!({"type": "state", "state": "no_log", "agent": "codex", "message": "no codex session log yet"})
+        );
+        assert_eq!(
+            LocateFailure::NoLog {
+                agent: "claude".into(),
+                session: Some("s1".into()),
+            }
+            .state_line(),
+            json!({"type": "state", "state": "no_log", "agent": "claude", "session": "s1",
+                   "message": "no claude session log yet"})
         );
     }
 }

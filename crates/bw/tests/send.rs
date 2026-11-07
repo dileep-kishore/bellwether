@@ -470,6 +470,7 @@ fn fresh_codex(x: &Scratch) -> FakeCodex {
     .unwrap();
     let (_, lines) = x.run(&["locate", "--terminal", "t7"]);
     assert_eq!(lines[0]["state"], "no_log", "{lines:?}");
+    assert_eq!(lines[0]["session"], OTHER_SID, "{lines:?}");
     codex
 }
 
@@ -480,6 +481,31 @@ fn first_message_to_a_fresh_conversation_is_sent() {
     let (code, line) = x.send("t7", "codex", "none", "none", "--first -x");
     assert_eq!((code, sent(&line)), (0, "sent"), "{line}");
     assert_eq!(x.sends(), vec!["send t7 --first -x"]);
+}
+
+#[test]
+fn replacement_conversation_takes_its_first_message() {
+    // A chat that showed SID, then `/new`: once the old thread unloads Codex holds only the new thread's lock.
+    let x = Scratch::new();
+    let _codex = fresh_codex(&x);
+    let (_, line) = x.send("t7", "codex", SID, "/l/old.jsonl", "old");
+    assert_eq!(sent(&line), "refused-conversation", "{line}");
+    let (_, line) = x.send("t7", "codex", SID, "none", "old");
+    assert_eq!(sent(&line), "refused-conversation", "{line}");
+    let (_, line) = x.send("t7", "claude", OTHER_SID, "none", "other kind");
+    assert_eq!(sent(&line), "refused-conversation", "{line}");
+    let (code, line) = x.send("t7", "codex", OTHER_SID, "none", "--first");
+    assert_eq!((code, sent(&line)), (0, "sent"), "{line}");
+    assert_eq!(x.sends(), vec!["send t7 --first"]);
+}
+
+#[test]
+fn a_session_without_a_log_is_refused_once_its_log_exists() {
+    let x = Scratch::new();
+    let (_codex, _) = local_codex(&x, &[]);
+    let (_, line) = x.send("t7", "codex", SID, "none", "hi");
+    assert_eq!(sent(&line), "refused-conversation", "{line}");
+    assert!(x.sends().is_empty());
 }
 
 #[test]
@@ -525,26 +551,24 @@ fn none_without_a_running_agent_is_refused() {
 }
 
 #[test]
-fn none_goes_with_none() {
+fn no_session_needs_no_path() {
     let x = Scratch::new();
     let _codex = fresh_codex(&x);
-    for (session, path) in [("none", "/l/a.jsonl"), (SID, "none")] {
-        let (code, lines) = x.run(&[
-            "send",
-            "--terminal",
-            "t7",
-            "--expect-kind",
-            "codex",
-            "--expect-session",
-            session,
-            "--expect-path",
-            path,
-            "--text",
-            "hi",
-        ]);
-        assert_eq!(code, 2, "{session} {path}: {lines:?}");
-        assert_eq!(lines[0]["code"], "usage");
-    }
+    let (code, lines) = x.run(&[
+        "send",
+        "--terminal",
+        "t7",
+        "--expect-kind",
+        "codex",
+        "--expect-session",
+        "none",
+        "--expect-path",
+        "/l/a.jsonl",
+        "--text",
+        "hi",
+    ]);
+    assert_eq!(code, 2, "a log needs its session: {lines:?}");
+    assert_eq!(lines[0]["code"], "usage");
     let (code, _) = x.run(&[
         "send",
         "--terminal",

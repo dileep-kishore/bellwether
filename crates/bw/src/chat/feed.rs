@@ -287,6 +287,7 @@ fn by_terminal<Tz: TimeZone>(
     if !path.is_file() {
         let gone = locate::LocateFailure::NoLog {
             agent: located.agent.clone(),
+            session: None,
         };
         out.emit_value(gone.state_line());
         return Ok(());
