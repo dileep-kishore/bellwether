@@ -36,8 +36,3 @@ pub fn error(code: &str, message: &str) -> ExitCode {
     );
     ExitCode::from(1)
 }
-
-/// What a command whose task has not landed prints.
-pub fn not_built(cmd: &str) -> ExitCode {
-    error("not_built", &format!("{cmd} arrives in a later task"))
-}
