@@ -46,7 +46,8 @@ export default class Projects extends View {
     this.showsTime = false;
     /** @type {string | null} */
     this.order = null;
-    // Projects already handed to setShared, so a render before the store catches up does not ask twice.
+    // Projects handed to setShared that the store does not show yet, so a render before it catches up
+    // does not ask twice. A key leaves once stored, so a project removed later can be remembered again.
     /** @type {Set<string>} */
     this.remembered = new Set();
 
@@ -114,6 +115,8 @@ export default class Projects extends View {
       this.order = order;
       setAgentOrder(tree.agentOrder);
     }
+    const has = new Set(input.stored.map((/** @type {any} */ p) => projectKey(p.machine, p.commonDir)));
+    for (const key of this.remembered) if (has.has(key)) this.remembered.delete(key);
     const fresh = tree.remember.filter((p) => !this.remembered.has(projectKey(p.machine, p.commonDir)));
     if (fresh.length) {
       for (const p of fresh) this.remembered.add(projectKey(p.machine, p.commonDir));
