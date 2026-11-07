@@ -384,3 +384,34 @@ no answer here, so it stays open.
 - 2026-11-06: Codex's P1 (the plan page still showed alternatives) was read
   from the page before its revision 4 rebuild; the rebuilt page shows only
   the final design.
+
+## Approval to build, 2026-11-06
+
+The user's message after reading the revision 4 plan page, verbatim:
+
+> This looks really good. Can you start the implementation on my Mac Mini?
+> You are allowed to use the T3Code Orchestrator to spin up multiple work
+> trees in parallel at any point if needed, so you can run tasks in parallel
+> when necessary.
+>
+> Make sure to go through the proper implementation loop we have set up:
+> brainstorming, planning, implementation, and independent review with
+> Codex. Also put this repository up on GitHub. You can make it public, put
+> it under my account, and proceed with all the phases of the plan. Break it
+> down into PRs, merge them, and then go to the next phase.
+>
+> Please also test using the Herdr app as you progress. We can keep the Herdr
+> app test for later. For now, just see if there are other sorts of tests
+> you can write, and proceed until you finish everything, unless there's a
+> blocking issue that you need me to handle.
+>
+> For cargo, yes, just go ahead and install it. About the MacBook and Mac
+> Mini, if you need me to install it, let me know before we start. Also, let
+> me know if you need anything else from me before you get started with
+> this.
+
+Reading notes, the agent's: "looks really good" approves revision 4,
+including the shared Bellwether Chrome; "proceed until you finish
+everything" with the cargo approval answers the outside-repository question
+for this build; tests that need the Herdr window are deferred, other tests
+(unit, fixture, helper, script) run in every phase.
