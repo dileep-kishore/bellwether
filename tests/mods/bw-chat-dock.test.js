@@ -108,11 +108,61 @@ describe("dock", () => {
       "--expect-session", CODEX_SESSION, "--expect-path", CODEX_PATH, "--action", "approve"]);
   });
 
+  test("an approval card names its tool with the command in monospace", async () => {
+    const m = await ready(CLAUDE, data());
+    expect(REQUEST.tool).toBe("Bash");
+    const box = byId(m.el, `cmd-${REQUEST.id}`);
+    expect(box.attrs.font_family).toBe("Menlo");
+    expect(textOf(byId(m.el, `tool-${REQUEST.id}`))).toBe("Bash");
+    expect(textOf(box)).toContain(REQUEST.command);
+
+    // A tool with no command still shows; a question's tool (AskUserQuestion) does not.
+    const edit = { ...REQUEST, id: "r4", tool: "Edit", command: "" };
+    const ask = { ...REQUEST, id: "r5.q", kind: "question", tool: "AskUserQuestion", command: "", actions: [],
+      question: { toolUseId: "q", agent: "claude", delivery: "picker", state: "pending", questions: [{ id: "a", header: "A", text: "A?", multi: false, options: [{ label: "x" }] }] } };
+    const n = await ready(CLAUDE, data({ feed: () => out(rootWith([edit, ask])) }));
+    expect(textOf(byId(n.el, "tool-r4"))).toBe("Edit");
+    expect(byId(n.el, "tool-r5.q")).toBe(null);
+  });
+
   test("Answer in terminal flips to the terminal and presses nothing", async () => {
     const m = await ready(CLAUDE, data());
     await m.click(`answer-${REQUEST.id}-terminal`);
     expect(m.log.run).toEqual([["bw-tabs.chat-flip"]]);
     expect(calls(m, "answer")).toHaveLength(0);
+  });
+
+  test("a terminal sub-agent's terminal controls peek at that sub-agent, not the parent", async () => {
+    const T12 = "2b7f0000-0000-4000-8000-000000000012";
+    const T12_PATH = `/home/test/.claude/projects/-r-alpha/${T12}.jsonl`;
+    const perm = { type: "row", k: "perm", id: "perm-12", text: "Wants to run a command", perm: { title: "Wants to run a command", command: "ls", tool: "Bash", toolUseId: "tu12", state: "pending" } };
+    let t12 = [
+      { type: "log", agent: "claude", terminal: "t12", session: T12, path: T12_PATH, start: 0, size: 10, cursor: "2.t12" },
+      { type: "splice", at: 0, count: 2 }, { type: "row", k: "user", id: "u12", text: "Helper's own question", ts: 1 }, perm,
+      { type: "cards", terminal: "t12", agent: "claude", session: T12, path: T12_PATH, status: "blocked", status_kind: "claude", hooks: "ok", screen: "read" },
+      { ...REQUEST, id: "r12", answerable: false, reason: "no_match", who: null },
+    ];
+    const m = await ready(CLAUDE, data({ feed: (/** @type {string[]} */ a) => out(a[1] === "t12" ? t12 : ROOT_LINES) }));
+    await m.click("row-terminal-t12");
+    expect(buttonIds(m, "r12")).toEqual(["terminal"]);
+    const peek = ["terminal.peek", { terminal: "t12" }];
+    await m.click("answer-r12-terminal");
+    await m.click("flip");
+    fire(findAll(m.el, (e) => e.tag === "VirtualList")[0], "on_item_click", "perm-12", m.cx);
+    expect(m.log.run).toEqual([peek, peek, peek]);
+
+    t12 = [{ type: "state", state: "not_agent", agent: null, message: "" }];
+    m.log.run.length = 0;
+    const n = await ready(CLAUDE, data({ feed: (/** @type {string[]} */ a) => out(a[1] === "t12" ? t12 : ROOT_LINES) }));
+    await n.click("row-terminal-t12");
+    await n.click("show-terminal");
+    expect(n.log.run).toEqual([peek]);
+    expect(calls(n, "answer")).toHaveLength(0);
+
+    // Back in the parent's view, the controls flip the chat tab again.
+    await n.click("back");
+    await n.click("flip");
+    expect(n.log.run.at(-1)).toEqual(["bw-tabs.chat-flip"]);
   });
 
   test("buttons disabled while the terminal had focus", async () => {
@@ -246,6 +296,29 @@ describe("dock", () => {
     expect(a).toHaveLength(1);
     expect(a[0][1].slice(3)).toEqual(["answer", "--terminal", "t8", "--request", "r3.q", "--expect-kind", "claude", "--expect-session", ROOT,
       "--expect-path", ROOT_PATH, "--answers", '[{"picks":[1]},{"picks":[0,2],"other":"kiwi"}]']);
+  });
+
+  test("picking an option after typing Other clears the shown field, by click or digit", async () => {
+    const question = { toolUseId: "toolu_q", agent: "claude", delivery: "picker", state: "pending", questions: [
+      { id: "Color?", header: "Color", text: "Which color?", multi: false, options: [{ label: "Red" }, { label: "Blue" }] }] };
+    const req = { ...REQUEST, id: "r3.q", kind: "question", who: null, tool: "AskUserQuestion", command: "", actions: [], question, unread: 1 };
+    const m = await ready(CLAUDE, data({ feed: () => out(rootWith([req])) }));
+    const card = () => byId(m.el, "card-r3.q");
+    const field = () => findAll(card(), (e) => e.tag === "Input")[0].attrs.state;
+    const typeOther = async (/** @type {string} */ v) => {
+      field().set_value(v);
+      await field().handlers.change({}, m.cx);
+      m.render();
+    };
+    await typeOther("Green");
+    await m.click("qopt-r3.q-0-1");
+    expect(field().value()).toBe("");
+    await typeOther("Teal");
+    await fire(byId(m.el, "qkeys-r3.q"), "on_key_down", { key: "1", keystroke: "1", modifiers: NO_MODS }, m.cx);
+    m.render();
+    expect(field().value()).toBe("");
+    await m.click("answer-r3.q-submit");
+    expect(calls(m, "answer")[0][1].at(-1)).toBe('[{"picks":[0]}]');
   });
 
   test("async question Submit sends one answer call", async () => {

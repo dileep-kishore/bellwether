@@ -230,4 +230,29 @@ describe("threads card", () => {
     expect(byId(n.el, "subagent-bar")).toBe(null);
     expect(textOf(byId(n.el, "view-note"))).toBe("This conversation ended; showing the new one");
   });
+
+  test("a new root whose log exists already (tree + no_child + cards) returns to the parent view", async () => {
+    let child = CHILD_LINES;
+    const m = await mount("bw-chat", { props: CLAUDE, live: data({ feed: feeds({ child: () => child }) }) });
+    await m.click(`row-child-${CHILD}`);
+    expect(byId(m.el, "subagent-bar")).not.toBe(null);
+    const NEXT = "0e0e0000-0000-4000-8000-00000000c1ea";
+    // Claude 2.1.319's /clear writes the next log at once, so bw answers for the new root without the old child.
+    child = [
+      { type: "tree", agent: "claude", root: NEXT, children: [] },
+      { type: "state", state: "no_child", child: CHILD },
+      { type: "cards", terminal: "t8", agent: "claude", session: NEXT, path: `/home/test/.claude/projects/-r-alpha/${NEXT}.jsonl`, hooks: "ok", screen: "read" },
+    ];
+    await nextPoll(m);
+    expect(byId(m.el, "subagent-bar")).toBe(null);
+    expect(textOf(byId(m.el, "view-note"))).toBe("This conversation ended; showing the new one");
+    expect(lastFeed(m).includes("--session")).toBe(false);
+
+    // A cards line alone naming another session does the same.
+    child = [{ type: "state", state: "no_child", child: CHILD }, { type: "cards", terminal: "t8", agent: "claude", session: NEXT, path: "/n.jsonl", hooks: "ok", screen: "read" }];
+    const n = await mount("bw-chat", { props: CLAUDE, live: data({ feed: feeds({ child: () => child }) }) });
+    await n.click(`row-child-${CHILD}`);
+    expect(byId(n.el, "subagent-bar")).toBe(null);
+    expect(textOf(byId(n.el, "view-note"))).toBe("This conversation ended; showing the new one");
+  });
 });

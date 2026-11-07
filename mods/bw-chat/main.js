@@ -303,8 +303,11 @@ export default class Chat extends View {
   rootEnded(lines) {
     const root = this.feed.session;
     if (!root) return false;
-    return lines.some((l) => typeof l?.session === "string" && l.session !== "" && l.session !== root
-      && (l.type === "log" || (l.type === "state" && l.state === "no_log")));
+    /** @param {unknown} s */
+    const other = (s) => typeof s === "string" && s !== "" && s !== root;
+    // A new root whose log exists already answers tree + no_child + cards, with no log line.
+    return lines.some((l) => (l?.type === "tree" && other(l.root))
+      || (other(l?.session) && (l.type === "log" || l.type === "cards" || (l.type === "state" && l.state === "no_log"))));
   }
 
   /**
@@ -503,9 +506,11 @@ export default class Chat extends View {
     const a = activeQuestion(this.requests);
     const d = a ? this.draftOf(a) : null;
     const key = a && d ? `${a.id}:${d.step}` : null;
-    if (key === this.otherKey) return;
+    const want = d ? d.other[d.step] ?? "" : "";
+    // A pick on the same step clears the draft's Other text, which the field must show too.
+    if (key === this.otherKey && this.other.value() === want) return;
     this.otherKey = key;
-    this.other.set_value(d ? d.other[d.step] ?? "" : "");
+    this.other.set_value(want);
   }
 
   /** @param {string} id */
@@ -554,10 +559,18 @@ export default class Chat extends View {
     });
   }
 
+  /** Brings the shown view's terminal in front: a terminal sub-agent's own, else the chat tab's terminal. */
+  showTerminal() {
+    const v = this.view;
+    // A sub-agent has no pane in the chat's tab and terminal.show would replace the chat's pane; peek opens it over the tab.
+    if (isTerminalView(v)) run("terminal.peek", { terminal: v.terminal });
+    else run("bw-tabs.chat-flip");
+  }
+
   /** @param {Card} card @param {string} button @param {any} cx */
   clickCard(card, button, cx) {
     if (button === "terminal") {
-      run("bw-tabs.chat-flip");
+      this.showTerminal();
       return;
     }
     const req = this.requestOf(card.id);
@@ -697,7 +710,7 @@ export default class Chat extends View {
     } else if (row.k === "changed") {
       run("layout.select", { stack: "right-body", child: "changes" });
     } else if (waitsInTerminal(row)) {
-      run("bw-tabs.chat-flip");
+      this.showTerminal();
     }
   }
 
@@ -743,7 +756,7 @@ export default class Chat extends View {
       div().id(id).h(26).px(10).flex_none().flex().items_center().rounded(6).cursor_pointer().border(1).border_color(t.border)
         .text_size(12).text_color(t.foreground).hover((s) => s.bg(t.hover)).on_click(act).child(label);
     return h_flex().gap(8).items_center()
-      .when(Boolean(term), (el) => el.child(button("show-terminal", "Show terminal (⌘J)", () => run("bw-tabs.chat-flip"))))
+      .when(Boolean(term), (el) => el.child(button("show-terminal", "Show terminal (⌘J)", () => this.showTerminal())))
       .when(p.exited && tab !== null, (el) => el.child(button("close-tab", "Close tab", () => run("tab.close", { id: /** @type {string} */ (tab) }))));
   }
 
@@ -763,7 +776,7 @@ export default class Chat extends View {
       })))
       .when(!gone, (el) => el.child(h_flex().id("flip").h(24).px(8).gap(6).flex_none().items_center().rounded(6).cursor_pointer()
         .text_size(12).text_color(t.muted).hover((s) => s.bg(t.hover))
-        .on_click(() => run("bw-tabs.chat-flip"))
+        .on_click(() => this.showTerminal())
         .child("Terminal").child(div().text_color(t.dim).child("⌘J"))));
   }
 
