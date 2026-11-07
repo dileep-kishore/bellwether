@@ -30,9 +30,10 @@
  * @property {string | null} agent
  * @property {string | null} model
  * @property {{ state: string, message: string } | null} error the helper's failure
- * @property {{ state: string, agent: string | null, message: string } | null} waiting the feed's `state` line
+ * @property {{ state: string, agent: string | null, message: string, session: string | null } | null} waiting the feed's `state` line;
+ *   `session` on `no_log` names the agent's new conversation, whose log does not exist yet
  * @property {boolean} loaded
- * @property {boolean} seen a `log` line has named a session for this terminal, so it never counts as fresh again
+ * @property {boolean} seen a `log` or `no_log` line has named a session for this terminal, so it never counts as fresh again
  */
 
 /** @param {string} terminal @returns {FeedState} */
@@ -92,10 +93,17 @@ export function applyFeed(state, answer) {
   const rows = [];
   for (const l of answer.lines) {
     if (l.type === "state") {
-      const w = { state: String(l.state), agent: l.agent ?? null, message: String(l.message ?? "") };
-      const same = state.waiting && state.waiting.state === w.state && state.waiting.agent === w.agent && state.waiting.message === w.message;
+      const w = { state: String(l.state), agent: l.agent ?? null, message: String(l.message ?? ""),
+        session: typeof l.session === "string" && l.session !== "" ? l.session : null };
+      const was = state.waiting;
+      const same = was && was.state === w.state && was.agent === w.agent && was.message === w.message && was.session === w.session;
       if (!same) changedAt = 0;
       state.waiting = w; waited = true;
+      if (w.state === "no_log" && w.session !== null && w.session !== state.session) {
+        // Claude /clear or Codex /new: the new conversation writes no log until its first message.
+        state.tail = []; dropOlder(state); state.start = null; state.path = null; state.cursor = null;
+        state.session = w.session; state.seen = true; changedAt = 0;
+      }
     } else if (l.type === "log") {
       const path = l.path ?? null, session = l.session ?? null;
       if (path !== state.path || session !== state.session) {
@@ -131,5 +139,28 @@ export function applyFeed(state, answer) {
  */
 export function freshChat(state, kind) {
   const w = state.waiting;
-  return !state.seen && !state.error && w !== null && w.state === "no_log" && (w.agent === null || w.agent === kind);
+  return !state.seen && !state.error && w !== null && w.state === "no_log" && w.session === null && (w.agent === null || w.agent === kind);
+}
+
+/**
+ * The feed named a conversation the agent started (`no_log` with a session) whose log does not
+ * exist yet, so its first message goes with that session and no path; `bw send` checks both.
+ * @param {FeedState} state @param {string} kind
+ * @returns {boolean}
+ */
+export function newConversation(state, kind) {
+  const w = state.waiting;
+  return !state.error && w !== null && w.state === "no_log" && w.session !== null && w.session === state.session
+    && state.path === null && (w.agent === null || w.agent === kind);
+}
+
+/**
+ * What `bw send` is told to expect, or null when nothing may be sent.
+ * @param {FeedState} state @param {string} kind
+ * @returns {{ session: string, path: string } | null}
+ */
+export function expectation(state, kind) {
+  if (freshChat(state, kind)) return { session: "none", path: "none" };
+  if (newConversation(state, kind)) return { session: /** @type {string} */ (state.session), path: "none" };
+  return state.session && state.path ? { session: state.session, path: state.path } : null;
 }

@@ -437,6 +437,26 @@ describe("bw-chat", () => {
     expect(calls(m, "send")).toHaveLength(0);
   });
 
+  test("after /new the feed names the new session: old rows go, its first message expects that session", async () => {
+    let answer = out(golden("codex-question", "t5", CODEX_PATH));
+    const data = live("chat-remote");
+    data.exec = bw({ feed: () => answer, send: () => out([{ type: "send", result: "sent", message: "" }]) });
+    const m = await mount("bw-chat", { props: CODEX_REMOTE, live: data });
+    await typeAndSend(m, "/new");
+    expect(calls(m, "send").at(-1)[1].slice(8, 12)).toEqual(["--expect-session", CODEX_SESSION, "--expect-path", CODEX_PATH]);
+    const NEXT = "019a0000-0000-7000-8000-000000000002";
+    answer = out([{ type: "state", state: "no_log", agent: "codex", message: "no codex session log yet", session: NEXT }]);
+    await nextPoll(m);
+    expect(textOf(m.el)).not.toContain("Wrote `blue` to colour.txt.");
+    expect(textOf(m.el)).toContain("No messages yet. Send the first one below.");
+    expect(byId(m.el, "chat-notice")).toBe(null);
+    expect(textarea(m).attrs.disabled).toBe(false);
+    await typeAndSend(m, "first of the new one");
+    expect(calls(m, "send")).toHaveLength(2);
+    expect(calls(m, "send").at(-1)[1].slice(4)).toEqual(["--terminal", "t5", "--expect-kind", "codex", "--expect-session", NEXT, "--expect-path", "none", "--text", "first of the new one"]);
+    expect(calls(m, "feed").at(-1)[1].slice(4)).toEqual(["--terminal", "t5", "--pictures"]);
+  });
+
   test("a feed state other than no log names the wait and disables the composer", async () => {
     for (const [state, agent, shown] of [["not_agent", null, "This terminal runs no Claude or Codex"], ["no_log", "claude", "Waiting for Codex's session log"]]) {
       const data = live("chat-remote");

@@ -8,7 +8,7 @@ import { exec, home, nextCommand, panes, run, shared, spaces, theme } from "herd
 import { isShown } from "./chat-tabs.js";
 import { Composer } from "./composer.js";
 import { columnWidth, rowHeight } from "./estimate.js";
-import { applyFeed, applyOlder, emptyFeed, freshChat, olderFrom } from "./feedstate.js";
+import { applyFeed, applyOlder, emptyFeed, expectation, freshChat, newConversation, olderFrom } from "./feedstate.js";
 import { createHelper, parseLines } from "./helper.js";
 import { createPictures } from "./pictures.js";
 import { createPoke } from "./refresh-driver.js";
@@ -215,9 +215,9 @@ export default class Chat extends View {
   send(text, cx) {
     const t = this.target;
     if (!t) return;
-    const fresh = freshChat(this.feed, t.kind);
-    const { session, path } = fresh ? { session: "none", path: "none" } : this.feed;
-    if (this.sending || !session || !path) return;
+    const expect = expectation(this.feed, t.kind);
+    if (this.sending || !expect) return;
+    const { session, path } = expect;
     this.sending = true;
     this.note = null;
     cx.notify();
@@ -333,7 +333,9 @@ export default class Chat extends View {
     const f = this.feed;
     const lost = this.located.state === "missing";
     const gone = this.located.state === "exited" || (!lost && f.waiting?.state === "no_terminal");
-    const fresh = !gone && !lost && freshChat(f, /** @type {Target} */ (this.id).kind);
+    const kind = /** @type {Target} */ (this.id).kind;
+    // No log yet, and the first message may go: a chat that never saw one, or the agent's new conversation.
+    const fresh = !gone && !lost && (freshChat(f, kind) || newConversation(f, kind));
 
     /** @type {Problem | null} */
     let problem = null;
