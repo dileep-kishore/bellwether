@@ -6,9 +6,14 @@ const agentDir = new URL("../agent/", import.meta.url).pathname;
 const launcher = join(agentDir, "browser-mcp");
 const browserMd = readFileSync(join(agentDir, "browser.md"), "utf8");
 const claudeMd = readFileSync(join(agentDir, "browser-claude.md"), "utf8");
+const codexPath = join(agentDir, "browser-codex.md");
 
 const TOOLSEARCH_LINE =
   "Claude Code may defer these tools: load them with ToolSearch `select:mcp__bw-browser__new_page,mcp__bw-browser__take_snapshot,mcp__bw-browser__click,mcp__bw-browser__take_screenshot,mcp__bw-browser__list_pages`.";
+
+// Codex 0.167 calls MCP tools from its exec tool; a screenshot reaches the model and the rollout only through image(...).
+const CODEX_LINE =
+  "In Codex's `exec` tool, pass a screenshot's image block to `image(...)`, not `text(...)`, so you and the user see the picture.";
 
 const PINNED_ARGV = [
   "-y",
@@ -72,6 +77,13 @@ describe("browser instructions", () => {
     const expected = [parts[0], parts[1], TOOLSEARCH_LINE, ...parts.slice(2)].join("\n\n");
     expect(claudeMd).toBe(expected);
     expect(Buffer.byteLength(claudeMd)).toBeLessThan(1400 + Buffer.byteLength(TOOLSEARCH_LINE) + 2);
+  });
+
+  test("the Codex copy is browser.md plus the image line, under Codex's 4,000-byte entry limit", () => {
+    const codexMd = readFileSync(codexPath, "utf8");
+    const parts = browserMd.split("\n\n");
+    expect(codexMd).toBe([parts[0], parts[1], CODEX_LINE, ...parts.slice(2)].join("\n\n"));
+    expect(Buffer.byteLength(codexMd)).toBeLessThan(4000);
   });
 });
 
