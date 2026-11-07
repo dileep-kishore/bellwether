@@ -274,3 +274,113 @@ One line per change to the spec after the interview, with its reason.
   50 clicks, and requires typing, scrolling, a resize and an agent-then-user
   click before a route passes; frames use new file names; Codex plan
   review, P2.
+
+## Review of the plan page, 2026-11-06
+
+The user's answers to the plan page's nine questions, verbatim:
+
+> 1. Similar to T3Code, there should be seamless connectivity. I can launch
+> agents on any connected device in Herdr natively, as if I'm on that device.
+> There shouldn't be any difference, so make sure you implemented it with
+> that in mind. I wasn't sure if that was the design you planned based on the
+> architecture you showed me.
+> 2. For the main window, I like the project sidebar, but I think Linear and
+> the Git stuff should be in the right sidebar. For the middle, I was
+> thinking we should be able to create multiple tabs, similar to how the
+> Herdr desktop has them, so you can open multiple chats in that work tree or
+> terminals. That's like this: a plus icon lets you choose chats. Right now,
+> let's just support Claude and Codex as two different chat options, and then
+> the terminals have three options when you click on the new tab.
+> 3. Regarding the sidebar choices, I answered that Linear should be in the
+> right sidebar. I think it would also be very helpful if we can associate a
+> project in Linear with the repository, so only the issues in that project
+> show up by default in Linear instead of showing all the issues across all
+> the projects.
+> 4. For your question about how much each work tree row shows, I like the
+> tree with agent lines option. For the subagents, option B, the threads
+> rail, makes the most sense because subagents don't have the same context.
+> It would be confusing if we put everything in one place. Again, this can
+> show up on the right sidebar or maybe as a floating thing, similar to how
+> T3Code has it. We can take a lot of the design ideas from T3Code and Arca.
+> We don't have to do things from scratch. Remember that.
+> 5. For polishing the UI, please keep that in mind. For where approvals and
+> questions wait, I like the dark above the composer option.
+> 6. For how much tool detail the transcript shows, honestly, I think grouped
+> summary lines are fine. I rarely see the tool details, and you can always
+> ask the agent what it did.
+> 7. For the diff viewer question, again, a right panel option B is what I
+> want to see.
+> 8. For the linear issue, it should open in the sidebar, which is option A.
+> 9. For the browser, I'm not sure. How the agent interacts with the browser
+> might complicate the situation because T3Code and Arca have their own
+> skills and MCP for this interaction, and Claude and Codex, by themselves,
+> have browser-use abilities. If we create some janky browser, I'm not sure
+> if the agent will use it properly, so I don't know if this is really an
+> option. Please look into this in detail.
+> Based on this, please update the plan and remove all the alternatives. I
+> want to see final markups for each of the features, the phases, the
+> features and end product, as well as the risks and stuff.
+
+Reading notes, the agent's, not the user's words: "Arca" is Orca; "dark
+above the composer" is the "Docked above the composer" option; "markups" is
+mockups. The ninth plan-page question (changes outside the repository) got
+no answer here, so it stays open.
+
+## Amendment log, revision 4
+
+- 2026-11-06: window has three columns: projects left, tabs middle, a right
+  sidebar with Changes, Issues and Browser; review answers 2, 3, 7.
+- 2026-11-06: the middle is a tab area with a "+" menu: Claude and Codex
+  chats, and Shell, Claude and Codex terminals; a chat tab is the agent's
+  terminal plus a chat pane, flipped with `⌘J`; review answer 2. Replaces
+  revision 3's single main stack of chat, terminal and diff.
+- 2026-11-06: repositories link to a Linear project, which is the default
+  issue filter; review answer 3.
+- 2026-11-06: sub-agents in a floating threads card in the chat (Orca's crew
+  card, T3's lineage list), each opening its own transcript; review answer
+  4.
+- 2026-11-06: tree rows, docked requests, grouped tool lines, right-panel
+  diff, inline issues fixed as the user chose; review answers 4 to 8; all
+  alternatives removed from the plan page.
+- 2026-11-06: design sizes and shapes taken from T3 Code `006d7e38` and
+  Orca `b0cd6d39`; review answer 4 ("take a lot of the design ideas").
+- 2026-11-06: seamless machines: the helper and hooks install themselves on
+  each machine over Herdr's connection (Flockbook's `remote.rs` approach),
+  replacing revision 3's "build on each machine"; review answer 1.
+- 2026-11-06: browser redesigned after research: a real Chrome with a
+  Bellwether profile shared by the user and agents, Chrome DevTools MCP and
+  instructions injected per session by Bellwether, SSH reverse forwards for
+  other machines; the in-window mirror and awrit are dropped; review answer
+  9. Done check 6 rewritten. Original: "The harness prints frames per
+  second and the median click-to-frame milliseconds for routes A and B, and
+  the chosen route meets 5 fps and 300 ms. With that route, an agent on this
+  Mac and an agent on macmini, each told through Chrome DevTools MCP to
+  click a numbered button on the test page, change the page shown in the
+  window within 1 s, and the user's next click on the same page is
+  acknowledged by the same tab. If route C was chosen, an agent's screenshot
+  appears inline in the chat instead." Evidence: T3 Code and Orca rely on
+  injected instructions, not on embedding; a mirror gives agents nothing.
+- 2026-11-06: done checks 1, 3, 4 and 5 now run on a macmini space too, and
+  check 5 tests the linked-project filter; review answers 1 and 3.
+- 2026-11-06: phases reordered: foundation, window and sidebar, chat tabs,
+  sub-agents and requests, browser, Changes, Issues, finish.
+- 2026-11-06: `⌘J` is handled by `bw-tabs` (`bw-tabs.chat-flip`), which is
+  always shown, with both pane ids kept per chat tab; Codex review of
+  revision 4, P2.
+- 2026-11-06: the browser forward uses the machine's SSH target, a free port
+  per window and machine, `ExitOnForwardFailure=yes`, and checks loopback
+  listening and the browser id before agents get it; `via` machines get a
+  named state; Codex review of revision 4, three P2s.
+- 2026-11-06: Linear links fall back to `[machine, common dir]` for
+  repositories without `origin`; Codex review of revision 4, P2.
+- 2026-11-06: the selected worktree on a remote machine refreshes every 2 s;
+  done check 1's "within 2 s" now names the selected worktree on either
+  machine. Original: "a plain file edit updates its counts within 2 s".
+  Evidence: `watchFolder` cannot watch another machine, and remote lists
+  refresh every 15 s; Codex review of revision 4, P2.
+- 2026-11-06: Codex `developer_instructions` keep the user's existing value
+  with Bellwether's text appended; done check 6 adds a sentinel; Codex
+  review of revision 4, P2.
+- 2026-11-06: Codex's P1 (the plan page still showed alternatives) was read
+  from the page before its revision 4 rebuild; the rebuilt page shows only
+  the final design.
