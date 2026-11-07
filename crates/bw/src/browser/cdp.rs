@@ -61,9 +61,31 @@ impl Cdp {
 
     /// Sends one command and waits for the reply with its id, skipping events and other replies.
     pub fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
+        self.send(None, method, params)
+    }
+
+    /// The same, for the session of a target attached with `Target.attachToTarget {flatten: true}`.
+    pub fn call_session(
+        &mut self,
+        session_id: &str,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, String> {
+        self.send(Some(session_id), method, params)
+    }
+
+    fn send(
+        &mut self,
+        session_id: Option<&str>,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, String> {
         let id = self.next_id;
         self.next_id += 1;
-        let request = json!({"id": id, "method": method, "params": params});
+        let mut request = json!({"id": id, "method": method, "params": params});
+        if let Some(session_id) = session_id {
+            request["sessionId"] = json!(session_id);
+        }
         self.ws
             .send(Message::text(request.to_string()))
             .map_err(|e| format!("{method}: {e}"))?;
