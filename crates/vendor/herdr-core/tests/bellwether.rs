@@ -232,3 +232,48 @@ fn other_exec_code_is_a_script() {
     assert_eq!(chip_texts(&both.items()), vec!["Ran a command"], "an exec_command decides the label");
     assert_eq!(calls(&both.items())[0].summary, "echo \"hi\" (+2 more)", "first command, unescaped, and the rest counted");
 }
+
+/// What `hc send` from another core puts in the log (probe against bwloop, 2026-11-07): the text unescaped, so a
+/// `</hc>` inside it stays as typed.
+const HC_FROM: &str = "<hc from=\"495a7fa4c01bdb33213c3868c28d6caa/ppid:53078\">";
+
+fn users(items: &[ConversationItem]) -> Vec<String> {
+    items
+        .iter()
+        .filter_map(|i| match &i.kind {
+            ItemKind::UserText(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn hc_wrapper_keeps_the_senders_text() {
+    use herdr_core::conversation::user_visible;
+    let wrap = |t: &str| format!("{HC_FROM}{t}</hc>");
+    assert_eq!(user_visible(&wrap("Reply with PINEAPPLE")).as_deref(), Some("Reply with PINEAPPLE"));
+    let tricky = "--force -x \"q\" </hc> & <b>\nline 2";
+    assert_eq!(user_visible(&wrap(tricky)).as_deref(), Some(tricky), "inner text verbatim, up to the last </hc>");
+    assert_eq!(user_visible(&wrap("<environment_context>x</environment_context>")), None, "inner text is judged too");
+    for other in [
+        "<hc>hi</hc>".to_string(),
+        "<hc from=\"core\">hi</hc>".to_string(),
+        "<hc from=\"a b/ppid:1\">hi</hc>".to_string(),
+        "<hc from=\"core/ppid:x\">hi</hc>".to_string(),
+        format!("{HC_FROM}hi"),
+        format!("{HC_FROM}hi</hc> after"),
+        "<system-reminder>hi</system-reminder>".to_string(),
+    ] {
+        assert_eq!(user_visible(&other), None, "{other}");
+    }
+
+    let codex = serde_json::json!({"type": "response_item", "payload": {"type": "message", "role": "user",
+        "content": [{"type": "input_text", "text": wrap(tricky)}]}});
+    let claude = serde_json::json!({"type": "user", "uuid": "u1", "message": {"role": "user", "content": wrap("hi")}});
+    let mut p = ConversationParser::new();
+    p.feed(&codex.to_string());
+    assert_eq!(users(&p.items()), vec![tricky.to_string()], "codex");
+    let mut p = ConversationParser::new();
+    p.feed(&claude.to_string());
+    assert_eq!(users(&p.items()), vec!["hi".to_string()], "claude");
+}

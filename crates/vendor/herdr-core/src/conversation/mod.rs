@@ -933,9 +933,23 @@ fn pasted_re() -> &'static Regex {
     R.get_or_init(|| Regex::new(r#"<pasted_content(?: id="([^"]*)")?>"#).unwrap())
 }
 
+fn hc_from_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| Regex::new(r#"(?s)\A<hc from="[^"\s/]+/ppid:[0-9]+">(.*)</hc>\z"#).unwrap())
+}
+
+/// The sender's text inside `hc send`'s `<hc from="<core>/ppid:N">…</hc>`, which it adds to text sent from
+/// another core, unescaped (so the text ends at the last `</hc>`).
+pub fn hc_sent_text(t: &str) -> Option<&str> {
+    hc_from_re().captures(t).and_then(|c| c.get(1)).map(|m| m.as_str())
+}
+
 /// The text to show for a user message, or nil when it is injected context. Pasted blocks lose their wrapper
 /// tags; typed text and pasted blocks keep their order, separated by a blank line.
 pub fn user_visible(t: &str) -> Option<String> {
+    if let Some(inner) = hc_sent_text(t) {
+        return user_visible(inner);
+    }
     if text::has_prefix(t, "<") {
         let m = tag_re().captures(t)?;
         if !VISIBLE_TAGS.contains(&&m[1]) {

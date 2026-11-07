@@ -217,7 +217,6 @@ pub fn hc_ls_with(program: &OsStr) -> Result<Value, HcError> {
 }
 
 /// Types `text` into the terminal at `address` and presses enter, refusing a blocked program (never `--force`).
-#[allow(dead_code)]
 pub fn hc_send(address: &str, text: &str, timeout: Duration) -> Result<Value, HcError> {
     hc_send_with(&program(), address, text, timeout)
 }

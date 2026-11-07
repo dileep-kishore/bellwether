@@ -2,7 +2,8 @@
 //!
 //! One `hc get` names the terminal's processes. A root remembered less than 30 s ago for the same processes is used
 //! as it is; otherwise `bw` lists processes once and asks `herdr-core`'s resolver about that one terminal, with the
-//! logs other live terminals remember as taken.
+//! logs other live terminals remember as taken. A Codex process that holds thread locks shows its newest root
+//! thread, which after `/new` may have no log yet.
 //!
 //! `fresh`, `latest`, `absolute` and the cache write are adapted from Flockbook's
 //! xplat/flockbook-modfeed/src/locate.rs (MIT, Copyright (c) 2026 Min-Chen Lee).
@@ -78,9 +79,20 @@ pub struct Inputs {
     pub claimed: Box<dyn Fn() -> HashSet<String>>,
     pub own_env: HashMap<String, String>,
     pub home: PathBuf,
+    /// Look again even when the remembered root is fresh, as `bw send` does before it types.
+    pub recheck: bool,
 }
 
 pub fn locate(terminal: &str, now_ms: i64) -> Result<Located, LocateFailure> {
+    locate_as(terminal, now_ms, false)
+}
+
+/// `locate` without trusting a root remembered in the last 30 s, so a new conversation started since is seen.
+pub fn locate_fresh(terminal: &str, now_ms: i64) -> Result<Located, LocateFailure> {
+    locate_as(terminal, now_ms, true)
+}
+
+fn locate_as(terminal: &str, now_ms: i64, recheck: bool) -> Result<Located, LocateFailure> {
     // A remote terminal's pids mean nothing here (`mapper::pane` drops them), so it would only ever read as no log.
     if terminal.contains('/') {
         return Err(LocateFailure::NoTerminal(format!(
@@ -103,6 +115,7 @@ pub fn locate(terminal: &str, now_ms: i64) -> Result<Located, LocateFailure> {
         claimed: Box::new(move || claimed_by_others(&core_dir, &me, &live_terminals())),
         own_env: std::env::vars().collect(),
         home: PathBuf::from(session_log::home_dir()),
+        recheck,
     };
     locate_with(&term, &file, &inputs, now_ms)
 }
@@ -168,6 +181,15 @@ fn pid_file_changed(r: &Root) -> bool {
     mtime_ms(&config.join(format!("sessions/{pid}.json"))).is_some_and(|m| m > r.checked_ms)
 }
 
+/// Codex adds `<home>/thread-writer-locks/<id>.lock` for a new thread (`/new`, a sub-agent), which a stat of the
+/// folder notices before the 30 s are up. The home is five levels above `sessions/YYYY/MM/DD/<rollout>`.
+fn codex_locks_changed(r: &Root) -> bool {
+    let Some(home) = Path::new(&r.path).ancestors().nth(5) else {
+        return false;
+    };
+    mtime_ms(&home.join("thread-writer-locks")).is_some_and(|m| m > r.checked_ms)
+}
+
 /// The remembered root still holds: same agent kind and processes, checked lately, and its log is still there.
 fn fresh(r: &Root, kind: &str, pids: &[i32], now_ms: i64) -> bool {
     r.kind == kind
@@ -175,6 +197,7 @@ fn fresh(r: &Root, kind: &str, pids: &[i32], now_ms: i64) -> bool {
         && (0..RECHECK_MS).contains(&(now_ms - r.checked_ms))
         && Path::new(&r.path).is_file()
         && !(kind == "claude" && pid_file_changed(r))
+        && !(kind == "codex" && codex_locks_changed(r))
 }
 
 /// Claude goes on in a new log while its pid file keeps the old id: follow `continued-in`.
@@ -240,6 +263,64 @@ fn memo(f: OpenFiles) -> OpenFiles {
     })
 }
 
+/// A Codex thread id as its lock file names it: UUIDv7 in lower-case hex, so string order is time order.
+fn thread_id(lock: &Path) -> Option<&str> {
+    if lock.parent()?.file_name()? != "thread-writer-locks" {
+        return None;
+    }
+    let id = lock.file_name()?.to_str()?.strip_suffix(".lock")?;
+    let ok = id.len() == 36
+        && id.char_indices().all(|(i, c)| match i {
+            8 | 13 | 18 | 23 => c == '-',
+            _ => c.is_ascii_digit() || ('a'..='f').contains(&c),
+        });
+    ok.then_some(id)
+}
+
+fn codex_meta_of(path: &Path) -> Option<resolver::CodexMeta> {
+    let mut head = Vec::new();
+    std::fs::File::open(path)
+        .and_then(|f| f.take(1 << 20).read_to_end(&mut head))
+        .ok()?;
+    resolver::codex_meta_full(&head)
+}
+
+/// The thread a Codex process shows: the newest thread lock it holds whose rollout is not a sub-agent's.
+/// Codex 0.167 keeps every loaded thread's lock and rollout open, so after `/new` the old rollout stays open
+/// while the new thread has a lock and no rollout until its first message. None when it holds no lock.
+fn codex_thread(open: &[String]) -> Option<Answer> {
+    let mut locks: Vec<(&str, &Path)> = open
+        .iter()
+        .map(Path::new)
+        .filter_map(|p| Some((thread_id(p)?, p)))
+        .collect();
+    locks.sort_by(|a, b| b.0.cmp(a.0));
+    for (id, lock) in locks {
+        let suffix = format!("-{id}.jsonl");
+        let rollout = open
+            .iter()
+            .find(|f| f.ends_with(&suffix) && f.contains("/rollout-"))
+            .map(PathBuf::from)
+            .or_else(|| {
+                let home = lock.parent()?.parent()?;
+                session_log::locate_codex(id, home.join("sessions"))
+            });
+        let Some(path) = rollout else {
+            return Some(Answer::NoFile);
+        };
+        match codex_meta_of(&path) {
+            Some(m) if m.subagent => continue,
+            _ => {
+                return Some(Answer::Log {
+                    session: id.to_string(),
+                    path: path.to_string_lossy().to_string(),
+                })
+            }
+        }
+    }
+    None
+}
+
 /// What the resolver said about one terminal.
 enum Answer {
     Log {
@@ -255,6 +336,11 @@ enum Answer {
 /// Asks the resolver about this one terminal, with its agent's own folders.
 fn resolve(need: Need, agent: &Proc, procs: &[Proc], inputs: &Inputs) -> Answer {
     let open = memo(inputs.open_files.clone());
+    if need.kind == "codex" {
+        if let Some(a) = codex_thread(&open(&resolver::subtree(agent.pid, procs))) {
+            return a;
+        }
+    }
     let mut dirs = dirs::agent_dirs(&agent.line, &inputs.own_env, &inputs.home);
     if need.kind == "codex" && dirs::env_value(&agent.line, "CODEX_HOME").is_none() {
         // The agent's own open rollouts outrank `bw`'s environment and the default.
@@ -317,7 +403,7 @@ pub fn locate_with(
     if let Some(r) = kept
         .root
         .as_ref()
-        .filter(|r| fresh(r, &kind, &pane.process_ids, now_ms))
+        .filter(|r| !inputs.recheck && fresh(r, &kind, &pane.process_ids, now_ms))
     {
         let r = latest(r);
         if kept.root.as_ref() != Some(&r) {
@@ -367,15 +453,16 @@ pub fn locate_with(
 }
 
 pub fn run(argv: &[String]) -> ExitCode {
-    let a = match args::parse(argv, &[], &["terminal"]) {
+    const USAGE: &str = "usage: bw locate --terminal <t> [--fresh]";
+    let a = match args::parse(argv, &["fresh"], &["terminal"]) {
         Ok(a) => a,
-        Err(m) => return crate::usage(&format!("{m}; usage: bw locate --terminal <t>")),
+        Err(m) => return crate::usage(&format!("{m}; {USAGE}")),
     };
     let Some(t) = a.get("terminal") else {
-        return crate::usage("usage: bw locate --terminal <t>");
+        return crate::usage(USAGE);
     };
     let now_ms = chrono::Utc::now().timestamp_millis();
-    let line = match locate(t, now_ms) {
+    let line = match locate_as(t, now_ms, a.has("fresh")) {
         Ok(l) => json!({
             "type": "located",
             "terminal": l.terminal,
@@ -468,6 +555,7 @@ mod tests {
                 claimed: Box::new(move || claimed.clone()),
                 own_env: HashMap::new(),
                 home: PathBuf::from("/nohome"),
+                recheck: false,
             }
         }
     }
@@ -891,6 +979,184 @@ mod tests {
             })
         );
         assert_eq!(fixed.scans.get(), 1);
+    }
+
+    /// A Codex thread id newer than the codex-subagent parent and child (ids are UUIDv7, so time-ordered).
+    const NEW_ID: &str = "01a1b512-1f37-7941-98b2-00c2fc7b72f3";
+
+    fn lock(home: &Path, id: &str) -> String {
+        home.join(format!("thread-writer-locks/{id}.lock"))
+            .to_string_lossy()
+            .to_string()
+    }
+
+    /// A root rollout for thread `id` beside the parent: its `session_meta` with that id.
+    fn new_rollout(home: &Path, parent: &str, id: &str) -> String {
+        let text = fs::read_to_string(parent).unwrap();
+        let mut meta: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+        meta["payload"]["id"] = json!(id);
+        let path = home.join(format!(
+            "sessions/2026/11/06/rollout-2026-11-06T22-30-00-{id}.jsonl"
+        ));
+        fs::write(&path, format!("{meta}\n")).unwrap();
+        path.to_string_lossy().to_string()
+    }
+
+    fn codex_line(home: &Path) -> String {
+        format!("codex CODEX_HOME={}", home.display())
+    }
+
+    #[test]
+    fn codex_new_thread_without_its_log_is_no_log() {
+        // Codex 0.167 after `/new`: the old rollout stays open, and the new thread has a lock but no rollout yet.
+        let tmp = tempfile::tempdir().unwrap();
+        let now = now_ms();
+        let home = tmp.path().join("codex-home");
+        let (parent, _) = codex_home(&home);
+        let file = tmp.path().join("cache/t2.json");
+        remember(
+            &file,
+            root(
+                "codex",
+                vec![801, 800],
+                801,
+                &parent,
+                PARENT_ID,
+                now - 60_000,
+            ),
+        );
+        let open = vec![parent.clone(), lock(&home, PARENT_ID), lock(&home, NEW_ID)];
+        let fixed = Fixed::new(
+            vec![proc_(801, 800, at(now - 90_000), &codex_line(&home))],
+            open,
+        );
+        let t = term("t2", "codex", 801, "/scratch/codex-subagent");
+        assert_eq!(
+            locate_with(&t, &file, &fixed.inputs(), now),
+            Err(LocateFailure::NoLog {
+                agent: "codex".into()
+            })
+        );
+        assert_eq!(cache::read(&file).root, None, "the old root is forgotten");
+    }
+
+    #[test]
+    fn codex_newest_thread_is_the_root() {
+        // After the new thread's first message both rollouts are open, which alone leaves the resolver unsure.
+        let tmp = tempfile::tempdir().unwrap();
+        let now = now_ms();
+        let home = tmp.path().join("codex-home");
+        let (parent, child) = codex_home(&home);
+        let new = new_rollout(&home, &parent, NEW_ID);
+        let file = tmp.path().join("cache/t2.json");
+        remember(
+            &file,
+            root(
+                "codex",
+                vec![801, 800],
+                801,
+                &parent,
+                PARENT_ID,
+                now - 60_000,
+            ),
+        );
+        let child_id = "01a1b4a1-dfcb-77e0-8029-0fbb3b65e5ba";
+        let procs = vec![proc_(801, 800, at(now - 90_000), &codex_line(&home))];
+        let t = term("t2", "codex", 801, "/scratch/codex-subagent");
+        let both = Fixed::new(
+            procs.clone(),
+            vec![
+                parent.clone(),
+                child.clone(),
+                new.clone(),
+                lock(&home, PARENT_ID),
+                lock(&home, child_id),
+                lock(&home, NEW_ID),
+            ],
+        );
+        let got = locate_with(&t, &file, &both.inputs(), now).unwrap();
+        assert_eq!(
+            (got.session.as_str(), got.path),
+            (NEW_ID, PathBuf::from(&new))
+        );
+        // A sub-agent's thread is newer than its parent's but is never the root.
+        let child_only = Fixed::new(
+            procs,
+            vec![
+                parent.clone(),
+                child,
+                lock(&home, PARENT_ID),
+                lock(&home, child_id),
+            ],
+        );
+        let got = locate_with(&t, &tmp.path().join("t2b.json"), &child_only.inputs(), now).unwrap();
+        assert_eq!(
+            (got.session.as_str(), got.path),
+            (PARENT_ID, PathBuf::from(&parent))
+        );
+    }
+
+    #[test]
+    fn codex_new_thread_rechecks_a_fresh_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let now = now_ms();
+        let home = tmp.path().join("codex-home");
+        let (parent, _) = codex_home(&home);
+        fs::create_dir_all(home.join("thread-writer-locks")).unwrap();
+        let file = tmp.path().join("cache/t2.json");
+        // Checked 5 s before the `/new` that adds a lock file.
+        let checked = mtime_ms(&home.join("thread-writer-locks")).unwrap() + 1;
+        remember(
+            &file,
+            root("codex", vec![801, 800], 801, &parent, PARENT_ID, checked),
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(lock(&home, NEW_ID), "").unwrap();
+        let fixed = Fixed::new(
+            vec![proc_(801, 800, at(now - 90_000), &codex_line(&home))],
+            vec![parent.clone(), lock(&home, PARENT_ID), lock(&home, NEW_ID)],
+        );
+        let t = term("t2", "codex", 801, "/scratch/codex-subagent");
+        let now = checked + 5_000;
+        assert!(locate_with(&t, &file, &fixed.inputs(), now).is_err());
+        assert_eq!(
+            fixed.scans.get(),
+            1,
+            "a new thread lock is looked at before 30 s"
+        );
+    }
+
+    #[test]
+    fn recheck_skips_a_fresh_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let now = now_ms();
+        let home = tmp.path().join("codex-home");
+        let (parent, _) = codex_home(&home);
+        let file = tmp.path().join("cache/t2.json");
+        remember(
+            &file,
+            root(
+                "codex",
+                vec![801, 800],
+                801,
+                &parent,
+                PARENT_ID,
+                now - 1_000,
+            ),
+        );
+        let fixed = Fixed::new(
+            vec![proc_(801, 800, at(now - 90_000), &codex_line(&home))],
+            vec![parent.clone(), lock(&home, PARENT_ID), lock(&home, NEW_ID)],
+        );
+        let t = term("t2", "codex", 801, "/scratch/codex-subagent");
+        let mut inputs = fixed.inputs();
+        inputs.recheck = true;
+        assert!(locate_with(&t, &file, &inputs, now).is_err());
+        assert_eq!(
+            fixed.scans.get(),
+            1,
+            "a recheck lists processes even for a fresh root"
+        );
     }
 
     #[test]
