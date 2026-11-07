@@ -2,8 +2,8 @@
 //!
 //! One `hc get` names the terminal's processes. A root remembered less than 30 s ago for the same processes is used
 //! as it is; otherwise `bw` lists processes once and asks `herdr-core`'s resolver about that one terminal, with the
-//! logs other live terminals remember as taken. A Codex process that holds thread locks shows its newest root
-//! thread, which after `/new` may have no log yet.
+//! logs other live terminals remember as taken. A Codex process that holds one root thread lock shows that
+//! thread, which after `/new` may have no log yet; one that holds several shows none until the others unload.
 //!
 //! `fresh`, `latest`, `absolute` and the cache write are adapted from Flockbook's
 //! xplat/flockbook-modfeed/src/locate.rs (MIT, Copyright (c) 2026 Min-Chen Lee).
@@ -309,16 +309,20 @@ fn codex_meta_of(path: &Path) -> Option<resolver::CodexMeta> {
     resolver::codex_meta_full(&head)
 }
 
-/// The thread a Codex process shows: the newest thread lock it holds whose rollout is not a sub-agent's.
-/// Codex 0.167 keeps every loaded thread's lock and rollout open, so after `/new` the old rollout stays open
-/// while the new thread has a lock and no rollout until its first message. None when it holds no lock.
+/// The thread a Codex process shows, from the root thread locks it holds (a sub-agent's rollout says so).
+/// Codex 0.167 keeps a thread it leaves (`/new`, `/resume`) loaded, lock and rollout open, for 60 s or while it
+/// runs, and a new thread has a lock and no rollout until its first message. Nothing it holds tells which thread
+/// the terminal displays, and thread age does not (`/resume` shows an older one), so several root locks name
+/// none. None when it holds no root lock.
 fn codex_thread(open: &[String]) -> Option<Answer> {
     let mut locks: Vec<(&str, &Path)> = open
         .iter()
         .map(Path::new)
         .filter_map(|p| Some((thread_id(p)?, p)))
         .collect();
-    locks.sort_by(|a, b| b.0.cmp(a.0));
+    locks.sort_by(|a, b| a.0.cmp(b.0));
+    locks.dedup_by(|a, b| a.0 == b.0);
+    let mut roots: Vec<(&str, Option<PathBuf>)> = vec![];
     for (id, lock) in locks {
         let suffix = format!("-{id}.jsonl");
         let rollout = open
@@ -329,20 +333,26 @@ fn codex_thread(open: &[String]) -> Option<Answer> {
                 let home = lock.parent()?.parent()?;
                 session_log::locate_codex(id, home.join("sessions"))
             });
-        let Some(path) = rollout else {
-            return Some(Answer::NoFile);
-        };
-        match codex_meta_of(&path) {
-            Some(m) if m.subagent => continue,
-            _ => {
-                return Some(Answer::Log {
-                    session: id.to_string(),
-                    path: path.to_string_lossy().to_string(),
-                })
-            }
+        // A lock without a rollout may be a sub-agent's that has not written one yet: it counts, which only
+        // names nothing until that rollout appears.
+        if rollout
+            .as_deref()
+            .and_then(codex_meta_of)
+            .is_some_and(|m| m.subagent)
+        {
+            continue;
         }
+        roots.push((id, rollout));
     }
-    None
+    match roots.as_slice() {
+        [] => None,
+        [(id, Some(path))] => Some(Answer::Log {
+            session: id.to_string(),
+            path: path.to_string_lossy().to_string(),
+        }),
+        [(_, None)] => Some(Answer::NoFile),
+        _ => Some(Answer::Ambiguous),
+    }
 }
 
 /// What the resolver said about one terminal.
@@ -355,6 +365,8 @@ enum Answer {
     NoFile,
     /// No single answer: no candidate, several, or the one it found is taken.
     Unsure,
+    /// Codex holds several root threads: any of them may be the one shown, the remembered one included.
+    Ambiguous,
 }
 
 /// Asks the resolver about this one terminal, with its agent's own folders.
@@ -446,7 +458,15 @@ pub fn locate_with(
         resolve(need, a, &procs, inputs)
     });
     let before = kept.root.clone();
-    let unsure = matches!(found, Some(Answer::Unsure));
+    let ambiguous = match found {
+        Some(Answer::Unsure) => Some(format!(
+            "cannot tell which {kind} conversation this terminal shows"
+        )),
+        Some(Answer::Ambiguous) => {
+            Some("Codex has several conversations open; showing none until it settles".to_string())
+        }
+        _ => None,
+    };
     kept.root = match (agent, found) {
         (Some(a), Some(Answer::Log { session, path })) => Some(Root {
             kind: kind.clone(),
@@ -474,10 +494,10 @@ pub fn locate_with(
     }
     kept.root.as_ref().map(located).ok_or(if !running {
         LocateFailure::NoProcess { agent: kind }
-    } else if unsure {
+    } else if let Some(message) = ambiguous {
         LocateFailure::Ambiguous {
-            message: format!("cannot tell which {kind} conversation this terminal shows"),
             agent: kind,
+            message,
         }
     } else {
         LocateFailure::NoLog { agent: kind }
@@ -1042,7 +1062,8 @@ mod tests {
 
     #[test]
     fn codex_new_thread_without_its_log_is_no_log() {
-        // Codex 0.167 after `/new`: the old rollout stays open, and the new thread has a lock but no rollout yet.
+        // Codex 0.167 after `/new`: the old rollout stays open until the old thread unloads, and the new thread has
+        // a lock but no rollout yet.
         let tmp = tempfile::tempdir().unwrap();
         let now = now_ms();
         let home = tmp.path().join("codex-home");
@@ -1059,24 +1080,32 @@ mod tests {
                 now - 60_000,
             ),
         );
-        let open = vec![parent.clone(), lock(&home, PARENT_ID), lock(&home, NEW_ID)];
-        let fixed = Fixed::new(
-            vec![proc_(801, 800, at(now - 90_000), &codex_line(&home))],
-            open,
-        );
+        let procs = vec![proc_(801, 800, at(now - 90_000), &codex_line(&home))];
         let t = term("t2", "codex", 801, "/scratch/codex-subagent");
+        let both = Fixed::new(
+            procs.clone(),
+            vec![parent.clone(), lock(&home, PARENT_ID), lock(&home, NEW_ID)],
+        );
+        assert!(matches!(
+            locate_with(&t, &file, &both.inputs(), now),
+            Err(LocateFailure::Ambiguous { agent, .. }) if agent == "codex"
+        ));
+        assert_eq!(cache::read(&file).root, None, "the old root is forgotten");
+        // Once the old thread unloads, the new one is all Codex holds.
+        let unloaded = Fixed::new(procs, vec![lock(&home, NEW_ID)]);
         assert_eq!(
-            locate_with(&t, &file, &fixed.inputs(), now),
+            locate_with(&t, &file, &unloaded.inputs(), now),
             Err(LocateFailure::NoLog {
                 agent: "codex".into()
             })
         );
-        assert_eq!(cache::read(&file).root, None, "the old root is forgotten");
     }
 
     #[test]
-    fn codex_newest_thread_is_the_root() {
-        // After the new thread's first message both rollouts are open, which alone leaves the resolver unsure.
+    fn codex_several_root_threads_name_none() {
+        // Review Focus 1. Both rollouts and locks are open after `/new` and the new thread's first message, and
+        // equally after `/resume` back to the older thread while the newer one stays loaded. Nothing tells which
+        // one the terminal shows, so neither is the root, even the one remembered.
         let tmp = tempfile::tempdir().unwrap();
         let now = now_ms();
         let home = tmp.path().join("codex-home");
@@ -1108,7 +1137,37 @@ mod tests {
                 lock(&home, NEW_ID),
             ],
         );
-        let got = locate_with(&t, &file, &both.inputs(), now).unwrap();
+        for remembered in [(&parent, PARENT_ID), (&new, NEW_ID)] {
+            remember(
+                &file,
+                root(
+                    "codex",
+                    vec![801, 800],
+                    801,
+                    remembered.0,
+                    remembered.1,
+                    now - 60_000,
+                ),
+            );
+            let got = locate_with(&t, &file, &both.inputs(), now);
+            assert!(
+                matches!(&got, Err(LocateFailure::Ambiguous { agent, .. }) if agent == "codex"),
+                "{got:?}"
+            );
+            assert_eq!(got.unwrap_err().state_line()["state"], "ambiguous");
+            assert_eq!(cache::read(&file).root, None);
+        }
+        // The same lock seen twice (two processes of the tree) is one thread.
+        let twice = Fixed::new(
+            procs.clone(),
+            vec![
+                new.clone(),
+                lock(&home, NEW_ID),
+                new.clone(),
+                lock(&home, NEW_ID),
+            ],
+        );
+        let got = locate_with(&t, &file, &twice.inputs(), now).unwrap();
         assert_eq!(
             (got.session.as_str(), got.path),
             (NEW_ID, PathBuf::from(&new))

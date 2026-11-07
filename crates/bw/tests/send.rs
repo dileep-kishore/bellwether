@@ -261,6 +261,60 @@ fn new_thread_is_refused_conversation() {
     assert!(x.sends().is_empty());
 }
 
+/// A local Codex terminal `t7` holding the parent's rollout and lock and a newer root thread's rollout and lock,
+/// as Codex 0.167 does after `/resume` back to the older thread while the newer one stays loaded.
+fn two_root_codex(x: &Scratch) -> (FakeCodex, String, String) {
+    let home = x.dir().join("codex-home");
+    let day = home.join("sessions/2026/11/06");
+    std::fs::create_dir_all(&day).unwrap();
+    std::fs::create_dir_all(home.join("thread-writer-locks")).unwrap();
+    let from =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/sessions/codex-subagent");
+    std::fs::copy(from.join(PARENT), day.join(PARENT)).unwrap();
+    let text = std::fs::read_to_string(day.join(PARENT)).unwrap();
+    let mut meta: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    meta["payload"]["id"] = json!(OTHER_SID);
+    let newer = day.join(format!("rollout-2026-11-06T22-30-00-{OTHER_SID}.jsonl"));
+    std::fs::write(&newer, format!("{meta}\n")).unwrap();
+    let mut files = vec![day.join(PARENT), newer.clone()];
+    for id in [SID, OTHER_SID] {
+        let lock = home.join(format!("thread-writer-locks/{id}.lock"));
+        std::fs::write(&lock, "").unwrap();
+        files.push(lock);
+    }
+    let codex = FakeCodex::start(&x.dir(), &home, &files);
+    let pid = codex.0.id();
+    std::fs::write(
+        x.dir().join("gets/t7.json"),
+        json!({"address": "t7", "argv": ["codex"], "cwd": "/scratch/codex-subagent", "pid": pid,
+               "state": "live", "status": {"state": "idle"},
+               "foreground": {"argv": ["codex"], "name": "codex", "pid": pid}})
+        .to_string(),
+    )
+    .unwrap();
+    (
+        codex,
+        day.join(PARENT).to_string_lossy().to_string(),
+        newer.to_string_lossy().to_string(),
+    )
+}
+
+#[test]
+fn several_root_threads_are_refused_conversation() {
+    // Review Focus 1: the newest thread need not be the one shown, so neither passes.
+    let x = Scratch::new();
+    let (_codex, older, newer) = two_root_codex(&x);
+    let (_, lines) = x.run(&["locate", "--terminal", "t7"]);
+    assert_eq!(lines[0]["state"], "ambiguous", "{lines:?}");
+    for (session, path) in [(SID, &older), (OTHER_SID, &newer)] {
+        let (code, line) = x.send("t7", "codex", session, path, "hi");
+        assert_eq!((code, sent(&line)), (0, "refused-conversation"), "{line}");
+    }
+    let (_, line) = x.send("t7", "codex", "none", "none", "hi");
+    assert_eq!(sent(&line), "refused-conversation", "{line}");
+    assert!(x.sends().is_empty());
+}
+
 #[test]
 fn no_agent_is_refused_conversation() {
     let x = Scratch::new();
