@@ -1,0 +1,20 @@
+{
+  // Herdr's mod compilerOptions (the jsconfig.json it writes into each mod folder), applied to every bw-* mod and
+  // shared/. It lives here, not at the root, because Bun would read a root tsconfig's paths at run time.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "checkJs": true,
+    "strict": true,
+    "strictNullChecks": false,
+    "noEmit": true,
+    // Herdr's own .d.ts files do not pass TypeScript 7's checks (Buffer, Crypto); the mods are what is checked here.
+    "skipLibCheck": true,
+    // Herdr folds herdr.d.ts into each mod's gpui-kit.d.ts as `declare module "herdr"`; this maps it to the same file.
+    "paths": { "herdr": ["./herdr/herdr.d.ts"] }
+  },
+  "include": ["herdr/gpui-kit.d.ts", "../mods/bw-*/**/*.js", "../shared/*.js"],
+  "exclude": ["../shared/*.test.js"]
+}

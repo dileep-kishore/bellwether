@@ -23,6 +23,7 @@ const CACHE_MS = 60_000;
  * @typedef {"unreachable" | "missing" | "outdated" | "installing" | "failed" | "bad_output"} FailState
  */
 
+// Test `r.ok === false`, not `!r.ok`: with strictNullChecks off, TypeScript narrows only the first to Failure.
 /**
  * @typedef {object} Failure
  * @property {false} ok
@@ -37,10 +38,12 @@ const CACHE_MS = 60_000;
  * @property {string} message
  */
 
+/** One parsed line of bw's output: a JSON object. @typedef {Record<string, unknown>} Line */
+
 /**
  * @typedef {object} Output
  * @property {true} ok
- * @property {object[]} lines
+ * @property {Line[]} lines
  */
 
 /**
@@ -53,10 +56,11 @@ const CACHE_MS = 60_000;
  * Parses bw's JSON-lines output.
  *
  * @param {string} stdout
- * @returns {object[]}
+ * @returns {Line[]}
  * @throws {Error} naming the line number only, since a line can hold transcript text.
  */
 export function parseLines(stdout) {
+  /** @type {Line[]} */
   const out = [];
   stdout.split("\n").forEach((raw, i) => {
     const line = raw.trim();
@@ -76,7 +80,7 @@ export function parseLines(stdout) {
 }
 
 /**
- * @param {{ exec: Exec, localInstall: (machine: string) => Promise<object[]>, now?: () => number }} deps
+ * @param {{ exec: Exec, localInstall: (machine: string) => Promise<Line[]>, now?: () => number }} deps
  *   `localInstall` runs this Mac's `bw machine install <machine>` and resolves its parsed lines.
  * @returns {Helper}
  */
@@ -88,12 +92,12 @@ export function createHelper({ exec, localInstall, now = Date.now }) {
   /** @type {Map<string | null, Promise<Ready | Failure>>} */
   const installing = new Map();
 
-  const where = (machine) => (machine == null ? "this machine" : machine);
-  const hint = (machine) => (machine == null ? ": run scripts/install-helper.sh" : "");
-  /** @returns {Failure} */
+  const where = (/** @type {string | null} */ machine) => (machine == null ? "this machine" : machine);
+  const hint = (/** @type {string | null} */ machine) => (machine == null ? ": run scripts/install-helper.sh" : "");
+  /** @param {FailState} state @param {string} message @returns {Failure} */
   const fail = (state, message) => ({ ok: false, state, message });
 
-  /** @returns {Promise<Output | Failure>} */
+  /** @param {string | null} machine @param {string[]} args @returns {Promise<Output | Failure>} */
   async function run(machine, args) {
     let r;
     try {
@@ -109,7 +113,7 @@ export function createHelper({ exec, localInstall, now = Date.now }) {
     try {
       lines = parseLines(r.stdout);
     } catch (e) {
-      return fail("bad_output", e.message);
+      return fail("bad_output", e instanceof Error ? e.message : String(e));
     }
     const err = lines.find((l) => l.type === "error");
     if (err) return fail("failed", String(err.message ?? err.code ?? "bw reported an error"));
@@ -117,10 +121,10 @@ export function createHelper({ exec, localInstall, now = Date.now }) {
     return { ok: true, lines };
   }
 
-  /** @returns {Promise<Ready | Failure>} */
+  /** @param {string | null} machine @returns {Promise<Ready | Failure>} */
   async function check(machine) {
     const r = await run(machine, ["version"]);
-    if (!r.ok) return r;
+    if (r.ok === false) return r;
     const v = r.lines.find((l) => "protocol" in l && "version" in l);
     if (!v) return fail("bad_output", `bw version on ${where(machine)} printed no protocol and version`);
     if (v.protocol !== PROTOCOL || v.version !== HELPER_VERSION) {
@@ -133,6 +137,11 @@ export function createHelper({ exec, localInstall, now = Date.now }) {
     return { ok: true, state: "current", message: "" };
   }
 
+  /**
+   * @param {Map<string | null, Promise<Ready | Failure>>} map
+   * @param {string | null} machine
+   * @param {() => Promise<Ready | Failure>} start
+   */
   function once(map, machine, start) {
     let p = map.get(machine);
     if (!p) {
@@ -142,25 +151,32 @@ export function createHelper({ exec, localInstall, now = Date.now }) {
     return p;
   }
 
+  /** @template {Ready | Failure} R @param {string | null} machine @param {R} result @returns {R} */
   function remember(machine, result) {
     remembered.set(machine, { at: now(), result });
     return result;
   }
 
-  /** @returns {Promise<Ready | Failure>} */
+  /** @param {string} machine @returns {Promise<Ready | Failure>} */
   async function installAndCheck(machine) {
     let lines;
     try {
       lines = await localInstall(machine);
     } catch (e) {
-      return remember(machine, fail("failed", `install on ${machine} failed: ${e instanceof Error ? e.message : String(e)}`));
+      return remember(
+        machine,
+        fail("failed", `install on ${machine} failed: ${e instanceof Error ? e.message : String(e)}`),
+      );
     }
     const err = lines.find((l) => l?.type === "error");
     if (err) return remember(machine, fail("failed", String(err.message ?? err.code ?? "install failed")));
     const after = await check(machine);
     if (after.ok) return remember(machine, after);
     if (after.state === "missing" || after.state === "outdated") {
-      return remember(machine, fail("failed", `bw on ${machine} is still ${after.state} after install: ${after.message}`));
+      return remember(
+        machine,
+        fail("failed", `bw on ${machine} is still ${after.state} after install: ${after.message}`),
+      );
     }
     return after;
   }
@@ -182,9 +198,9 @@ export function createHelper({ exec, localInstall, now = Date.now }) {
   /** @type {Helper["call"]} */
   async function call(machine, args, { install = true } = {}) {
     const ready = await ensure(machine, { install });
-    if (!ready.ok) return ready;
+    if (ready.ok === false) return ready;
     const r = await run(machine, args);
-    if (!r.ok && r.state === "missing") remembered.delete(machine);
+    if (r.ok === false && r.state === "missing") remembered.delete(machine);
     return r;
   }
 

@@ -99,14 +99,29 @@ function forwardOf(l) {
 export function viewOf(lines, helperFailure) {
   if (helperFailure) {
     const label = HELPER_LABELS[helperFailure.state] ?? "Unavailable";
-    return { chrome: { state: "helper", label, message: helperFailure.message }, tabs: [], forwards: [], states: helperFailure.message };
+    return {
+      chrome: { state: "helper", label, message: helperFailure.message },
+      tabs: [],
+      forwards: [],
+      states: helperFailure.message,
+    };
   }
   if (!lines) {
-    return { chrome: { state: "loading", label: "Checking…", message: "" }, tabs: [], forwards: [], states: "Reading the Bellwether Chrome…" };
+    return {
+      chrome: { state: "loading", label: "Checking…", message: "" },
+      tabs: [],
+      forwards: [],
+      states: "Reading the Bellwether Chrome…",
+    };
   }
   const all = /** @type {any[]} */ (lines);
   const c = all.find((l) => l?.type === "chrome");
-  const forwards = /** @type {Forward[]} */ (all.filter((l) => l?.type === "forward").map(forwardOf).filter(Boolean));
+  const forwards = /** @type {Forward[]} */ (
+    all
+      .filter((l) => l?.type === "forward")
+      .map(forwardOf)
+      .filter(Boolean)
+  );
   if (!c) {
     const message = "bw browser status printed no chrome line";
     return { chrome: { state: "helper", label: "Unavailable", message }, tabs: [], forwards, states: message };
@@ -114,9 +129,19 @@ export function viewOf(lines, helperFailure) {
   const state = str(c.state) || "unknown";
   const message = str(c.message);
   if (state !== "running") {
-    return { chrome: { state, label: LABELS[state] ?? sentence(state.replace(/_/g, " ")), message }, tabs: [], forwards, states: sentence(message) || state };
+    return {
+      chrome: { state, label: LABELS[state] ?? sentence(state.replace(/_/g, " ")), message },
+      tabs: [],
+      forwards,
+      states: sentence(message) || state,
+    };
   }
-  const tabs = /** @type {Tab[]} */ (all.filter((l) => l?.type === "tab").map(tabOf).filter(Boolean));
+  const tabs = /** @type {Tab[]} */ (
+    all
+      .filter((l) => l?.type === "tab")
+      .map(tabOf)
+      .filter(Boolean)
+  );
   const label = `Running · ${tabs.length} ${tabs.length === 1 ? "tab" : "tabs"}`;
   return { chrome: { state, label, message }, tabs, forwards, states: tabs.length ? null : "No tabs open" };
 }
@@ -188,8 +213,16 @@ const lineOf = (lines, type) => lines.find((l) => l?.type === type) ?? null;
  * @param {string} [title] the tab's title, for focus and close
  */
 export function resultText(action, answer, title = "") {
-  const verb = { up: "Start", new: "New tab", arrange: "Arrange", focus: "Focus", close: "Close", stop: "Stop", dev: "Forward port" }[action];
-  if (!answer.ok) return `${verb} failed: ${answer.message.trim()}`;
+  const verb = {
+    up: "Start",
+    new: "New tab",
+    arrange: "Arrange",
+    focus: "Focus",
+    close: "Close",
+    stop: "Stop",
+    dev: "Forward port",
+  }[action];
+  if (answer.ok === false) return `${verb} failed: ${answer.message.trim()}`;
   const lines = /** @type {any[]} */ (answer.lines);
   if (action === "up") {
     const c = lineOf(lines, "chrome");

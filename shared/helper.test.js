@@ -23,10 +23,20 @@ function fakeWorld(/** @type {Map<string | null, FakeMachine>} */ machines) {
     calls.push({ cmd, args, opts });
     const m = machines.get(opts.on) ?? { state: "missing" };
     if (m.state === "offline") throw new Error(`machine ${opts.on} is unreachable`);
-    if (m.state === "missing") return { code: 127, stdout: "", stderr: "sh: 1: exec: /home/u/.local/share/bellwether/helper/current/bw: not found\n" };
-    if (m.state === "nosuchfile") return { code: 2, stdout: "", stderr: "sh: /home/u/.local/share/bellwether/helper/current/bw: No such file or directory\n" };
+    if (m.state === "missing")
+      return {
+        code: 127,
+        stdout: "",
+        stderr: "sh: 1: exec: /home/u/.local/share/bellwether/helper/current/bw: not found\n",
+      };
+    if (m.state === "nosuchfile")
+      return {
+        code: 2,
+        stdout: "",
+        stderr: "sh: /home/u/.local/share/bellwether/helper/current/bw: No such file or directory\n",
+      };
     const rest = args.slice(3);
-    if (rest[0] === "version") return { code: 0, stdout: JSON.stringify(m.version ?? CURRENT) + "\n", stderr: "" };
+    if (rest[0] === "version") return { code: 0, stdout: `${JSON.stringify(m.version ?? CURRENT)}\n`, stderr: "" };
     const r = m.reply ? m.reply(rest) : { code: 0, stdout: "" };
     return { stderr: "", ...r };
   }
@@ -65,7 +75,10 @@ describe("call", () => {
   test("call passes args after the fixed script and routes by machine", async () => {
     const w = fakeWorld(
       new Map([
-        ["tsuki", { state: "current", reply: (a) => ({ code: 0, stdout: `{"type":"echo","args":${JSON.stringify(a)}}\n` }) }],
+        [
+          "tsuki",
+          { state: "current", reply: (a) => ({ code: 0, stdout: `{"type":"echo","args":${JSON.stringify(a)}}\n` }) },
+        ],
         [null, { state: "current", reply: () => ({ code: 0, stdout: '{"type":"here"}\n' }) }],
       ]),
     );
@@ -75,32 +88,68 @@ describe("call", () => {
     expect(local).toEqual({ ok: true, lines: [{ type: "here" }] });
 
     const run = w.calls.find((c) => c.args[3] === "send");
-    expect(run).toEqual({ cmd: "sh", args: ["-c", HELPER_SCRIPT, "bw", "send", "a b", "$HOME;rm -rf /"], opts: { on: "tsuki" } });
+    expect(run).toEqual({
+      cmd: "sh",
+      args: ["-c", HELPER_SCRIPT, "bw", "send", "a b", "$HOME;rm -rf /"],
+      opts: { on: "tsuki" },
+    });
     expect(w.calls.find((c) => c.args[3] === "status").opts).toEqual({ on: null });
     expect(HELPER_SCRIPT).toBe('exec "$HOME"/.local/share/bellwether/helper/current/bw "$@"');
   });
 
   test("an error line is failed with its message", async () => {
     const w = fakeWorld(
-      new Map([["tsuki", { state: "current", reply: () => ({ code: 1, stdout: '{"type":"error","code":"no_session","message":"no session abc"}\n' }) }]]),
+      new Map([
+        [
+          "tsuki",
+          {
+            state: "current",
+            reply: () => ({ code: 1, stdout: '{"type":"error","code":"no_session","message":"no session abc"}\n' }),
+          },
+        ],
+      ]),
     );
-    expect(await w.helper.call("tsuki", ["send", "abc"])).toEqual({ ok: false, state: "failed", message: "no session abc" });
+    expect(await w.helper.call("tsuki", ["send", "abc"])).toEqual({
+      ok: false,
+      state: "failed",
+      message: "no session abc",
+    });
   });
 
   test("an error line fails the call even when bw exits 0", async () => {
     const w = fakeWorld(
-      new Map([["tsuki", { state: "current", reply: () => ({ code: 0, stdout: '{"type":"progress"}\n{"type":"error","code":"x","message":"late"}\n' }) }]]),
+      new Map([
+        [
+          "tsuki",
+          {
+            state: "current",
+            reply: () => ({ code: 0, stdout: '{"type":"progress"}\n{"type":"error","code":"x","message":"late"}\n' }),
+          },
+        ],
+      ]),
     );
     expect(await w.helper.call("tsuki", ["x"])).toEqual({ ok: false, state: "failed", message: "late" });
   });
 
   test("a nonzero exit without an error line is failed with stderr", async () => {
-    const w = fakeWorld(new Map([["tsuki", { state: "current", reply: () => ({ code: 101, stdout: "", stderr: "thread main panicked\n" }) }]]));
-    expect(await w.helper.call("tsuki", ["x"])).toEqual({ ok: false, state: "failed", message: "bw exited 101: thread main panicked" });
+    const w = fakeWorld(
+      new Map([
+        ["tsuki", { state: "current", reply: () => ({ code: 101, stdout: "", stderr: "thread main panicked\n" }) }],
+      ]),
+    );
+    expect(await w.helper.call("tsuki", ["x"])).toEqual({
+      ok: false,
+      state: "failed",
+      message: "bw exited 101: thread main panicked",
+    });
   });
 
   test("a non-JSON line is bad_output", async () => {
-    const w = fakeWorld(new Map([["tsuki", { state: "current", reply: () => ({ code: 0, stdout: '{"type":"ok"}\nprivate transcript text\n' }) }]]));
+    const w = fakeWorld(
+      new Map([
+        ["tsuki", { state: "current", reply: () => ({ code: 0, stdout: '{"type":"ok"}\nprivate transcript text\n' }) }],
+      ]),
+    );
     const r = await w.helper.call("tsuki", ["x"]);
     expect(r.ok).toBe(false);
     expect(r.state).toBe("bad_output");
@@ -109,7 +158,9 @@ describe("call", () => {
   });
 
   test("exit 127 is missing and triggers one install", async () => {
-    const w = fakeWorld(new Map([["tsuki", { state: "missing", reply: () => ({ code: 0, stdout: '{"type":"ok"}\n' }) }]]));
+    const w = fakeWorld(
+      new Map([["tsuki", { state: "missing", reply: () => ({ code: 0, stdout: '{"type":"ok"}\n' }) }]]),
+    );
     expect(await w.helper.call("tsuki", ["x"])).toEqual({ ok: true, lines: [{ type: "ok" }] });
     expect(w.installs).toEqual(["tsuki"]);
     expect(await w.helper.call("tsuki", ["x"])).toEqual({ ok: true, lines: [{ type: "ok" }] });
@@ -143,7 +194,11 @@ describe("call", () => {
     const w = fakeWorld(machines);
     expect((await w.helper.call("tsuki", ["x"])).ok).toBe(true);
     machines.get("tsuki").state = "missing";
-    expect(await w.helper.call("tsuki", ["x"])).toEqual({ ok: false, state: "missing", message: "bw is not installed on tsuki" });
+    expect(await w.helper.call("tsuki", ["x"])).toEqual({
+      ok: false,
+      state: "missing",
+      message: "bw is not installed on tsuki",
+    });
     expect(await w.helper.call("tsuki", ["x"])).toEqual({ ok: true, lines: [{ type: "ok" }] });
     expect(w.installs).toEqual(["tsuki"]);
   });
@@ -153,7 +208,11 @@ describe("ensure", () => {
   test("old protocol is outdated", async () => {
     const w = fakeWorld(new Map([["tsuki", { state: "current", version: { ...CURRENT, protocol: PROTOCOL - 1 } }]]));
     const r = await w.helper.ensure("tsuki", { install: false });
-    expect(r).toEqual({ ok: false, state: "outdated", message: `bw on tsuki is protocol ${PROTOCOL - 1} version ${HELPER_VERSION}; this window needs protocol ${PROTOCOL} version ${HELPER_VERSION}` });
+    expect(r).toEqual({
+      ok: false,
+      state: "outdated",
+      message: `bw on tsuki is protocol ${PROTOCOL - 1} version ${HELPER_VERSION}; this window needs protocol ${PROTOCOL} version ${HELPER_VERSION}`,
+    });
   });
 
   test("this window needs helper 0.4.0, protocol 4", () => {
@@ -162,21 +221,39 @@ describe("ensure", () => {
   });
 
   test("a phase 3 helper (protocol 3, 0.3.0) is outdated", async () => {
-    const w = fakeWorld(new Map([["tsuki", { state: "current", version: { ...CURRENT, protocol: 3, version: "0.3.0" } }]]));
+    const w = fakeWorld(
+      new Map([["tsuki", { state: "current", version: { ...CURRENT, protocol: 3, version: "0.3.0" } }]]),
+    );
     const r = await w.helper.ensure("tsuki", { install: false });
-    expect(r).toEqual({ ok: false, state: "outdated", message: "bw on tsuki is protocol 3 version 0.3.0; this window needs protocol 4 version 0.4.0" });
+    expect(r).toEqual({
+      ok: false,
+      state: "outdated",
+      message: "bw on tsuki is protocol 3 version 0.3.0; this window needs protocol 4 version 0.4.0",
+    });
   });
 
   test("a phase 2 helper (protocol 2, 0.2.0) is outdated", async () => {
-    const w = fakeWorld(new Map([["tsuki", { state: "current", version: { ...CURRENT, protocol: 2, version: "0.2.0" } }]]));
+    const w = fakeWorld(
+      new Map([["tsuki", { state: "current", version: { ...CURRENT, protocol: 2, version: "0.2.0" } }]]),
+    );
     const r = await w.helper.ensure("tsuki", { install: false });
-    expect(r).toEqual({ ok: false, state: "outdated", message: "bw on tsuki is protocol 2 version 0.2.0; this window needs protocol 4 version 0.4.0" });
+    expect(r).toEqual({
+      ok: false,
+      state: "outdated",
+      message: "bw on tsuki is protocol 2 version 0.2.0; this window needs protocol 4 version 0.4.0",
+    });
   });
 
   test("a phase 1 helper (protocol 1, 0.1.0) is outdated", async () => {
-    const w = fakeWorld(new Map([["tsuki", { state: "current", version: { ...CURRENT, protocol: 1, version: "0.1.0" } }]]));
+    const w = fakeWorld(
+      new Map([["tsuki", { state: "current", version: { ...CURRENT, protocol: 1, version: "0.1.0" } }]]),
+    );
     const r = await w.helper.ensure("tsuki", { install: false });
-    expect(r).toEqual({ ok: false, state: "outdated", message: "bw on tsuki is protocol 1 version 0.1.0; this window needs protocol 4 version 0.4.0" });
+    expect(r).toEqual({
+      ok: false,
+      state: "outdated",
+      message: "bw on tsuki is protocol 1 version 0.1.0; this window needs protocol 4 version 0.4.0",
+    });
   });
 
   test("a different version is outdated and installs once", async () => {
@@ -243,10 +320,29 @@ describe("ensure", () => {
 
   test("an install error line is failed with its message and not retried for 60 s", async () => {
     const w = fakeWorld(
-      new Map([["tsuki", { state: "missing", install: [{ type: "progress", step: "uname" }, { type: "error", code: "no_build", message: "no build for Linux x86_64" }] }]]),
+      new Map([
+        [
+          "tsuki",
+          {
+            state: "missing",
+            install: [
+              { type: "progress", step: "uname" },
+              { type: "error", code: "no_build", message: "no build for Linux x86_64" },
+            ],
+          },
+        ],
+      ]),
     );
-    expect(await w.helper.ensure("tsuki")).toEqual({ ok: false, state: "failed", message: "no build for Linux x86_64" });
-    expect(await w.helper.ensure("tsuki")).toEqual({ ok: false, state: "failed", message: "no build for Linux x86_64" });
+    expect(await w.helper.ensure("tsuki")).toEqual({
+      ok: false,
+      state: "failed",
+      message: "no build for Linux x86_64",
+    });
+    expect(await w.helper.ensure("tsuki")).toEqual({
+      ok: false,
+      state: "failed",
+      message: "no build for Linux x86_64",
+    });
     expect(w.installs).toEqual(["tsuki"]);
     w.advance(60_000);
     await w.helper.ensure("tsuki");
@@ -255,7 +351,11 @@ describe("ensure", () => {
 
   test("a rejected local install is failed", async () => {
     const w = fakeWorld(new Map([["tsuki", { state: "missing", install: new Error("bw: command not found") }]]));
-    expect(await w.helper.ensure("tsuki")).toEqual({ ok: false, state: "failed", message: "install on tsuki failed: bw: command not found" });
+    expect(await w.helper.ensure("tsuki")).toEqual({
+      ok: false,
+      state: "failed",
+      message: "install on tsuki failed: bw: command not found",
+    });
   });
 
   test("an install that leaves the helper outdated is failed", async () => {
@@ -268,7 +368,11 @@ describe("ensure", () => {
 
   test("a version line without protocol is bad_output", async () => {
     const w = fakeWorld(new Map([["tsuki", { state: "current", version: { type: "hello" } }]]));
-    expect(await w.helper.ensure("tsuki")).toEqual({ ok: false, state: "bad_output", message: "bw version on tsuki printed no protocol and version" });
+    expect(await w.helper.ensure("tsuki")).toEqual({
+      ok: false,
+      state: "bad_output",
+      message: "bw version on tsuki printed no protocol and version",
+    });
     expect(w.installs).toEqual([]);
   });
 });

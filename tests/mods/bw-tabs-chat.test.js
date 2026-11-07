@@ -28,7 +28,19 @@ function pendingClaude(at) {
   const data = live("chat-tab");
   const s = data.shared[KEY];
   delete s.tabs.tb8;
-  s.pending = [{ id: "p-1", kind: "claude", machine: null, space: "s1", folder: "/r/alpha", beforeTabs: ["tb7"], beforeSpaces: ["s1", "macmini/s3"], name: "Claude Code", at }];
+  s.pending = [
+    {
+      id: "p-1",
+      kind: "claude",
+      machine: null,
+      space: "s1",
+      folder: "/r/alpha",
+      beforeTabs: ["tb7"],
+      beforeSpaces: ["s1", "macmini/s3"],
+      name: "Claude Code",
+      at,
+    },
+  ];
   data.panes = data.panes.filter((p) => p.pane !== "p9");
   data.spaces[0].tabs[1].zoomed = false;
   data.spaces[0].tabs[1].name = "Claude Code";
@@ -36,8 +48,24 @@ function pendingClaude(at) {
   return data;
 }
 
-const chatPane = { pane: "p9", terminal: null, mod: "bw-chat", tab: "tb8", title: "Chat", focused: false, zoomed: false };
-const split = ["pane.split", { direction: "right", pane: "p8", mod: "bw-chat", props: { terminal: "t8", machine: null, kind: "claude", window: "w-book" } }];
+const chatPane = {
+  pane: "p9",
+  terminal: null,
+  mod: "bw-chat",
+  tab: "tb8",
+  title: "Chat",
+  focused: false,
+  zoomed: false,
+};
+const split = [
+  "pane.split",
+  {
+    direction: "right",
+    pane: "p8",
+    mod: "bw-chat",
+    props: { terminal: "t8", machine: null, kind: "claude", window: "w-book" },
+  },
+];
 
 /** Runs the i-th timer.after callback as Herdr would, with phase "timer". @param {any} m @param {number} i */
 async function fireAfter(m, i) {
@@ -96,7 +124,9 @@ describe("bw-tabs chat adoption", () => {
     data.spaces[0].tabs = data.spaces[0].tabs.filter((t) => t.id !== "tb8");
     data.panes = data.panes.filter((p) => p.tab !== "tb8");
     const m = await mount("bw-tabs", { live: data });
-    expect(m.log.notify).toEqual([{ title: "Claude Code chat did not start", body: "No new tab appeared within 30 s.", level: "warning" }]);
+    expect(m.log.notify).toEqual([
+      { title: "Claude Code chat did not start", body: "No new tab appeared within 30 s.", level: "warning" },
+    ]);
     expect(m.log.shared.at(-1)[1].pending).toEqual([]);
     m.render();
     expect(m.log.notify).toHaveLength(1);
@@ -124,7 +154,9 @@ describe("bw-tabs chat adoption", () => {
     expect(m.log.live.length).toBe(reads);
     expect(m.log.notify).toEqual([]);
     m.render();
-    expect(m.log.notify).toEqual([{ title: "Claude Code chat did not start", body: "No new tab appeared within 30 s.", level: "warning" }]);
+    expect(m.log.notify).toEqual([
+      { title: "Claude Code chat did not start", body: "No new tab appeared within 30 s.", level: "warning" },
+    ]);
     await m.cx.flush();
     expect(m.cx.afters).toHaveLength(1);
   });
@@ -148,7 +180,9 @@ describe("bw-tabs chat adoption", () => {
     await fireAfter(m, 1);
     m.render();
     expect(m.log.run).toEqual([split, split]);
-    expect(m.log.notify).toEqual([{ title: "Chat pane did not open", body: "The agent keeps running in this tab.", level: "warning" }]);
+    expect(m.log.notify).toEqual([
+      { title: "Chat pane did not open", body: "The agent keeps running in this tab.", level: "warning" },
+    ]);
     await m.cx.flush();
     expect(m.cx.afters).toHaveLength(2);
   });
@@ -173,15 +207,29 @@ describe("bw-tabs ⌘J", () => {
     await m.cx.flush();
     expect(m.log.run).toEqual([]);
     m.render();
-    expect(m.log.run).toEqual([["pane.zoom", { pane: "p9" }], ["pane.zoom", { pane: "p8" }], ["pane.focus", { pane: "p8" }]]);
+    expect(m.log.run).toEqual([
+      ["pane.zoom", { pane: "p9" }],
+      ["pane.zoom", { pane: "p8" }],
+      ["pane.focus", { pane: "p8" }],
+    ]);
     m.render();
     expect(m.log.run).toHaveLength(3);
 
-    fake.panes = fake.panes.map((p) => (p.pane === "p9" ? { ...p, zoomed: false, focused: false } : p.pane === "p8" ? { ...p, zoomed: true, focused: true } : p));
+    fake.panes = fake.panes.map((p) =>
+      p.pane === "p9"
+        ? { ...p, zoomed: false, focused: false }
+        : p.pane === "p8"
+          ? { ...p, zoomed: true, focused: true }
+          : p,
+    );
     c.send("chat-flip");
     await m.cx.flush();
     m.render();
-    expect(m.log.run.slice(3)).toEqual([["pane.zoom", { pane: "p8" }], ["pane.zoom", { pane: "p9" }], ["pane.focus", { pane: "p9" }]]);
+    expect(m.log.run.slice(3)).toEqual([
+      ["pane.zoom", { pane: "p8" }],
+      ["pane.zoom", { pane: "p9" }],
+      ["pane.focus", { pane: "p9" }],
+    ]);
   });
 
   test("the command task only marks the flip and redraws", async () => {
@@ -208,7 +256,11 @@ describe("bw-tabs ⌘J", () => {
     c.send("chat-flip");
     await m.cx.flush();
     m.render();
-    expect(m.log.run).toEqual([["pane.zoom", { pane: "p9" }], ["pane.zoom", { pane: "p8" }], ["pane.focus", { pane: "p8" }]]);
+    expect(m.log.run).toEqual([
+      ["pane.zoom", { pane: "p9" }],
+      ["pane.zoom", { pane: "p8" }],
+      ["pane.focus", { pane: "p8" }],
+    ]);
   });
 
   test("terminal gone: flip does nothing", async () => {
@@ -259,8 +311,19 @@ describe("bw-tabs chat tab icon", () => {
   });
 
   test("a chat tab whose agent exited shows its terminal's program, not nothing", () => {
-    const space = { tabs: [{ id: "tb8", index: 1, name: "Claude Code", named: true, active: true, status: null, settled: false }] };
-    const shell = { key: "shell", name: "zsh", icon: "icons/terminal.svg", tint: true, tile: null, color: null, shell: true, agent: false };
+    const space = {
+      tabs: [{ id: "tb8", index: 1, name: "Claude Code", named: true, active: true, status: null, settled: false }],
+    };
+    const shell = {
+      key: "shell",
+      name: "zsh",
+      icon: "icons/terminal.svg",
+      tint: true,
+      tile: null,
+      color: null,
+      shell: true,
+      agent: false,
+    };
     const panes = [chatPane, { pane: "p8", terminal: "t8", tab: "tb8", program: shell }];
     expect(tabItems(space, panes)[0].program).toEqual(shell);
   });

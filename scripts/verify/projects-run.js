@@ -12,7 +12,12 @@ import { createPoke, runRefresher } from "../../shared/refresh-driver.js";
 import { createSchedule } from "../../shared/refresh-schedule.js";
 
 const { values: opt } = parseArgs({
-  options: { root: { type: "string" }, beta: { type: "string" }, machine: { type: "string" }, "remote-root": { type: "string" } },
+  options: {
+    root: { type: "string" },
+    beta: { type: "string" },
+    machine: { type: "string" },
+    "remote-root": { type: "string" },
+  },
 });
 if (!opt.root || !opt.beta || !opt["remote-root"]) {
   console.error("usage: bun projects-run.js --root R --beta DIR --remote-root RR [--machine M]");
@@ -39,7 +44,11 @@ const fail = (/** @type {string} */ name, /** @type {string} */ why) => {
 /** @param {string[]} argv @returns {Promise<ExecResult>} */
 async function spawn(argv) {
   const p = Bun.spawn(argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-  const [stdout, stderr, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(p.stdout).text(),
+    new Response(p.stderr).text(),
+    p.exited,
+  ]);
   return { code, stdout, stderr };
 }
 
@@ -93,15 +102,67 @@ function openSpace(/** @type {string|null} */ machine, /** @type {string} */ cwd
   const pre = machine ? `${machine}/` : "";
   const tab = `${pre}tb${n}`;
   return {
-    space: { id: `${pre}s${n}`, index: n, name: cwd.slice(cwd.lastIndexOf("/") + 1), named: false, folder: cwd, machine, branch: null, active, status: null,
-      tabs: [{ id: tab, index: 1, name: "1", named: false, active: true, status: null, panes: 1, zoomed: false, settled: false, settled_at: null, changed_at: null, working_since: null }] },
-    pane: { pane: `${pre}p${n}`, terminal: `${pre}t${n}`, tab, title: "sh", cwd, branch: null, status: null, app: null, program: { name: "Terminal" }, focused: active, zoomed: false, movable: false },
+    space: {
+      id: `${pre}s${n}`,
+      index: n,
+      name: cwd.slice(cwd.lastIndexOf("/") + 1),
+      named: false,
+      folder: cwd,
+      machine,
+      branch: null,
+      active,
+      status: null,
+      tabs: [
+        {
+          id: tab,
+          index: 1,
+          name: "1",
+          named: false,
+          active: true,
+          status: null,
+          panes: 1,
+          zoomed: false,
+          settled: false,
+          settled_at: null,
+          changed_at: null,
+          working_since: null,
+        },
+      ],
+    },
+    pane: {
+      pane: `${pre}p${n}`,
+      terminal: `${pre}t${n}`,
+      tab,
+      title: "sh",
+      cwd,
+      branch: null,
+      status: null,
+      app: null,
+      program: { name: "Terminal" },
+      focused: active,
+      zoomed: false,
+      movable: false,
+    },
   };
 }
 
 /** @returns {any} ModelInput */
-function modelInput(/** @type {(string|null)[]} */ machines, /** @type {ReturnType<typeof openSpace>[]} */ open, /** @type {any[]} */ stored, git = { places: {}, worktrees: {}, counts: {}, unreachable: [] }) {
-  return { machines: machines.map((name) => ({ name, layout: "ready" })), spaces: open.map((o) => o.space), panes: open.map((o) => o.pane), agents: [], terminals: [], stored, platform: "macos", git };
+function modelInput(
+  /** @type {(string|null)[]} */ machines,
+  /** @type {ReturnType<typeof openSpace>[]} */ open,
+  /** @type {any[]} */ stored,
+  git = { places: {}, worktrees: {}, counts: {}, unreachable: [] },
+) {
+  return {
+    machines: machines.map((name) => ({ name, layout: "ready" })),
+    spaces: open.map((o) => o.space),
+    panes: open.map((o) => o.pane),
+    agents: [],
+    terminals: [],
+    stored,
+    platform: "macos",
+    git,
+  };
 }
 
 /** Runs every target once per round until the model asks for nothing new; returns the last tree. */
@@ -122,10 +183,15 @@ async function settle(/** @type {any} */ input, /** @type {string|null} */ activ
 
 // bw-projects' openWorktree (Task 9's actions.js contract), re-derived from the tree rather than imported.
 const openWorktree = (/** @type {any} */ node, /** @type {string|null} */ machine) =>
-  node.prunable ? [] : node.open ? [["space.select", { id: node.spaces[0] }]] : [["space.new", { folder: node.path, machine: machine ?? "" }]];
+  node.prunable
+    ? []
+    : node.open
+      ? [["space.select", { id: node.spaces[0] }]]
+      : [["space.new", { folder: node.path, machine: machine ?? "" }]];
 
 const label = (/** @type {string|null} */ machine) => machine ?? "this Mac";
-const machineNode = (/** @type {any} */ tree, /** @type {string|null} */ name) => tree.machines.find((/** @type {any} */ m) => m.name === name);
+const machineNode = (/** @type {any} */ tree, /** @type {string|null} */ name) =>
+  tree.machines.find((/** @type {any} */ m) => m.name === name);
 const project = (/** @type {any} */ tree, /** @type {string|null} */ machine, /** @type {string} */ name) =>
   machineNode(tree, machine)?.projects.find((/** @type {any} */ p) => p.name === name);
 const same = (/** @type {unknown} */ a, /** @type {unknown} */ b) => JSON.stringify(a) === JSON.stringify(b);
@@ -140,7 +206,11 @@ async function awkRows(/** @type {string|null} */ machine, /** @type {string} */
     END { if (p != "") print p "\\t" b }'`;
   const r = await exec("sh", ["-c", script, "sh", commonDir], { on: machine });
   if (r.code !== 0) throw new Error(`worktree list on ${label(machine)}: ${r.stderr.trim()}`);
-  return r.stdout.split("\n").filter(Boolean).map((l) => l.split("\t")).sort();
+  return r.stdout
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => l.split("\t"))
+    .sort();
 }
 
 const beta = { machine: null, commonDir: opt.beta, name: "beta", main: null };
@@ -159,17 +229,24 @@ try {
 }
 
 if (tree1) {
-  const names = (/** @type {string|null} */ m) => (machineNode(tree1, m)?.projects ?? []).map((/** @type {any} */ p) => p.name);
+  const names = (/** @type {string|null} */ m) =>
+    (machineNode(tree1, m)?.projects ?? []).map((/** @type {any} */ p) => p.name);
   const b = project(tree1, null, "beta");
   const want = { here: ["alpha", "beta"], there: ["gamma"] };
   if (!same(names(null), want.here) || !same(names(M), want.there)) {
     fail("three-projects", `this Mac has ${JSON.stringify(names(null))}, ${M} has ${JSON.stringify(names(M))}`);
-  } else if (!b || !b.checked || b.worktrees.length !== 1 || b.open || b.worktrees.some((/** @type {any} */ w) => w.open)) {
-    fail("three-projects", `beta should list 1 closed worktree: ${JSON.stringify(b?.worktrees.map((/** @type {any} */ w) => [w.path, w.open]))}`);
+  } else if (!b?.checked || b.worktrees.length !== 1 || b.open || b.worktrees.some((/** @type {any} */ w) => w.open)) {
+    fail(
+      "three-projects",
+      `beta should list 1 closed worktree: ${JSON.stringify(b?.worktrees.map((/** @type {any} */ w) => [w.path, w.open]))}`,
+    );
   } else if (!project(tree1, null, "alpha").open || !project(tree1, M, "gamma").open) {
     fail("three-projects", "alpha and gamma should each have an open worktree");
   } else {
-    pass("three-projects", `this Mac: alpha, beta (no open worktree); ${M}: gamma${REMOTE ? "" : " (a local root served as bw-stand-in)"}`);
+    pass(
+      "three-projects",
+      `this Mac: alpha, beta (no open worktree); ${M}: gamma${REMOTE ? "" : " (a local root served as bw-stand-in)"}`,
+    );
   }
 
   try {
@@ -193,14 +270,22 @@ if (tree1) {
   // gamma's space closes: the stored copy keeps the project, and its row dims.
   const stored = rememberProjects({ version: 1, projects: [beta] }, tree1.remember).projects;
   const tree2 = buildProjects(modelInput([null, M], [s1, s2], stored, first.git));
-  const detached = project(tree2, null, "alpha")?.worktrees.find((/** @type {any} */ w) => w.path === `${ROOT}/alpha-wt/detached`);
+  const detached = project(tree2, null, "alpha")?.worktrees.find(
+    (/** @type {any} */ w) => w.path === `${ROOT}/alpha-wt/detached`,
+  );
   const gammaMain = project(tree2, M, "gamma")?.worktrees.find((/** @type {any} */ w) => w.main);
   const wantDetached = [["space.new", { folder: `${ROOT}/alpha-wt/detached`, machine: "" }]];
   const wantGamma = [["space.new", { folder: `${REMOTE_ROOT}/gamma`, machine: M }]];
   if (!detached || !same(openWorktree(detached, null), wantDetached)) {
-    fail("dimmed-row-opens-exactly", `alpha-wt/detached gives ${JSON.stringify(detached && openWorktree(detached, null))}, want ${JSON.stringify(wantDetached)}`);
+    fail(
+      "dimmed-row-opens-exactly",
+      `alpha-wt/detached gives ${JSON.stringify(detached && openWorktree(detached, null))}, want ${JSON.stringify(wantDetached)}`,
+    );
   } else if (!gammaMain || !same(openWorktree(gammaMain, M), wantGamma)) {
-    fail("dimmed-row-opens-exactly", `gamma's main gives ${JSON.stringify(gammaMain && openWorktree(gammaMain, M))}, want ${JSON.stringify(wantGamma)}`);
+    fail(
+      "dimmed-row-opens-exactly",
+      `gamma's main gives ${JSON.stringify(gammaMain && openWorktree(gammaMain, M))}, want ${JSON.stringify(wantGamma)}`,
+    );
   } else {
     pass("dimmed-row-opens-exactly", `${JSON.stringify(wantDetached[0])} and ${JSON.stringify(wantGamma[0])}`);
   }
@@ -247,7 +332,14 @@ async function countsWithin() {
     if (schedule.setTargets(refreshTargets(tree, input, active), Date.now())) poke.poke();
   };
 
-  const state = probes.map((p) => ({ ...p, key: worktreeKey(p.machine, p.path), base: /** @type {number|null} */ (null), t0: /** @type {number|null} */ (null), ms: /** @type {number|null} */ (null), error: "" }));
+  const state = probes.map((p) => ({
+    ...p,
+    key: worktreeKey(p.machine, p.path),
+    base: /** @type {number|null} */ (null),
+    t0: /** @type {number|null} */ (null),
+    ms: /** @type {number|null} */ (null),
+    error: "",
+  }));
   /** @type {() => void} */
   let allDone = () => {};
   const finished = new Promise((/** @type {(v?: unknown) => void} */ resolve) => (allDone = resolve));
@@ -259,7 +351,9 @@ async function countsWithin() {
       if (s.machine === null) {
         appendFileSync(join(s.path, "notes.txt"), "added one\nadded two\n");
       } else {
-        const r = await exec("sh", ["-c", 'printf "added one\\nadded two\\n" >> "$1/notes.txt"', "sh", s.path], { on: s.machine });
+        const r = await exec("sh", ["-c", 'printf "added one\\nadded two\\n" >> "$1/notes.txt"', "sh", s.path], {
+          on: s.machine,
+        });
         if (r.code !== 0) throw new Error(r.stderr.trim());
       }
       s.t0 = Date.now();
@@ -331,12 +425,21 @@ try {
   } else if (!input.git.unreachable.includes(UNREACHABLE)) {
     fail("unreachable-named", "a rejected exec did not mark the machine unreachable");
   } else if (node?.label !== UNREACHABLE || node.state !== "offline") {
-    fail("unreachable-named", `heading ${JSON.stringify(node && { label: node.label, state: node.state })}, want ${UNREACHABLE} offline`);
+    fail(
+      "unreachable-named",
+      `heading ${JSON.stringify(node && { label: node.label, state: node.state })}, want ${UNREACHABLE} offline`,
+    );
   } else if (!same(rows(p), rows(before)) || !p.worktrees.every((/** @type {any} */ w) => w.stale)) {
-    fail("unreachable-named", `rows ${JSON.stringify(rows(p))} differ from before ${JSON.stringify(rows(before))} or are not stale`);
+    fail(
+      "unreachable-named",
+      `rows ${JSON.stringify(rows(p))} differ from before ${JSON.stringify(rows(before))} or are not stale`,
+    );
   } else {
     const why = REMOTE ? "hc exec refused it" : "a stub exec rejected";
-    pass("unreachable-named", `${why}; heading "${node.label}" offline; its ${p.worktrees.length} rows and counts kept, marked stale`);
+    pass(
+      "unreachable-named",
+      `${why}; heading "${node.label}" offline; its ${p.worktrees.length} rows and counts kept, marked stale`,
+    );
   }
 } catch (e) {
   fail("unreachable-named", String(e));

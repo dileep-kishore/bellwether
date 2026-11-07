@@ -19,8 +19,15 @@ const DIGEST = /^[0-9a-f]{16}$/;
 /** @param {unknown} p @returns {p is Pic} */
 const isPic = (p) => {
   const x = /** @type {any} */ (p);
-  return Boolean(x) && typeof x.digest === "string" && DIGEST.test(x.digest)
-    && Number.isInteger(x.offset) && x.offset >= 0 && Number.isInteger(x.index) && x.index >= 0;
+  return (
+    Boolean(x) &&
+    typeof x.digest === "string" &&
+    DIGEST.test(x.digest) &&
+    Number.isInteger(x.offset) &&
+    x.offset >= 0 &&
+    Number.isInteger(x.index) &&
+    x.index >= 0
+  );
 };
 
 export function createPictures() {
@@ -30,7 +37,7 @@ export function createPictures() {
 
   return {
     /** Pictures not tried yet, newest row first; none while one is being fetched.
-     * @param {{ pics?: unknown[] }[]} rows @returns {Pic[]} */
+     * @param {{ pics?: unknown[], [key: string]: unknown }[]} rows @returns {Pic[]} */
     wanted(rows) {
       if (inFlight) return [];
       /** @type {Pic[]} */
@@ -59,7 +66,8 @@ export function createPictures() {
       const line = answer.ok ? (answer.lines ?? []).find((l) => l?.type === "picture" && l.digest === digest) : null;
       const bytes = typeof line?.bytes === "number" ? line.bytes : null;
       // Only a file under the pictures folder is drawn, so a bad answer can never become a broken image.
-      if (typeof line?.file === "string" && FILE.test(line.file)) seen.set(digest, { state: "ready", file: line.file, bytes });
+      if (typeof line?.file === "string" && FILE.test(line.file))
+        seen.set(digest, { state: "ready", file: line.file, bytes });
       else if (line?.state === "too_big") seen.set(digest, { state: "too_big", file: null, bytes });
       else if (line?.state === "gone") seen.set(digest, { state: "gone", file: null, bytes });
       else seen.set(digest, { state: "failed", file: null, bytes });

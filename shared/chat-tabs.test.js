@@ -2,18 +2,82 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  addPending, adopt, CHAT_PENDING_MS, chatArgv, entryForTerminal, flipActions, isShown, readChatTabs, SPLIT_RETRY_MS, wakeAt,
+  addPending,
+  adopt,
+  CHAT_PENDING_MS,
+  chatArgv,
+  entryForTerminal,
+  flipActions,
+  isShown,
+  readChatTabs,
+  SPLIT_RETRY_MS,
+  wakeAt,
 } from "./chat-tabs.js";
 
 const chatTab = () => JSON.parse(readFileSync(join(import.meta.dir, "../tests/fixtures/live/chat-tab.json"), "utf8"));
 
-const tab = (id, over = {}) => ({ id, index: 1, name: id, named: false, active: false, status: null, panes: 1, zoomed: false, ...over });
-const space = (id, tabs, over = {}) => ({ id, index: 1, name: id, named: false, folder: "/r/alpha", machine: null, branch: null, active: false, status: null, tabs, ...over });
-const term = (pane, terminal, tabId, over = {}) => ({ pane, terminal, tab: tabId, title: "zsh", cwd: "/r/alpha", branch: null, status: null, app: null, program: null, focused: false, zoomed: false, movable: false, ...over });
-const chat = (pane, tabId, over = {}) => ({ pane, terminal: null, mod: "bw-chat", tab: tabId, title: "Chat", focused: false, zoomed: false, ...over });
+const tab = (id, over = {}) => ({
+  id,
+  index: 1,
+  name: id,
+  named: false,
+  active: false,
+  status: null,
+  panes: 1,
+  zoomed: false,
+  ...over,
+});
+const space = (id, tabs, over = {}) => ({
+  id,
+  index: 1,
+  name: id,
+  named: false,
+  folder: "/r/alpha",
+  machine: null,
+  branch: null,
+  active: false,
+  status: null,
+  tabs,
+  ...over,
+});
+const term = (pane, terminal, tabId, over = {}) => ({
+  pane,
+  terminal,
+  tab: tabId,
+  title: "zsh",
+  cwd: "/r/alpha",
+  branch: null,
+  status: null,
+  app: null,
+  program: null,
+  focused: false,
+  zoomed: false,
+  movable: false,
+  ...over,
+});
+const chat = (pane, tabId, over = {}) => ({
+  pane,
+  terminal: null,
+  mod: "bw-chat",
+  tab: tabId,
+  title: "Chat",
+  focused: false,
+  zoomed: false,
+  ...over,
+});
 
-const claudePending = { kind: "claude", machine: null, space: "s1", folder: null, beforeTabs: ["tb7"], beforeSpaces: [], name: "Claude" };
-const spacesWithNewTab = [space("s1", [tab("tb7"), tab("tb8", { active: true, name: "Claude", named: true })], { active: true })];
+const claudePending = {
+  kind: "claude",
+  machine: null,
+  space: "s1",
+  folder: null,
+  beforeTabs: ["tb7"],
+  beforeSpaces: [],
+  name: "Claude",
+};
+const spacesWithNewTab = [
+  space("s1", [tab("tb7"), tab("tb8", { active: true, name: "Claude", named: true })], { active: true }),
+];
 const panesTerminalOnly = [term("p7", "t7", "tb7"), term("p8", "t8", "tb8", { focused: true })];
 const panesWithChat = [...panesTerminalOnly, chat("p9", "tb8")];
 
@@ -21,10 +85,27 @@ describe("adopt", () => {
   test("adopts the new tab once, then records the chat pane and zooms once", () => {
     const s = addPending(null, claudePending, 0);
     const r1 = adopt(s, spacesWithNewTab, panesTerminalOnly, 100);
-    expect(r1.actions).toEqual([["pane.split", { direction: "right", pane: "p8", mod: "bw-chat", props: { terminal: "t8", machine: null, kind: "claude" } }]]);
+    expect(r1.actions).toEqual([
+      [
+        "pane.split",
+        { direction: "right", pane: "p8", mod: "bw-chat", props: { terminal: "t8", machine: null, kind: "claude" } },
+      ],
+    ]);
     expect(r1.next?.pending).toEqual([]);
-    expect(adopt(s, spacesWithNewTab, panesTerminalOnly, 100, "w-1").actions[0][1].props).toEqual({ terminal: "t8", machine: null, kind: "claude", window: "w-1" });
-    expect(r1.next?.tabs.tb8).toMatchObject({ tab: "tb8", space: "s1", terminal: "t8", terminalPane: "p8", chatPane: null, split: { at: 100, tries: 1 } });
+    expect(adopt(s, spacesWithNewTab, panesTerminalOnly, 100, "w-1").actions[0][1].props).toEqual({
+      terminal: "t8",
+      machine: null,
+      kind: "claude",
+      window: "w-1",
+    });
+    expect(r1.next?.tabs.tb8).toMatchObject({
+      tab: "tb8",
+      space: "s1",
+      terminal: "t8",
+      terminalPane: "p8",
+      chatPane: null,
+      split: { at: 100, tries: 1 },
+    });
     const r2 = adopt(r1.next, spacesWithNewTab, panesTerminalOnly, 200);
     expect(r2.actions).toEqual([]);
     expect(r2.next).toBe(null);
@@ -54,7 +135,12 @@ describe("adopt", () => {
     const s = adopt(addPending(null, claudePending, 0), spacesWithNewTab, panesTerminalOnly, 100).next;
     expect(adopt(s, spacesWithNewTab, panesTerminalOnly, 100 + SPLIT_RETRY_MS - 1).next).toBe(null);
     const r1 = adopt(s, spacesWithNewTab, panesTerminalOnly, 100 + SPLIT_RETRY_MS);
-    expect(r1.actions).toEqual([["pane.split", { direction: "right", pane: "p8", mod: "bw-chat", props: { terminal: "t8", machine: null, kind: "claude" } }]]);
+    expect(r1.actions).toEqual([
+      [
+        "pane.split",
+        { direction: "right", pane: "p8", mod: "bw-chat", props: { terminal: "t8", machine: null, kind: "claude" } },
+      ],
+    ]);
     expect(r1.next?.tabs.tb8.split).toEqual({ at: 100 + SPLIT_RETRY_MS, tries: 2 });
     expect(r1.notices).toEqual([]);
     const later = 100 + 2 * SPLIT_RETRY_MS;
@@ -62,7 +148,11 @@ describe("adopt", () => {
     expect(r2.actions).toEqual([]);
     expect(r2.next?.tabs.tb8.failed).toBe(true);
     expect(r2.notices).toEqual([{ title: "Chat pane did not open", body: "The agent keeps running in this tab." }]);
-    expect(adopt(r2.next, spacesWithNewTab, panesTerminalOnly, later + 60000)).toEqual({ next: null, actions: [], notices: [] });
+    expect(adopt(r2.next, spacesWithNewTab, panesTerminalOnly, later + 60000)).toEqual({
+      next: null,
+      actions: [],
+      notices: [],
+    });
   });
 
   test("pending expires after 30 s with a notice", () => {
@@ -76,21 +166,53 @@ describe("adopt", () => {
   });
 
   test("no space: adopts the new space's first tab on that machine", () => {
-    const s = addPending(null, { kind: "codex", machine: "macmini", space: null, folder: "/home/u/gamma", beforeTabs: [], beforeSpaces: ["s1"], name: "Codex" }, 0);
+    const s = addPending(
+      null,
+      {
+        kind: "codex",
+        machine: "macmini",
+        space: null,
+        folder: "/home/u/gamma",
+        beforeTabs: [],
+        beforeSpaces: ["s1"],
+        name: "Codex",
+      },
+      0,
+    );
     const spaces = [
       space("s1", [tab("tb7", { active: true })]),
       space("s4", [tab("tb9", { active: true })], { active: true }),
-      space("macmini/s6", [tab("macmini/tb11", { active: true, name: "Codex" }), tab("macmini/tb12")], { machine: "macmini", folder: "/home/u/gamma" }),
+      space("macmini/s6", [tab("macmini/tb11", { active: true, name: "Codex" }), tab("macmini/tb12")], {
+        machine: "macmini",
+        folder: "/home/u/gamma",
+      }),
     ];
-    const panes = [term("p7", "t7", "tb7"), term("p10", "t10", "tb9"), term("macmini/p11", "macmini/t11", "macmini/tb11"), term("macmini/p12", "macmini/t12", "macmini/tb12")];
+    const panes = [
+      term("p7", "t7", "tb7"),
+      term("p10", "t10", "tb9"),
+      term("macmini/p11", "macmini/t11", "macmini/tb11"),
+      term("macmini/p12", "macmini/t12", "macmini/tb12"),
+    ];
     const r = adopt(s, spaces, panes, 50);
-    expect(r.actions).toEqual([["pane.split", { direction: "right", pane: "macmini/p11", mod: "bw-chat", props: { terminal: "macmini/t11", machine: "macmini", kind: "codex" } }]]);
+    expect(r.actions).toEqual([
+      [
+        "pane.split",
+        {
+          direction: "right",
+          pane: "macmini/p11",
+          mod: "bw-chat",
+          props: { terminal: "macmini/t11", machine: "macmini", kind: "codex" },
+        },
+      ],
+    ]);
     expect(Object.keys(r.next?.tabs ?? {})).toEqual(["macmini/tb11"]);
   });
 
   test("a pending chat takes only a new tab with its name, not another tab that appeared first", () => {
     const s = addPending(null, { ...claudePending, beforeTabs: ["tb1"], beforeSpaces: ["s1"] }, 0);
-    const spaces = [space("s1", [tab("tb1"), tab("unrelated", { name: "2" }), tab("claude", { name: "Claude", named: true })])];
+    const spaces = [
+      space("s1", [tab("tb1"), tab("unrelated", { name: "2" }), tab("claude", { name: "Claude", named: true })]),
+    ];
     const panes = [term("p1", "t1", "tb1"), term("p2", "t2", "unrelated"), term("p3", "t3", "claude")];
     const r = adopt(s, spaces, panes, 100);
     expect(r.actions.map((a) => a[1].pane)).toEqual(["p3"]);
@@ -100,24 +222,73 @@ describe("adopt", () => {
   });
 
   test("no space: a new space in another folder, or a first tab with another name, is not taken", () => {
-    const s = addPending(null, { kind: "claude", machine: "mini", space: null, folder: "/a", beforeTabs: [], beforeSpaces: ["s1"], name: "Claude" }, 0);
+    const s = addPending(
+      null,
+      {
+        kind: "claude",
+        machine: "mini",
+        space: null,
+        folder: "/a",
+        beforeTabs: [],
+        beforeSpaces: ["s1"],
+        name: "Claude",
+      },
+      0,
+    );
     const spaces = [
       space("s1", [], { machine: "mini" }),
       space("mini/sB", [tab("mini/tbB", { name: "Claude" })], { machine: "mini", folder: "/b" }),
       space("mini/sC", [tab("mini/tbC", { name: "zsh" })], { machine: "mini", folder: "/a/" }),
       space("mini/sA", [tab("mini/tbA", { name: "Claude" })], { machine: "mini", folder: "/a/" }),
     ];
-    const panes = [term("mini/pB", "mini/tB", "mini/tbB"), term("mini/pC", "mini/tC", "mini/tbC"), term("mini/pA", "mini/tA", "mini/tbA")];
+    const panes = [
+      term("mini/pB", "mini/tB", "mini/tbB"),
+      term("mini/pC", "mini/tC", "mini/tbC"),
+      term("mini/pA", "mini/tA", "mini/tbA"),
+    ];
     expect(adopt(s, spaces, panes, 100).actions.map((a) => a[1].pane)).toEqual(["mini/pA"]);
   });
 
   test("remote ids keep their machine prefix in props and entries", () => {
-    const s = addPending(null, { kind: "codex", machine: "macmini", space: "macmini/s3", folder: null, beforeTabs: ["macmini/tb5"], beforeSpaces: [], name: "Codex" }, 0);
-    const spaces = [space("macmini/s3", [tab("macmini/tb5"), tab("macmini/tb6", { active: true, name: "Codex" })], { machine: "macmini", active: true })];
+    const s = addPending(
+      null,
+      {
+        kind: "codex",
+        machine: "macmini",
+        space: "macmini/s3",
+        folder: null,
+        beforeTabs: ["macmini/tb5"],
+        beforeSpaces: [],
+        name: "Codex",
+      },
+      0,
+    );
+    const spaces = [
+      space("macmini/s3", [tab("macmini/tb5"), tab("macmini/tb6", { active: true, name: "Codex" })], {
+        machine: "macmini",
+        active: true,
+      }),
+    ];
     const panes = [term("macmini/p5", "macmini/t5", "macmini/tb5"), term("macmini/p7", "macmini/t7", "macmini/tb6")];
     const r1 = adopt(s, spaces, panes, 10);
-    expect(r1.actions).toEqual([["pane.split", { direction: "right", pane: "macmini/p7", mod: "bw-chat", props: { terminal: "macmini/t7", machine: "macmini", kind: "codex" } }]]);
-    expect(r1.next?.tabs["macmini/tb6"]).toMatchObject({ tab: "macmini/tb6", space: "macmini/s3", machine: "macmini", terminal: "macmini/t7", terminalPane: "macmini/p7" });
+    expect(r1.actions).toEqual([
+      [
+        "pane.split",
+        {
+          direction: "right",
+          pane: "macmini/p7",
+          mod: "bw-chat",
+          props: { terminal: "macmini/t7", machine: "macmini", kind: "codex" },
+        },
+      ],
+    ]);
+    expect(r1.next?.tabs["macmini/tb6"]).toMatchObject({
+      tab: "macmini/tb6",
+      space: "macmini/s3",
+      machine: "macmini",
+      terminal: "macmini/t7",
+      terminalPane: "macmini/p7",
+    });
     const r2 = adopt(r1.next, spaces, [...panes, chat("macmini/p8", "macmini/tb6")], 20);
     expect(r2.actions).toEqual([["pane.zoom", { pane: "macmini/p8" }]]);
     expect(entryForTerminal(r2.next, "macmini/t7")?.chatPane).toBe("macmini/p8");
@@ -139,8 +310,16 @@ describe("adopt", () => {
     expect(r.actions).toEqual([]);
     expect(r.notices).toEqual([]);
     expect(r.next?.tabs.tb8).toEqual({ ...f.shared["bw.chat-tabs"].tabs.tb8, split: null, created: 7 });
-    expect(r.next?.tabs["macmini/tb5"]).toEqual({ ...f.shared["bw.chat-tabs"].tabs["macmini/tb5"], split: null, created: 7 });
-    expect(flipActions(r.next, "tb8", f.panes)).toEqual([["pane.zoom", { pane: "p9" }], ["pane.zoom", { pane: "p8" }], ["pane.focus", { pane: "p8" }]]);
+    expect(r.next?.tabs["macmini/tb5"]).toEqual({
+      ...f.shared["bw.chat-tabs"].tabs["macmini/tb5"],
+      split: null,
+      created: 7,
+    });
+    expect(flipActions(r.next, "tb8", f.panes)).toEqual([
+      ["pane.zoom", { pane: "p9" }],
+      ["pane.zoom", { pane: "p8" }],
+      ["pane.focus", { pane: "p8" }],
+    ]);
     expect(adopt(r.next, f.spaces, f.panes, 8).next).toBe(null);
     expect(adopt({}, f.spaces, f.panes, 7).next?.tabs.tb8?.chatPane).toBe("p9");
   });
@@ -149,14 +328,27 @@ describe("adopt", () => {
     const spaces = [space("s1", [tab("t1"), tab("t2"), tab("t3"), tab("t4")])];
     const claude = { program: { key: "claude" } };
     const panes = [
-      term("a1", "x1", "t1", claude), term("a2", "x2", "t1", claude), chat("c1", "t1"),
-      term("b1", "y1", "t2", claude), chat("c2", "t2"), chat("c3", "t2"),
-      term("d1", "z1", "t3", { program: { key: "shell" } }), chat("c4", "t3"),
-      term("e1", "w1", "t4", { program: { key: "codex" } }), chat("c5", "t4"),
+      term("a1", "x1", "t1", claude),
+      term("a2", "x2", "t1", claude),
+      chat("c1", "t1"),
+      term("b1", "y1", "t2", claude),
+      chat("c2", "t2"),
+      chat("c3", "t2"),
+      term("d1", "z1", "t3", { program: { key: "shell" } }),
+      chat("c4", "t3"),
+      term("e1", "w1", "t4", { program: { key: "codex" } }),
+      chat("c5", "t4"),
     ];
     const r = adopt(null, spaces, panes, 0);
     expect(Object.keys(r.next?.tabs ?? {})).toEqual(["t4"]);
-    expect(r.next?.tabs.t4).toMatchObject({ kind: "codex", terminal: "w1", terminalPane: "e1", chatPane: "c5", machine: null, space: "s1" });
+    expect(r.next?.tabs.t4).toMatchObject({
+      kind: "codex",
+      terminal: "w1",
+      terminalPane: "e1",
+      chatPane: "c5",
+      machine: null,
+      space: "s1",
+    });
   });
 
   test("the live fixture is settled: nothing to do", () => {
@@ -169,23 +361,59 @@ describe("flipActions", () => {
   test("flip: chat zoomed → unzoom chat, zoom and focus terminal; and back", () => {
     const f = chatTab();
     const value = f.shared["bw.chat-tabs"];
-    expect(flipActions(value, "tb8", f.panes)).toEqual([["pane.zoom", { pane: "p9" }], ["pane.zoom", { pane: "p8" }], ["pane.focus", { pane: "p8" }]]);
-    const flipped = f.panes.map((/** @type {any} */ p) => p.pane === "p9" ? { ...p, zoomed: false, focused: false } : p.pane === "p8" ? { ...p, zoomed: true, focused: true } : p);
-    expect(flipActions(value, "tb8", flipped)).toEqual([["pane.zoom", { pane: "p8" }], ["pane.zoom", { pane: "p9" }], ["pane.focus", { pane: "p9" }]]);
-    expect(flipActions(value, "macmini/tb5", f.panes)).toEqual([["pane.zoom", { pane: "macmini/p6" }], ["pane.zoom", { pane: "macmini/p5" }], ["pane.focus", { pane: "macmini/p5" }]]);
+    expect(flipActions(value, "tb8", f.panes)).toEqual([
+      ["pane.zoom", { pane: "p9" }],
+      ["pane.zoom", { pane: "p8" }],
+      ["pane.focus", { pane: "p8" }],
+    ]);
+    const flipped = f.panes.map((/** @type {any} */ p) =>
+      p.pane === "p9"
+        ? { ...p, zoomed: false, focused: false }
+        : p.pane === "p8"
+          ? { ...p, zoomed: true, focused: true }
+          : p,
+    );
+    expect(flipActions(value, "tb8", flipped)).toEqual([
+      ["pane.zoom", { pane: "p8" }],
+      ["pane.zoom", { pane: "p9" }],
+      ["pane.focus", { pane: "p9" }],
+    ]);
+    expect(flipActions(value, "macmini/tb5", f.panes)).toEqual([
+      ["pane.zoom", { pane: "macmini/p6" }],
+      ["pane.zoom", { pane: "macmini/p5" }],
+      ["pane.focus", { pane: "macmini/p5" }],
+    ]);
   });
 
   test("flip: neither zoomed zooms the unfocused pane; not a chat tab or no terminal pane: nothing", () => {
     const f = chatTab();
     const value = f.shared["bw.chat-tabs"];
     const flat = f.panes.map((/** @type {any} */ p) => ({ ...p, zoomed: false }));
-    expect(flipActions(value, "tb8", flat)).toEqual([["pane.zoom", { pane: "p8" }], ["pane.focus", { pane: "p8" }]]);
+    expect(flipActions(value, "tb8", flat)).toEqual([
+      ["pane.zoom", { pane: "p8" }],
+      ["pane.focus", { pane: "p8" }],
+    ]);
     const termFocused = flat.map((/** @type {any} */ p) => ({ ...p, focused: p.pane === "p8" }));
-    expect(flipActions(value, "tb8", termFocused)).toEqual([["pane.zoom", { pane: "p9" }], ["pane.focus", { pane: "p9" }]]);
+    expect(flipActions(value, "tb8", termFocused)).toEqual([
+      ["pane.zoom", { pane: "p9" }],
+      ["pane.focus", { pane: "p9" }],
+    ]);
     expect(flipActions(value, "tb7", f.panes)).toEqual([]);
     expect(flipActions(value, null, f.panes)).toEqual([]);
-    expect(flipActions(value, "tb8", f.panes.filter((/** @type {any} */ p) => p.pane !== "p8"))).toEqual([]);
-    expect(flipActions(value, "tb8", f.panes.filter((/** @type {any} */ p) => p.pane !== "p9"))).toEqual([]);
+    expect(
+      flipActions(
+        value,
+        "tb8",
+        f.panes.filter((/** @type {any} */ p) => p.pane !== "p8"),
+      ),
+    ).toEqual([]);
+    expect(
+      flipActions(
+        value,
+        "tb8",
+        f.panes.filter((/** @type {any} */ p) => p.pane !== "p9"),
+      ),
+    ).toEqual([]);
     const s = adopt(addPending(null, claudePending, 0), spacesWithNewTab, panesTerminalOnly, 0).next;
     expect(flipActions(s, "tb8", panesTerminalOnly)).toEqual([]);
   });
@@ -199,12 +427,19 @@ describe("isShown", () => {
     const remote = entryForTerminal(value, "macmini/t5");
     expect(isShown(local, f.spaces, f.panes)).toBe(true);
     expect(isShown(remote, f.spaces, f.panes)).toBe(false);
-    const behind = f.panes.map((/** @type {any} */ p) => p.pane === "p9" ? { ...p, zoomed: false } : p.pane === "p8" ? { ...p, zoomed: true } : p);
+    const behind = f.panes.map((/** @type {any} */ p) =>
+      p.pane === "p9" ? { ...p, zoomed: false } : p.pane === "p8" ? { ...p, zoomed: true } : p,
+    );
     expect(isShown(local, f.spaces, behind)).toBe(false);
-    const unzoomed = f.spaces.map((/** @type {any} */ s) => ({ ...s, tabs: s.tabs.map((/** @type {any} */ t) => ({ ...t, zoomed: false })) }));
+    const unzoomed = f.spaces.map((/** @type {any} */ s) => ({
+      ...s,
+      tabs: s.tabs.map((/** @type {any} */ t) => ({ ...t, zoomed: false })),
+    }));
     const flat = f.panes.map((/** @type {any} */ p) => ({ ...p, zoomed: false }));
     expect(isShown(local, unzoomed, flat)).toBe(true);
-    const otherTab = f.spaces.map((/** @type {any} */ s) => s.id !== "s1" ? s : { ...s, tabs: s.tabs.map((/** @type {any} */ t) => ({ ...t, active: t.id === "tb7" })) });
+    const otherTab = f.spaces.map((/** @type {any} */ s) =>
+      s.id !== "s1" ? s : { ...s, tabs: s.tabs.map((/** @type {any} */ t) => ({ ...t, active: t.id === "tb7" })) },
+    );
     expect(isShown(local, otherTab, f.panes)).toBe(false);
     const otherSpace = f.spaces.map((/** @type {any} */ s) => ({ ...s, active: s.id === "macmini/s3" }));
     expect(isShown(local, otherSpace, f.panes)).toBe(false);
@@ -216,13 +451,41 @@ describe("isShown", () => {
 describe("readChatTabs and helpers", () => {
   test("readChatTabs tolerates null, arrays and junk", () => {
     const empty = { version: 1, tabs: {}, pending: [] };
-    for (const v of [null, undefined, [], "x", 3, {}, { version: 2, tabs: {}, pending: [] }, { version: 1, tabs: [], pending: {} }]) {
+    for (const v of [
+      null,
+      undefined,
+      [],
+      "x",
+      3,
+      {},
+      { version: 2, tabs: {}, pending: [] },
+      { version: 1, tabs: [], pending: {} },
+    ]) {
       expect(readChatTabs(v)).toEqual(empty);
     }
     const mixed = {
       version: 1,
-      tabs: { tb8: chatTab().shared["bw.chat-tabs"].tabs.tb8, tb9: { tab: "tb9", kind: "bash" }, tb10: null, tb11: { tab: "other" } },
-      pending: [null, { id: "p-1-0", kind: "codex" }, { id: "p-2-0", kind: "codex", machine: null, space: "s1", folder: null, beforeTabs: [], beforeSpaces: [], name: "Codex", at: 2 }],
+      tabs: {
+        tb8: chatTab().shared["bw.chat-tabs"].tabs.tb8,
+        tb9: { tab: "tb9", kind: "bash" },
+        tb10: null,
+        tb11: { tab: "other" },
+      },
+      pending: [
+        null,
+        { id: "p-1-0", kind: "codex" },
+        {
+          id: "p-2-0",
+          kind: "codex",
+          machine: null,
+          space: "s1",
+          folder: null,
+          beforeTabs: [],
+          beforeSpaces: [],
+          name: "Codex",
+          at: 2,
+        },
+      ],
     };
     const r = readChatTabs(mixed);
     expect(Object.keys(r.tabs)).toEqual(["tb8"]);
@@ -261,6 +524,11 @@ describe("readChatTabs and helpers", () => {
 
   test("chatArgv appends extras to the agent's run", () => {
     expect(chatArgv("codex", ["codex"])).toEqual(["codex"]);
-    expect(chatArgv("claude", ["claude", "--x"], ["--mcp-config", "a.json"])).toEqual(["claude", "--x", "--mcp-config", "a.json"]);
+    expect(chatArgv("claude", ["claude", "--x"], ["--mcp-config", "a.json"])).toEqual([
+      "claude",
+      "--x",
+      "--mcp-config",
+      "a.json",
+    ]);
   });
 });

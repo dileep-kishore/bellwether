@@ -4,11 +4,22 @@
 // through the helper on the space's machine; pictures and hook setup through this Mac's helper.
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, VirtualListScrollHandle } from "gpui-base";
-import { exec, focused, home, nextCommand, panes, run, setShared, shared, spaces, terminals, theme } from "herdr";
+import { exec, focused, home, nextCommand, panes, run, setShared, shared, spaces, terminals } from "herdr";
 import { isShown } from "./chat-tabs.js";
 import { Composer } from "./composer.js";
 import { dock } from "./dock.js";
-import { answerArgs, answerNote, answersOf, complete, digit, dockCards, emptyDraft, pick, setOther, toggle } from "./dock-model.js";
+import {
+  answerArgs,
+  answerNote,
+  answersOf,
+  complete,
+  digit,
+  dockCards,
+  emptyDraft,
+  pick,
+  setOther,
+  toggle,
+} from "./dock-model.js";
 import { columnWidth, rowHeight } from "./estimate.js";
 import { applyFeed, applyOlder, emptyFeed, expectation, freshChat, newConversation, olderFrom } from "./feedstate.js";
 import { createGuard, guardedUntil, isGuarded, observe } from "./focus-guard.js";
@@ -16,12 +27,23 @@ import { createHelper, parseLines } from "./helper.js";
 import { createPictures } from "./pictures.js";
 import { createPoke } from "./refresh-driver.js";
 import {
-  TRUST_STEP, agentName, helperText, hooksState, hooksText, pollMs, resolveTarget, sendText, targetOf, waitingText,
+  TRUST_STEP,
+  agentName,
+  helperText,
+  hooksState,
+  hooksText,
+  pollMs,
+  resolveTarget,
+  sendText,
+  targetOf,
+  waitingText,
 } from "./target.js";
 import { subagentBar, threadsButton, threadsCard, threadsPill } from "./threads.js";
 import { barText, cardOpen, pillText, threadRows, toggleCard } from "./threads-model.js";
 import { timeline, waitsInTerminal } from "./timeline.js";
-import { ICONS, machineTag, programIcon } from "./ui.js";
+import { ICONS, machineTag, programIcon, themeColors } from "./ui.js";
+
+/** @typedef {import("./ui.js").Theme} Theme */
 
 const WINDOW_ID = "bw.window-id";
 const DISMISSED = "bw.hooks-dismissed";
@@ -61,7 +83,9 @@ const machineOfAddress = (address) => (address.includes("/") ? address.slice(0, 
 /** The pending question that holds the keyboard and the Other field: the oldest one a click can answer.
  * @param {Request[]} requests @returns {Request | null} */
 function activeQuestion(requests) {
-  const qs = requests.filter((r) => (r.kind === "question" || r.kind === "question_async") && r.state === "pending" && r.answerable);
+  const qs = requests.filter(
+    (r) => (r.kind === "question" || r.kind === "question_async") && r.state === "pending" && r.answerable,
+  );
   qs.sort((a, b) => (a.at_ms ?? 0) - (b.at_ms ?? 0));
   return qs[0] ?? null;
 }
@@ -76,7 +100,7 @@ export default class Chat extends View {
     /** What the props name, in the namespace of the window that wrote them. @type {Target | null} */
     this.id = targetOf(props);
     /** @type {string | null} */
-    this.window = typeof (/** @type {any} */ (props))?.window === "string" ? /** @type {any} */ (props).window : null;
+    this.window = typeof (/** @type {any} */ (props)?.window) === "string" ? /** @type {any} */ (props).window : null;
     this.alive = true;
     if (!this.id) return;
     this.name = agentName(this.id.kind);
@@ -139,6 +163,7 @@ export default class Chat extends View {
     // Read once here so the first feed and the loop's first sleep are right; render keeps them current.
     const ps = panes();
     this.locate(spaces(), ps);
+    /** @type {boolean} */
     this.shown = this.readShown(spaces(), ps);
     this.status = this.statusOf(ps);
     this.composer = new Composer({ placeholder: `Message ${this.name}…`, onSend: (text, cx) => this.send(text, cx) });
@@ -168,7 +193,9 @@ export default class Chat extends View {
         try {
           r = await exec(bw, ["machine", "install", machine], { on: null });
         } catch (e) {
-          throw new Error(`could not start bw on this Mac (${e instanceof Error ? e.message : String(e)}): run scripts/install-helper.sh`);
+          throw new Error(
+            `could not start bw on this Mac (${e instanceof Error ? e.message : String(e)}): run scripts/install-helper.sh`,
+          );
         }
         if (!r.stdout.trim()) throw new Error(r.stderr.trim() || `bw exited ${r.code}`);
         return parseLines(r.stdout);
@@ -188,14 +215,19 @@ export default class Chat extends View {
             }
           } catch (e) {
             // A thrown error would end the loop and freeze the chat; name it and keep polling.
-            applyFeed(this.viewFeed(), { ok: false, state: "failed", message: e instanceof Error ? e.message : String(e) });
+            applyFeed(this.viewFeed(), {
+              ok: false,
+              state: "failed",
+              message: e instanceof Error ? e.message : String(e),
+            });
             cx.notify();
           }
           const now = Date.now();
           // The guard ended since the last frame: draw the buttons enabled again.
           if (this.drawnGuarded && !isGuarded(this.guard, now)) cx.notify();
           let wait = Math.max(0, pollMs(this.shown) - (now - started));
-          if (this.answerable() && isGuarded(this.guard, now)) wait = Math.max(1000, Math.min(wait, guardedUntil(this.guard) - now));
+          if (this.answerable() && isGuarded(this.guard, now))
+            wait = Math.max(1000, Math.min(wait, guardedUntil(this.guard) - now));
           await this.poke.wait(cx.sleep(wait));
         }
       } finally {
@@ -220,7 +252,7 @@ export default class Chat extends View {
   /** @param {any[]} ps PaneInfo[] */
   statusOf(ps) {
     const t = this.target;
-    return t ? ps.find((p) => p.pane === t.pane)?.status ?? null : null;
+    return t ? (ps.find((p) => p.pane === t.pane)?.status ?? null) : null;
   }
 
   /** A pending request a click could answer once the guard ends. */
@@ -306,8 +338,11 @@ export default class Chat extends View {
     /** @param {unknown} s */
     const other = (s) => typeof s === "string" && s !== "" && s !== root;
     // A new root whose log exists already answers tree + no_child + cards, with no log line.
-    return lines.some((l) => (l?.type === "tree" && other(l.root))
-      || (other(l?.session) && (l.type === "log" || l.type === "cards" || (l.type === "state" && l.state === "no_log"))));
+    return lines.some(
+      (l) =>
+        (l?.type === "tree" && other(l.root)) ||
+        (other(l?.session) && (l.type === "log" || l.type === "cards" || (l.type === "state" && l.state === "no_log"))),
+    );
   }
 
   /**
@@ -323,8 +358,14 @@ export default class Chat extends View {
       this.tree = tree;
     }
     const cards = lines.find((l) => l?.type === "cards") ?? null;
-    const requests = cards ? /** @type {Request[]} */ (lines.filter((l) => l?.type === "request" && typeof l.id === "string")) : [];
-    if (JSON.stringify(cards) !== JSON.stringify(this.cards) || JSON.stringify(requests) !== JSON.stringify(this.requests)) changed = true;
+    const requests = cards
+      ? /** @type {Request[]} */ (lines.filter((l) => l?.type === "request" && typeof l.id === "string"))
+      : [];
+    if (
+      JSON.stringify(cards) !== JSON.stringify(this.cards) ||
+      JSON.stringify(requests) !== JSON.stringify(this.requests)
+    )
+      changed = true;
     this.cards = cards;
     this.requests = requests;
     const ids = new Set(requests.map((r) => r.id));
@@ -412,9 +453,23 @@ export default class Chat extends View {
     const terminal = isTerminalView(view) ? view.terminal : /** @type {Found} */ (this.target).terminal;
     cx.spawn(async (/** @type {any} */ cx) => {
       try {
-        for (let p = this.pictures.wanted(feed.rows)[0]; p && this.alive && this.viewFeed() === feed; p = this.pictures.wanted(feed.rows)[0]) {
+        for (
+          let p = this.pictures.wanted(feed.rows)[0];
+          p && this.alive && this.viewFeed() === feed;
+          p = this.pictures.wanted(feed.rows)[0]
+        ) {
           this.pictures.start(p.digest);
-          const answer = await this.helper.call(null, ["picture", "--terminal", terminal, "--offset", String(p.offset), "--index", String(p.index), "--digest", p.digest]);
+          const answer = await this.helper.call(null, [
+            "picture",
+            "--terminal",
+            terminal,
+            "--offset",
+            String(p.offset),
+            "--index",
+            String(p.index),
+            "--digest",
+            p.digest,
+          ]);
           this.pictures.done(p.digest, answer);
           cx.notify();
         }
@@ -434,7 +489,16 @@ export default class Chat extends View {
     const t = this.target;
     if (!t) return null;
     const v = this.view;
-    if (isTerminalView(v)) return v.kind ? { machine: t.machine, local: v.local, kind: v.kind, feed: /** @type {FeedState} */ (this.sub), name: agentName(v.kind) } : null;
+    if (isTerminalView(v))
+      return v.kind
+        ? {
+            machine: t.machine,
+            local: v.local,
+            kind: v.kind,
+            feed: /** @type {FeedState} */ (this.sub),
+            name: agentName(v.kind),
+          }
+        : null;
     if (v.child) return null;
     return { machine: t.machine, local: t.local, kind: t.kind, feed: this.feed, name: this.name };
   }
@@ -450,14 +514,26 @@ export default class Chat extends View {
     this.note = null;
     this.viewNote = null;
     cx.notify();
-    const args = ["send", "--terminal", st.local, "--expect-kind", st.kind, "--expect-session", session, "--expect-path", path, "--text", text];
+    const args = [
+      "send",
+      "--terminal",
+      st.local,
+      "--expect-kind",
+      st.kind,
+      "--expect-session",
+      session,
+      "--expect-path",
+      path,
+      "--text",
+      text,
+    ];
     cx.spawn(async (/** @type {any} */ cx) => {
       try {
         // hc wraps text sent from another core as `<hc from=…>`, so slash commands only run when sent there.
         const answer = await this.helper.call(st.machine, args);
         const line = answer.ok ? answer.lines.find((/** @type {any} */ l) => l.type === "send") : null;
         const result = typeof line?.result === "string" ? line.result : "failed";
-        const message = answer.ok ? String(line?.message || "bw send printed no result") : answer.message;
+        const message = answer.ok === true ? String(line?.message || "bw send printed no result") : answer.message;
         const went = result === "sent" || result === "unconfirmed";
         this.note = result === "sent" ? null : { text: sendText(result, st.name, message), bad: !went };
         if (went) this.composer.clear();
@@ -484,7 +560,13 @@ export default class Chat extends View {
     }
     if (v.child) {
       const c = this.cards;
-      const ok = c && typeof c.session === "string" && c.session && typeof c.path === "string" && c.path && c.session === this.feed.session;
+      const ok =
+        c &&
+        typeof c.session === "string" &&
+        c.session &&
+        typeof c.path === "string" &&
+        c.path &&
+        c.session === this.feed.session;
       return ok ? { kind: t.kind, session: c.session, path: c.path } : null;
     }
     const e = expectation(this.feed, t.kind);
@@ -506,7 +588,7 @@ export default class Chat extends View {
     const a = activeQuestion(this.requests);
     const d = a ? this.draftOf(a) : null;
     const key = a && d ? `${a.id}:${d.step}` : null;
-    const want = d ? d.other[d.step] ?? "" : "";
+    const want = d ? (d.other[d.step] ?? "") : "";
     // A pick on the same step clears the draft's Other text, which the field must show too.
     if (key === this.otherKey && this.other.value() === want) return;
     this.otherKey = key;
@@ -525,7 +607,8 @@ export default class Chat extends View {
    */
   answer(req, choice, cx) {
     const t = this.target;
-    if (!t || !req || req.state !== "pending" || !req.answerable || this.sendingIds.size || this.wentOut.has(req.id)) return;
+    if (!t || !req || req.state !== "pending" || !req.answerable || this.sendingIds.size || this.wentOut.has(req.id))
+      return;
     if (isGuarded(this.guard, Date.now())) return;
     const expect = this.answerExpect();
     const v = this.view;
@@ -544,10 +627,18 @@ export default class Chat extends View {
       let text = "";
       try {
         const answer = await this.helper.call(t.machine, args);
-        const line = answer.ok ? answer.lines.find((/** @type {any} */ l) => l?.type === "answer" && typeof l.result === "string") : null;
+        // The find keeps only an answer line whose result is a string.
+        const line = /** @type {{ result: string, state?: string, message?: string } | null} */ (
+          answer.ok ? answer.lines.find((l) => l?.type === "answer" && typeof l.result === "string") : null
+        );
         if (line && WENT_OUT.has(line.result)) this.wentOut.add(req.id);
-        text = line ? answerNote(line, req.kind, name)
-          : answerNote({ result: "failed", message: answer.ok ? "bw answer printed no result" : answer.message }, req.kind, name);
+        text = line
+          ? answerNote(line, req.kind, name)
+          : answerNote(
+              { result: "failed", message: answer.ok === true ? "bw answer printed no result" : answer.message },
+              req.kind,
+              name,
+            );
       } catch (e) {
         text = answerNote({ result: "failed", message: e instanceof Error ? e.message : String(e) }, req.kind, name);
       } finally {
@@ -633,10 +724,14 @@ export default class Chat extends View {
     const state = hooksState(this.cards?.hooks, kind);
     const key = machine ?? "local";
     const ui = this.hooksUi?.machine === key ? this.hooksUi : null;
-    if (state === "untrusted") return { text: /** @type {string} */ (hooksText(state, machine)), step: TRUST_STEP, buttons: [] };
+    if (state === "untrusted")
+      return { text: /** @type {string} */ (hooksText(state, machine)), step: TRUST_STEP, buttons: [] };
     if (state !== "missing" && state !== "outdated") return null;
     if (ui?.phase === "applied") {
-      return { text: `Bellwether hooks are set up on ${machine ?? "this Mac"}; new requests name who asked`, buttons: [] };
+      return {
+        text: `Bellwether hooks are set up on ${machine ?? "this Mac"}; new requests name who asked`,
+        buttons: [],
+      };
     }
     const dismissed = /** @type {Record<string, unknown> | undefined} */ (shared(DISMISSED));
     if (dismissed && typeof dismissed === "object" && dismissed[key] === true) return null;
@@ -644,8 +739,18 @@ export default class Chat extends View {
     const later = { id: "hooks-dismiss", label: "Not now" };
     /** @type {import("./dock.js").NoticeButton[]} */
     let buttons;
-    if (ui?.phase === "diff" || ui?.phase === "applying") buttons = [{ id: "hooks-apply", label: "Apply", primary: true, enabled: ui.phase === "diff" }, later];
-    else buttons = [{ id: "hooks-review", label: ui?.phase === "loading" ? "Reading changes…" : "Review changes", primary: true, enabled: ui?.phase !== "loading" }, later];
+    if (ui?.phase === "diff" || ui?.phase === "applying")
+      buttons = [{ id: "hooks-apply", label: "Apply", primary: true, enabled: ui.phase === "diff" }, later];
+    else
+      buttons = [
+        {
+          id: "hooks-review",
+          label: ui?.phase === "loading" ? "Reading changes…" : "Review changes",
+          primary: true,
+          enabled: ui?.phase !== "loading",
+        },
+        later,
+      ];
     return { text: /** @type {string} */ (hooksText(state, machine)), diff, message: ui?.message, buttons };
   }
 
@@ -669,8 +774,13 @@ export default class Chat extends View {
         const answer = await this.helper.call(null, ["machine", "setup", key, "--diff"]);
         const lines = answer.ok ? answer.lines.filter((/** @type {any} */ l) => l?.type === "hooks-diff") : [];
         const error = answer.ok ? answer.lines.find((/** @type {any} */ l) => l?.type === "error") : null;
-        this.hooksUi = lines.length ? { machine: key, phase: "diff", diff: lines }
-          : { machine: key, phase: "failed", message: `Could not read the changes: ${answer.ok ? error?.message ?? "bw printed no diff" : answer.message}` };
+        this.hooksUi = lines.length
+          ? { machine: key, phase: "diff", diff: lines }
+          : {
+              machine: key,
+              phase: "failed",
+              message: `Could not read the changes: ${answer.ok === true ? (error?.message ?? "bw printed no diff") : answer.message}`,
+            };
         cx.notify();
       });
     } else if (button === "hooks-apply" && ui?.phase === "diff") {
@@ -682,8 +792,13 @@ export default class Chat extends View {
         const answer = await this.helper.call(null, args);
         const applied = answer.ok && answer.lines.some((/** @type {any} */ l) => l?.type === "hooks-applied");
         const error = answer.ok ? answer.lines.find((/** @type {any} */ l) => l?.type === "error") : null;
-        this.hooksUi = applied ? { machine: key, phase: "applied" }
-          : { machine: key, phase: "failed", message: `Not applied: ${answer.ok ? error?.message ?? "bw printed no result" : answer.message}` };
+        this.hooksUi = applied
+          ? { machine: key, phase: "applied" }
+          : {
+              machine: key,
+              phase: "failed",
+              message: `Not applied: ${answer.ok === true ? (error?.message ?? "bw printed no result") : answer.message}`,
+            };
         this.poke.poke();
         cx.notify();
       });
@@ -692,7 +807,8 @@ export default class Chat extends View {
 
   /** @param {any} row */
   height(row) {
-    const w = columnWidth(this.width), open = this.open.has(row.id);
+    const w = columnWidth(this.width),
+      open = this.open.has(row.id);
     const c = this.heights.get(row);
     if (c && c.w === w && c.open === open) return c.h;
     const h = rowHeight(row, w, open);
@@ -750,49 +866,116 @@ export default class Chat extends View {
     }
   }
 
-  /** @param {Record<string, string>} t @param {Problem} p @param {any} term @param {string | null} tab */
+  /** @param {Theme} t @param {Problem} p @param {any} term @param {string | null} tab */
   buttons(t, p, term, tab) {
     const button = (/** @type {string} */ id, /** @type {string} */ label, /** @type {() => void} */ act) =>
-      div().id(id).h(26).px(10).flex_none().flex().items_center().rounded(6).cursor_pointer().border(1).border_color(t.border)
-        .text_size(12).text_color(t.foreground).hover((s) => s.bg(t.hover)).on_click(act).child(label);
-    return h_flex().gap(8).items_center()
+      div()
+        .id(id)
+        .h(26)
+        .px(10)
+        .flex_none()
+        .flex()
+        .items_center()
+        .rounded(6)
+        .cursor_pointer()
+        .border(1)
+        .border_color(t.border)
+        .text_size(12)
+        .text_color(t.foreground)
+        .hover((s) => s.bg(t.hover))
+        .on_click(act)
+        .child(label);
+    return h_flex()
+      .gap(8)
+      .items_center()
       .when(Boolean(term), (el) => el.child(button("show-terminal", "Show terminal (⌘J)", () => this.showTerminal())))
-      .when(p.exited && tab !== null, (el) => el.child(button("close-tab", "Close tab", () => run("tab.close", { id: /** @type {string} */ (tab) }))));
+      .when(p.exited && tab !== null, (el) =>
+        el.child(button("close-tab", "Close tab", () => run("tab.close", { id: /** @type {string} */ (tab) }))),
+      );
   }
 
-  /** @param {Record<string, string>} t @param {any} term @param {boolean} gone @param {number} subs sub-agent rows */
+  /** @param {Theme} t @param {any} term @param {boolean} gone @param {number} subs sub-agent rows */
   header(t, term, gone, subs) {
     const target = this.target;
-    return h_flex().id("chat-header").h(36).flex_none().w_full().px(12).gap(8).items_center().border_b(1).border_color(t.border)
+    return h_flex()
+      .id("chat-header")
+      .h(36)
+      .flex_none()
+      .w_full()
+      .px(12)
+      .gap(8)
+      .items_center()
+      .border_b(1)
+      .border_color(t.border)
       .child(programIcon(term?.program ?? null, t, 14))
       .child(div().flex_none().text_size(13).font_semibold().text_color(t.foreground).child(this.name))
-      .when(Boolean(term?.branch), (el) => el.child(h_flex().min_w(0).gap(4).items_center().text_size(12).text_color(t.muted)
-        .child(svg(ICONS.branch).size(12).flex_none()).child(div().min_w(0).truncate().child(String(term.branch)))))
+      .when(Boolean(term?.branch), (el) =>
+        el.child(
+          h_flex()
+            .min_w(0)
+            .gap(4)
+            .items_center()
+            .text_size(12)
+            .text_color(t.muted)
+            .child(svg(ICONS.branch).size(12).flex_none())
+            .child(div().min_w(0).truncate().child(String(term.branch))),
+        ),
+      )
       .when(Boolean(target?.machine), (el) => el.child(machineTag(String(target?.machine), t)))
       .child(div().flex_1())
-      .when(subs > 0, (el) => el.child(threadsButton(subs, t, (cx) => {
-        this.toggle = toggleCard(this.rows, this.toggle);
-        cx.notify();
-      })))
-      .when(!gone, (el) => el.child(h_flex().id("flip").h(24).px(8).gap(6).flex_none().items_center().rounded(6).cursor_pointer()
-        .text_size(12).text_color(t.muted).hover((s) => s.bg(t.hover))
-        .on_click(() => this.showTerminal())
-        .child("Terminal").child(div().text_color(t.dim).child("⌘J"))));
+      .when(subs > 0, (el) =>
+        el.child(
+          threadsButton(subs, t, (cx) => {
+            this.toggle = toggleCard(this.rows, this.toggle);
+            cx.notify();
+          }),
+        ),
+      )
+      .when(!gone, (el) =>
+        el.child(
+          h_flex()
+            .id("flip")
+            .h(24)
+            .px(8)
+            .gap(6)
+            .flex_none()
+            .items_center()
+            .rounded(6)
+            .cursor_pointer()
+            .text_size(12)
+            .text_color(t.muted)
+            .hover((s) => s.bg(t.hover))
+            .on_click(() => this.showTerminal())
+            .child("Terminal")
+            .child(div().text_color(t.dim).child("⌘J")),
+        ),
+      );
   }
 
-  /** @param {any} cx */
-  render(cx) {
-    const t = theme();
-    const root = v_flex().id("chat-root").size_full().min_w(0).bg(t.background)
+  render() {
+    const t = themeColors();
+    const root = v_flex()
+      .id("chat-root")
+      .size_full()
+      .min_w(0)
+      .bg(t.background)
       .on_size_change((/** @type {{ width: number }} */ size, /** @type {any} */ cx) => {
         if (Math.abs(size.width - this.width) < 1) return;
         this.width = size.width;
         cx.notify();
       });
     if (!this.id) {
-      return root.child(v_flex().id("chat-state").flex_1().items_center().justify_center().gap(6).px(24)
-        .child(div().text_size(13.5).text_color(t.foreground).child("This chat names no terminal"))
-        .child(div().text_size(12).text_color(t.dim).child("Start a chat from + in the tab bar.")));
+      return root.child(
+        v_flex()
+          .id("chat-state")
+          .flex_1()
+          .items_center()
+          .justify_center()
+          .gap(6)
+          .px(24)
+          .child(div().text_size(13.5).text_color(t.foreground).child("This chat names no terminal"))
+          .child(div().text_size(12).text_color(t.dim).child("Start a chat from + in the tab bar.")),
+      );
     }
 
     const now = Date.now();
@@ -809,8 +992,13 @@ export default class Chat extends View {
     const target = this.target;
     const view = this.view;
     const own = isTerminalView(view);
-    this.guard = observe(this.guard, focused()?.terminal ?? null, own ? view.terminal : target?.terminal ?? null, now);
-    const term = target ? ps.find((p) => p.pane === target.pane) ?? null : null;
+    this.guard = observe(
+      this.guard,
+      focused()?.terminal ?? null,
+      own ? view.terminal : (target?.terminal ?? null),
+      now,
+    );
+    const term = target ? (ps.find((p) => p.pane === target.pane) ?? null) : null;
     const tab = this.tab();
     const f = this.viewFeed();
     const lost = this.located.state === "missing";
@@ -821,101 +1009,237 @@ export default class Chat extends View {
     const fresh = !gone && !lost && kind !== null && !view.child && (freshChat(f, kind) || newConversation(f, kind));
 
     // Terminal sub-agents are offered only on the parent's machine, where the chat's helper reads them.
-    const terms = target ? terminals().filter((x) => typeof x?.address === "string" && machineOfAddress(x.address) === machineOfAddress(target.terminal)) : [];
-    this.termInfo = new Map(terms.map((x) => [x.address, {
-      kind: x.program?.key === "claude" || x.program?.key === "codex" ? x.program.key : null,
-      program: String(x.program?.name || x.program?.key || "terminal") }]));
-    const rows = target ? threadRows(this.tree, terms, own ? [] : this.requests, { terminal: target.terminal, kind: target.kind, name: this.name, status }, now) : [];
+    const terms = target
+      ? terminals().filter(
+          (x) => typeof x?.address === "string" && machineOfAddress(x.address) === machineOfAddress(target.terminal),
+        )
+      : [];
+    this.termInfo = new Map(
+      terms.map((x) => [
+        x.address,
+        {
+          kind: x.program?.key === "claude" || x.program?.key === "codex" ? x.program.key : null,
+          program: String(x.program?.name || x.program?.key || "terminal"),
+        },
+      ]),
+    );
+    const rows = target
+      ? threadRows(
+          this.tree,
+          terms,
+          own ? [] : this.requests,
+          { terminal: target.terminal, kind: target.kind, name: this.name, status },
+          now,
+        )
+      : [];
     this.rows = rows;
     const subs = rows.length - 1;
 
     /** @type {Problem | null} */
     let problem = null;
-    if (lost) problem = { title: "Chat target not found", message: `No single ${this.name} terminal in this window's chat tabs matches this chat.`, exited: false };
+    if (lost)
+      problem = {
+        title: "Chat target not found",
+        message: `No single ${this.name} terminal in this window's chat tabs matches this chat.`,
+        exited: false,
+      };
     else if (gone) problem = { title: `${this.name} exited`, message: "", exited: true };
-    else if (this.installing !== null) problem = { title: helperText("installing", this.installing), message: "", exited: false };
-    else if (f.error) problem = { title: helperText(f.error.state, target?.machine ?? null), message: f.error.message, exited: false };
-    else if (f.waiting && !fresh) problem = { title: waitingText(f.waiting.state, name, target?.machine ?? null), message: f.waiting.message, exited: false };
+    else if (this.installing !== null)
+      problem = { title: helperText("installing", this.installing), message: "", exited: false };
+    else if (f.error)
+      problem = { title: helperText(f.error.state, target?.machine ?? null), message: f.error.message, exited: false };
+    else if (f.waiting && !fresh)
+      problem = {
+        title: waitingText(f.waiting.state, name, target?.machine ?? null),
+        message: f.waiting.message,
+        exited: false,
+      };
 
     root.child(this.header(t, term, gone, subs));
     const body = div().id("chat-body").relative().flex_1().min_h(0).w_full().flex().flex_col();
     const viewRows = f.rows;
     if (problem && !viewRows.length) {
-      body.child(v_flex().id("chat-state").flex_1().min_h(0).items_center().justify_center().gap(8).px(32)
-        .child(div().text_size(13.5).text_color(t.foreground).child(problem.title))
-        .when(Boolean(problem.message), (el) => el.child(div().max_w(560).text_size(11.5).text_color(t.dim).truncate().child(problem.message)))
-        .child(this.buttons(t, problem, term, tab)));
+      body.child(
+        v_flex()
+          .id("chat-state")
+          .flex_1()
+          .min_h(0)
+          .items_center()
+          .justify_center()
+          .gap(8)
+          .px(32)
+          .child(div().text_size(13.5).text_color(t.foreground).child(problem.title))
+          .when(Boolean(problem.message), (el) =>
+            el.child(div().max_w(560).text_size(11.5).text_color(t.dim).truncate().child(problem.message)),
+          )
+          .child(this.buttons(t, problem, term, tab)),
+      );
     } else if (!f.loaded || !viewRows.length) {
-      body.child(v_flex().flex_1().min_h(0).items_center().justify_center().px(24).text_size(13).text_color(t.muted)
-        .child(f.loaded ? (view.child ? "No messages yet." : "No messages yet. Send the first one below.") : "Loading…"));
+      body.child(
+        v_flex()
+          .flex_1()
+          .min_h(0)
+          .items_center()
+          .justify_center()
+          .px(24)
+          .text_size(13)
+          .text_color(t.muted)
+          .child(
+            f.loaded ? (view.child ? "No messages yet." : "No messages yet. Send the first one below.") : "Loading…",
+          ),
+      );
     } else {
       const col = columnWidth(this.width);
-      body.child(timeline(viewRows, {
-        t, pane: this.width || 800, col, agent: name, blocked: !own && term?.status === "blocked", open: this.open, pictures: this.pictures,
-      }, {
-        sizes: viewRows.map((r) => this.height(r)),
-        scroll: this.scroll,
-        onClick: (key, cx) => this.clickRow(key, cx),
-        onWheel: (e, cx) => this.wheel(e, cx),
-        onRange: (range) => {
-          this.topSeen = range.start === 0;
-          // Herdr also lays out one representative row ({0, 1}) each frame to measure it; that is not the view.
-          if (range.start === 0 && range.end === 1 && viewRows.length > 1) return;
-          // A scrollbar drag moves the list with no wheel event, so the range alone says whether the end is in view.
-          this.follow = range.end >= viewRows.length;
-        },
-      }));
+      body.child(
+        timeline(
+          viewRows,
+          {
+            t,
+            pane: this.width || 800,
+            col,
+            agent: name,
+            blocked: !own && term?.status === "blocked",
+            open: this.open,
+            pictures: this.pictures,
+          },
+          {
+            sizes: viewRows.map((r) => this.height(r)),
+            scroll: this.scroll,
+            onClick: (key, cx) => this.clickRow(key, cx),
+            onWheel: (e, cx) => this.wheel(e, cx),
+            onRange: (range) => {
+              this.topSeen = range.start === 0;
+              // Herdr also lays out one representative row ({0, 1}) each frame to measure it; that is not the view.
+              if (range.start === 0 && range.end === 1 && viewRows.length > 1) return;
+              // A scrollbar drag moves the list with no wheel event, so the range alone says whether the end is in view.
+              this.follow = range.end >= viewRows.length;
+            },
+          },
+        ),
+      );
     }
     if (subs > 0) {
       const current = view.child ?? (own ? view.terminal : null);
-      body.child(cardOpen(rows, this.toggle)
-        ? threadsCard(rows, { t, current, onRow: (row, cx) => this.openRow(row, cx) })
-        : threadsPill(pillText(rows), t, (cx) => {
-          this.toggle = toggleCard(this.rows, this.toggle);
-          cx.notify();
-        }));
+      body.child(
+        cardOpen(rows, this.toggle)
+          ? threadsCard(rows, { t, current, onRow: (row, cx) => this.openRow(row, cx) })
+          : threadsPill(pillText(rows), t, (cx) => {
+              this.toggle = toggleCard(this.rows, this.toggle);
+              cx.notify();
+            }),
+      );
     }
     root.child(body);
     if (problem && viewRows.length) {
-      root.child(h_flex().id("chat-notice").w_full().flex_none().px(16).pt(8).gap(10).items_center().justify_center()
-        .child(div().min_w(0).truncate().text_size(12.5).text_color(problem.exited ? t.foreground : t.muted).child(problem.title))
-        .child(this.buttons(t, problem, term, tab)));
+      root.child(
+        h_flex()
+          .id("chat-notice")
+          .w_full()
+          .flex_none()
+          .px(16)
+          .pt(8)
+          .gap(10)
+          .items_center()
+          .justify_center()
+          .child(
+            div()
+              .min_w(0)
+              .truncate()
+              .text_size(12.5)
+              .text_color(problem.exited ? t.foreground : t.muted)
+              .child(problem.title),
+          )
+          .child(this.buttons(t, problem, term, tab)),
+      );
     }
     if (this.viewNote) {
-      root.child(h_flex().id("view-note").w_full().flex_none().px(16).pt(8).justify_center().text_size(12.5).text_color(t.muted).child(this.viewNote));
+      root.child(
+        h_flex()
+          .id("view-note")
+          .w_full()
+          .flex_none()
+          .px(16)
+          .pt(8)
+          .justify_center()
+          .text_size(12.5)
+          .text_color(t.muted)
+          .child(this.viewNote),
+      );
     }
 
     const guarded = isGuarded(this.guard, now);
     this.drawnGuarded = guarded;
-    const cards = dockCards(this.requests, { now, guarded, sending: this.sendingIds, agentName: name, expect: this.answerExpect() })
-      .map((c) => ({ ...c, buttons: c.buttons.map((b) => (b.id === "terminal" ? b
-        : { ...b, enabled: b.enabled && !this.wentOut.has(c.id) && (b.id !== "submit" || complete(this.draftOf(c))) })) }));
+    const cards = dockCards(this.requests, {
+      now,
+      guarded,
+      sending: this.sendingIds,
+      agentName: name,
+      expect: this.answerExpect(),
+    }).map((c) => ({
+      ...c,
+      buttons: c.buttons.map((b) =>
+        b.id === "terminal"
+          ? b
+          : { ...b, enabled: b.enabled && !this.wentOut.has(c.id) && (b.id !== "submit" || complete(this.draftOf(c))) },
+      ),
+    }));
     const active = activeQuestion(this.requests);
-    const docked = dock({
-      t, cards, notice: target && kind ? this.hooksNotice(target.machine, kind) : null,
-      draftOf: (c) => this.draftOf(c), active: active?.id ?? null, focus: this.focus, other: this.other, notes: this.answerNotes,
-    }, {
-      onButton: (c, b, cx) => this.clickCard(c, b, cx),
-      onOption: (c, step, i, cx) => this.chooseOption(c, step, i, cx),
-      onStep: (c, step, cx) => this.showStep(c, step, cx),
-      onKey: (c, e, cx) => this.cardKey(c, e, cx),
-      onNotice: (b, cx) => this.clickNotice(b, cx),
-    });
+    const docked = dock(
+      {
+        t,
+        cards,
+        notice: target && kind ? this.hooksNotice(target.machine, kind) : null,
+        draftOf: (c) => this.draftOf(c),
+        active: active?.id ?? null,
+        focus: this.focus,
+        other: this.other,
+        notes: this.answerNotes,
+      },
+      {
+        onButton: (c, b, cx) => this.clickCard(c, b, cx),
+        onOption: (c, step, i, cx) => this.chooseOption(c, step, i, cx),
+        onStep: (c, step, cx) => this.showStep(c, step, cx),
+        onKey: (c, e, cx) => this.cardKey(c, e, cx),
+        onNotice: (b, cx) => this.clickNotice(b, cx),
+      },
+    );
     if (docked) root.child(docked);
 
     if (view.child || own) {
       const row = rows.find((r) => r.id === (view.child ?? (own ? view.terminal : null)));
-      const text = barText(row ?? { id: "", kind: "child", depth: 1, state: "done", type: own ? view.program : "sub-agent", description: "", since: "", requests: 0, open: null }, this.name);
+      const text = barText(
+        row ?? {
+          id: "",
+          kind: "child",
+          depth: 1,
+          state: "done",
+          type: own ? view.program : "sub-agent",
+          description: "",
+          since: "",
+          requests: 0,
+          open: null,
+        },
+        this.name,
+      );
       root.child(subagentBar(text, this.name, t, (cx) => this.setView({ child: null }, cx)));
       if (!own) return root;
     }
 
-    const reason = gone ? `${this.name} exited`
-      : own && !view.kind ? "This terminal runs no Claude or Codex"
-        : this.sending ? "Sending…"
-          : problem ? problem.title
-            : fresh || (f.path && f.session) ? null
-              : f.loaded ? waitingText("no_log", name) : "Loading…";
-    return root.child(this.composer.render(t, { disabled: reason !== null, reason, sending: this.sending, note: this.note }));
+    const reason = gone
+      ? `${this.name} exited`
+      : own && !view.kind
+        ? "This terminal runs no Claude or Codex"
+        : this.sending
+          ? "Sending…"
+          : problem
+            ? problem.title
+            : fresh || (f.path && f.session)
+              ? null
+              : f.loaded
+                ? waitingText("no_log", name)
+                : "Loading…";
+    return root.child(
+      this.composer.render(t, { disabled: reason !== null, reason, sending: this.sending, note: this.note }),
+    );
   }
 }

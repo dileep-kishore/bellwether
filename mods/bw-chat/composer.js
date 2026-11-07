@@ -5,6 +5,8 @@ import { h_flex, v_flex, Textarea, TextareaState } from "gpui-base";
 import { READ_W } from "./estimate.js";
 import { ICONS } from "./ui.js";
 
+/** @typedef {import("./ui.js").Theme} Theme */
+
 const SEND_ICON = "mods/bw-chat/icons/send.svg";
 
 /**
@@ -69,25 +71,87 @@ export class Composer {
     this.typed = [v, v];
   }
 
-  clear() { this.setText(""); }
-  focus() { this.input.focus(); }
+  clear() {
+    this.setText("");
+  }
+  focus() {
+    this.input.focus();
+  }
 
-  /** @param {Record<string, string>} t theme() @param {ComposerView} v */
+  /** @param {Theme} t themeColors() @param {ComposerView} v */
   render(t, v) {
     this.blocked = v.disabled;
     const live = !v.disabled;
-    return v_flex().id("composer").w_full().flex_none().px(16).pb(14).pt(6).gap(6).items_center()
-      .child(v_flex().id("box").w_full().max_w(READ_W).rounded(16).bg(t.raised).border(1).border_color(t.border).px(12).pt(10).pb(8).gap(6)
-        .when(v.disabled, (el) => el.opacity(0.6))
-        .child(Textarea.new(this.input).w_full().disabled(v.disabled))
-        .child(h_flex().gap(8).items_center()
-          .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(v.disabled && v.reason ? v.reason : ""))
-          .child(div().id("send").size(28).flex_none().flex().items_center().justify_center().rounded(14)
-            .bg(live ? t.accent : t.chrome).text_color(live ? t.background : t.dim)
-            .disabled(v.disabled)
-            .when(live, (el) => el.cursor_pointer().on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => this.send(this.input.value(), cx)))
-            .child(v.sending ? svg(ICONS["ring-spin"]).size(13).spin(900) : svg(SEND_ICON).size(14)))))
-      .when(Boolean(v.note), (el) => el.child(div().id("send-note").w_full().max_w(READ_W).text_size(12)
-        .text_color(v.note?.bad ? t.blocked : t.muted).child(v.note?.text ?? "")));
+    return v_flex()
+      .id("composer")
+      .w_full()
+      .flex_none()
+      .px(16)
+      .pb(14)
+      .pt(6)
+      .gap(6)
+      .items_center()
+      .child(
+        v_flex()
+          .id("box")
+          .w_full()
+          .max_w(READ_W)
+          .rounded(16)
+          .bg(t.raised)
+          .border(1)
+          .border_color(t.border)
+          .px(12)
+          .pt(10)
+          .pb(8)
+          .gap(6)
+          .when(v.disabled, (el) => el.opacity(0.6))
+          .child(Textarea.new(this.input).w_full().disabled(v.disabled))
+          .child(
+            h_flex()
+              .gap(8)
+              .items_center()
+              .child(
+                div()
+                  .flex_1()
+                  .min_w(0)
+                  .truncate()
+                  .text_size(12)
+                  .text_color(t.dim)
+                  .child(v.disabled && v.reason ? v.reason : ""),
+              )
+              .child(
+                div()
+                  .id("send")
+                  .size(28)
+                  .flex_none()
+                  .flex()
+                  .items_center()
+                  .justify_center()
+                  .rounded(14)
+                  .bg(live ? t.accent : t.chrome)
+                  .text_color(live ? t.background : t.dim)
+                  .disabled(v.disabled)
+                  .when(live, (el) =>
+                    el
+                      .cursor_pointer()
+                      .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) =>
+                        this.send(this.input.value(), cx),
+                      ),
+                  )
+                  .child(v.sending ? svg(ICONS["ring-spin"]).size(13).spin(900) : svg(SEND_ICON).size(14)),
+              ),
+          ),
+      )
+      .when(Boolean(v.note), (el) =>
+        el.child(
+          div()
+            .id("send-note")
+            .w_full()
+            .max_w(READ_W)
+            .text_size(12)
+            .text_color(v.note?.bad ? t.blocked : t.muted)
+            .child(v.note?.text ?? ""),
+        ),
+      );
   }
 }

@@ -1,9 +1,10 @@
 #!/usr/bin/env bun
 // Extracts the names Herdr's type files declare into tests/harness/api.json, which the headless
-// harness checks mods against. Regenerate it when Herdr updates.
-//   bun scripts/gen-herdr-api.js [--from DIR] [--out FILE] [--herdr-app VERSION]
+// harness checks mods against, and copies the files themselves into types/herdr for the type-check.
+// Regenerate both when Herdr updates.
+//   bun scripts/gen-herdr-api.js [--from DIR] [--out FILE] [--types DIR] [--herdr-app VERSION]
 // DIR defaults to $HERDR_APP_HOME, else ~/.config/herdr-app, else docs/drafts/herdr-api.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -11,15 +12,27 @@ const repo = resolve(dirname(new URL(import.meta.url).pathname), "..");
 
 /** @param {string[]} argv */
 function parseArgs(argv) {
-  /** @type {{ from: string|null, out: string, herdrApp: string|null }} */
-  const o = { from: null, out: join(repo, "tests/harness/api.json"), herdrApp: null };
+  /** @type {{ from: string|null, out: string, types: string, herdrApp: string|null }} */
+  const o = { from: null, out: join(repo, "tests/harness/api.json"), types: join(repo, "types/herdr"), herdrApp: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const v = argv[i + 1];
-    if (a === "--from" && v) { o.from = resolve(v); i++; }
-    else if (a === "--out" && v) { o.out = resolve(v); i++; }
-    else if (a === "--herdr-app" && v) { o.herdrApp = v; i++; }
-    else throw new Error(`usage: gen-herdr-api.js [--from DIR] [--out FILE] [--herdr-app VERSION] (bad argument ${a})`);
+    if (a === "--from" && v) {
+      o.from = resolve(v);
+      i++;
+    } else if (a === "--out" && v) {
+      o.out = resolve(v);
+      i++;
+    } else if (a === "--types" && v) {
+      o.types = resolve(v);
+      i++;
+    } else if (a === "--herdr-app" && v) {
+      o.herdrApp = v;
+      i++;
+    } else
+      throw new Error(
+        `usage: gen-herdr-api.js [--from DIR] [--out FILE] [--types DIR] [--herdr-app VERSION] (bad argument ${a})`,
+      );
   }
   return o;
 }
@@ -27,7 +40,11 @@ function parseArgs(argv) {
 /** @param {string|null} from */
 function sourceDir(from) {
   if (from) return from;
-  const candidates = [process.env.HERDR_APP_HOME, join(homedir(), ".config/herdr-app"), join(repo, "docs/drafts/herdr-api")];
+  const candidates = [
+    process.env.HERDR_APP_HOME,
+    join(homedir(), ".config/herdr-app"),
+    join(repo, "docs/drafts/herdr-api"),
+  ];
   for (const c of candidates) if (c && existsSync(join(c, "herdr.d.ts"))) return c;
   throw new Error("no Herdr API files found: pass --from DIR");
 }
@@ -45,7 +62,9 @@ function moduleBlock(lines, name) {
 function exportsOf(lines, indent) {
   const values = new Set();
   const types = new Set();
-  const re = new RegExp(`^${indent}export (?:declare )?(?:abstract )?(function|const|let|var|class|namespace|enum|interface|type) ([A-Za-z_$][\\w$]*)`);
+  const re = new RegExp(
+    `^${indent}export (?:declare )?(?:abstract )?(function|const|let|var|class|namespace|enum|interface|type) ([A-Za-z_$][\\w$]*)`,
+  );
   for (const l of lines) {
     const m = re.exec(l);
     if (!m) continue;
@@ -123,7 +142,12 @@ export function generate(dir, herdrApp = null) {
   /** @type {Record<string, { args: string[], required: string[] }>} */
   const commands = {};
   for (const c of commandsJson) {
-    commands[c.name] = { args: c.args.map((/** @type {{name: string}} */ a) => a.name), required: c.args.filter((/** @type {{required: boolean}} */ a) => a.required).map((/** @type {{name: string}} */ a) => a.name) };
+    commands[c.name] = {
+      args: c.args.map((/** @type {{name: string}} */ a) => a.name),
+      required: c.args
+        .filter((/** @type {{required: boolean}} */ a) => a.required)
+        .map((/** @type {{name: string}} */ a) => a.name),
+    };
   }
 
   const gpuiShell = /for gpui-shell ([0-9][\w.-]*?)\.?\s*$/m.exec(kitLines.slice(0, 10).join("\n"))?.[1] ?? null;
@@ -145,10 +169,28 @@ export function generate(dir, herdrApp = null) {
   };
 }
 
+/**
+ * Copies herdr.d.ts and gpui-kit.d.ts into `to` with a README naming the versions they came from.
+ * @param {string} dir @param {string} to @param {{ herdrApp: string|null, gpuiShell: string|null }} source
+ */
+export function vendorTypes(dir, to, source) {
+  mkdirSync(to, { recursive: true });
+  for (const f of ["herdr.d.ts", "gpui-kit.d.ts"]) copyFileSync(join(dir, f), join(to, f));
+  writeFileSync(
+    join(to, "README.md"),
+    `Herdr's type files from herdr-app ${source.herdrApp ?? "(unknown)"} (gpui-shell ${source.gpuiShell ?? "(unknown)"}),\n` +
+      "copied by `bun scripts/gen-herdr-api.js`; rerun it after a Herdr update instead of editing them.\n",
+  );
+}
+
 if (import.meta.main) {
   const o = parseArgs(process.argv.slice(2));
   const dir = sourceDir(o.from);
   const api = generate(dir, o.herdrApp);
   writeFileSync(o.out, `${JSON.stringify(api, null, 2)}\n`);
-  console.log(`wrote ${o.out}: ${api.herdr.length} herdr, ${api.kit.length} gpui-kit, ${api.base.length} gpui-base, ${api.element.length} element methods, ${Object.keys(api.commands).length} commands (from ${api.source.from}, gpui-shell ${api.source.gpuiShell}, herdr-app ${api.source.herdrApp})`);
+  vendorTypes(dir, o.types, api.source);
+  console.log(`wrote ${o.types}: herdr.d.ts, gpui-kit.d.ts, README.md`);
+  console.log(
+    `wrote ${o.out}: ${api.herdr.length} herdr, ${api.kit.length} gpui-kit, ${api.base.length} gpui-base, ${api.element.length} element methods, ${Object.keys(api.commands).length} commands (from ${api.source.from}, gpui-shell ${api.source.gpuiShell}, herdr-app ${api.source.herdrApp})`,
+  );
 }

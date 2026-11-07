@@ -13,7 +13,8 @@ function sh(fn, args, stdin = "") {
   return { code: p.exitCode, out: p.stdout.toString().trim(), err: p.stderr.toString() };
 }
 /** @param {[string, string, string?][]} rows address, name, state */
-const ls = (rows) => JSON.stringify({ terminals: rows.map(([address, name, state = "live"]) => ({ address, name, state, argv: ["x"] })) });
+const ls = (rows) =>
+  JSON.stringify({ terminals: rows.map(([address, name, state = "live"]) => ({ address, name, state, argv: ["x"] })) });
 
 describe("bw_slug and run_names", () => {
   test("names the forward and the warm as bw does", () => {
@@ -33,7 +34,10 @@ describe("bw_slug and run_names", () => {
 
 describe("sort_new", () => {
   test("only the run's own machine's terminals are its own; other new bw- terminals are left alone", () => {
-    const before = ls([["a5", "bw-fwd-old"], ["a9", "bw-warm-gone", "dead"]]);
+    const before = ls([
+      ["a5", "bw-fwd-old"],
+      ["a9", "bw-warm-gone", "dead"],
+    ]);
     const now = ls([
       ["a1", "bwv-codex-r1"],
       ["a2", "bw-fwd-bwloop"],
@@ -46,12 +50,20 @@ describe("sort_new", () => {
     ]);
     const r = sh("sort_new", [before, "bw-fwd-bwloop", "bw-warm-bwloop"], now);
     expect(r.code).toBe(0);
-    expect(r.out.split("\n")).toEqual(["own a2 bw-fwd-bwloop", "other a3 bw-fwd-macmini", "other a4 bw-warm-tsuki", "own a6 bw-warm-bwloop"]);
+    expect(r.out.split("\n")).toEqual([
+      "own a2 bw-fwd-bwloop",
+      "other a3 bw-fwd-macmini",
+      "other a4 bw-warm-tsuki",
+      "own a6 bw-warm-bwloop",
+    ]);
   });
 
   test("a name that was live at the start is never the run's", () => {
     const before = ls([["a2", "bw-fwd-bwloop"]]);
-    const now = ls([["a2", "bw-fwd-bwloop"], ["b2", "bw-fwd-bwloop"]]);
+    const now = ls([
+      ["a2", "bw-fwd-bwloop"],
+      ["b2", "bw-fwd-bwloop"],
+    ]);
     expect(sh("sort_new", [before, "bw-fwd-bwloop"], now).out).toBe("other b2 bw-fwd-bwloop");
   });
 

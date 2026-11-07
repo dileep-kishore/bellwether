@@ -2,11 +2,11 @@
 // Always shown, so it also turns the tabs "+" starts into chat tabs and runs ⌘J (bw-tabs.chat-flip).
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { home, layout, nextCommand, notify, openOverlay, panes, run, setShared, shared, spaces, theme, window } from "herdr";
+import { home, layout, nextCommand, notify, openOverlay, panes, run, setShared, shared, spaces, window } from "herdr";
 import { adopt, flipActions, wakeAt } from "./chat-tabs.js";
 import { moveIndex, tabItems } from "./model.js";
 import { createPoke } from "./refresh-driver.js";
-import { ICONS, machineTag, programIcon, statusIcon } from "./ui.js";
+import { ICONS, machineTag, programIcon, statusIcon, themeColors } from "./ui.js";
 
 const CHAT_TABS = "bw.chat-tabs";
 const WINDOW_ID = "bw.window-id";
@@ -99,7 +99,7 @@ export default class Tabs extends View {
   }
 
   render() {
-    const t = theme();
+    const t = themeColors();
     const all = spaces();
     const ps = panes();
     const space = all.find((s) => s.active) ?? null;
@@ -112,55 +112,124 @@ export default class Tabs extends View {
 
     const tab = (/** @type {import("./model.js").TabItem} */ c) => {
       const marked = this.pressed !== null && this.pressed !== c.id && this.over === c.id;
-      return h_flex().id(`tab-${c.id}`).h(26).px(10).gap(6).flex_none().items_center().rounded(6).text_size(12.5)
-        .border(1).border_color(c.active ? t.border : t.chrome).bg(c.active ? t.raised : t.chrome)
-        .text_color(c.active ? t.foreground : t.muted)
-        .when(marked, (el) => el.border_l(2).border_color(t.accent))
-        .when(c.settled, (el) => el.opacity(0.6))
-        .hover((s) => s.bg(t.hover))
-        .on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); this.pressed = c.id; this.over = null; })
-        .on_mouse_move((_e, cx) => {
-          if (this.pressed === null || this.over === c.id) return;
-          this.over = c.id;
-          cx.notify();
-        })
-        .on_mouse_up("left", () => {
-          const index = moveIndex(items, this.pressed, c.id);
-          const from = this.pressed;
-          this.pressed = null;
-          this.over = null;
-          if (index !== null && from !== null) run("tab.move", { id: from, index });
-        })
-        // A press on one tab and a release on another is a drag, and GPUI sends no click then.
-        .on_click(() => run("tab.select", { id: c.id }))
-        .child(programIcon(c.program, t))
-        .child(div().max_w(170).truncate().child(c.title))
-        .child(statusIcon(t, c.status))
-        .when(Boolean(space?.machine), (el) => el.child(machineTag(String(space?.machine), t)))
-        .when(c.active, (el) => el.child(
-          div().id(`close-${c.id}`).size(16).flex_none().flex().items_center().justify_center().rounded(4).text_color(t.dim)
-            .hover((s) => s.bg(t.hover).text_color(t.foreground))
-            .on_mouse_down("left", stop)
-            .on_click((_e, cx) => { cx.stop_propagation(); run("tab.close", { id: c.id }); })
-            .child(svg(ICONS.close).size(12)),
-        ));
+      return (
+        h_flex()
+          .id(`tab-${c.id}`)
+          .h(26)
+          .px(10)
+          .gap(6)
+          .flex_none()
+          .items_center()
+          .rounded(6)
+          .text_size(12.5)
+          .border(1)
+          .border_color(c.active ? t.border : t.chrome)
+          .bg(c.active ? t.raised : t.chrome)
+          .text_color(c.active ? t.foreground : t.muted)
+          .when(marked, (el) => el.border_l(2).border_color(t.accent))
+          .when(c.settled, (el) => el.opacity(0.6))
+          .hover((s) => s.bg(t.hover))
+          .on_mouse_down("left", (_e, cx) => {
+            cx.stop_propagation();
+            this.pressed = c.id;
+            this.over = null;
+          })
+          .on_mouse_move((_e, cx) => {
+            if (this.pressed === null || this.over === c.id) return;
+            this.over = c.id;
+            cx.notify();
+          })
+          .on_mouse_up("left", () => {
+            const index = moveIndex(items, this.pressed, c.id);
+            const from = this.pressed;
+            this.pressed = null;
+            this.over = null;
+            if (index !== null && from !== null) run("tab.move", { id: from, index });
+          })
+          // A press on one tab and a release on another is a drag, and GPUI sends no click then.
+          .on_click(() => run("tab.select", { id: c.id }))
+          .child(programIcon(c.program, t))
+          .child(div().max_w(170).truncate().child(c.title))
+          .child(statusIcon(t, c.status))
+          .when(Boolean(space?.machine), (el) => el.child(machineTag(String(space?.machine), t)))
+          .when(c.active, (el) =>
+            el.child(
+              div()
+                .id(`close-${c.id}`)
+                .size(16)
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(4)
+                .text_color(t.dim)
+                .hover((s) => s.bg(t.hover).text_color(t.foreground))
+                .on_mouse_down("left", stop)
+                .on_click((_e, cx) => {
+                  cx.stop_propagation();
+                  run("tab.close", { id: c.id });
+                })
+                .child(svg(ICONS.close).size(12)),
+            ),
+          )
+      );
     };
 
+    /** @type {{ space: string } | { machine: string | null, folder: string }} */
     const props = space ? { space: space.id } : { machine: null, folder: home() };
-    return h_flex().id("tabs-bar").h(32).w_full().min_w(0).pl(pad).pr(8).gap(4).items_center()
-      .bg(t.chrome).border_b(1).border_color(t.border)
-      // Presses here start the window drag, so they only forget a press that ended off the tabs.
-      .on_mouse_down("left", () => { this.pressed = null; this.over = null; })
-      .on_mouse_up("left", () => { this.pressed = null; this.over = null; })
-      // A drag released off the bar never reaches it; the next press elsewhere ends that drag.
-      .on_mouse_down_out(() => { this.pressed = null; this.over = null; })
-      .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar().children(items.map(tab)))
-      .child(
-        div().id("tab-new").size(26).flex_none().flex().items_center().justify_center().rounded(6).text_color(t.dim)
-          .hover((s) => s.bg(t.hover).text_color(t.foreground))
-          .on_mouse_down("left", stop)
-          .on_click(() => openOverlay({ mod: "bw-new", kind: "popup", width: 232, height: 300, props }))
-          .child(svg(ICONS.plus).size(14)),
-      );
+    return (
+      h_flex()
+        .id("tabs-bar")
+        .h(32)
+        .w_full()
+        .min_w(0)
+        .pl(pad)
+        .pr(8)
+        .gap(4)
+        .items_center()
+        .bg(t.chrome)
+        .border_b(1)
+        .border_color(t.border)
+        // Presses here start the window drag, so they only forget a press that ended off the tabs.
+        .on_mouse_down("left", () => {
+          this.pressed = null;
+          this.over = null;
+        })
+        .on_mouse_up("left", () => {
+          this.pressed = null;
+          this.over = null;
+        })
+        // A drag released off the bar never reaches it; the next press elsewhere ends that drag.
+        .on_mouse_down_out(() => {
+          this.pressed = null;
+          this.over = null;
+        })
+        .child(
+          h_flex()
+            .id("tab-scroll")
+            .flex_1()
+            .min_w(0)
+            .h_full()
+            .items_center()
+            .gap(3)
+            .overflow_x_scrollbar()
+            .children(items.map(tab)),
+        )
+        .child(
+          div()
+            .id("tab-new")
+            .size(26)
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(6)
+            .text_color(t.dim)
+            .hover((s) => s.bg(t.hover).text_color(t.foreground))
+            .on_mouse_down("left", stop)
+            .on_click(() => openOverlay({ mod: "bw-new", kind: "popup", width: 232, height: 300, props }))
+            .child(svg(ICONS.plus).size(14)),
+        )
+    );
   }
 }

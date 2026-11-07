@@ -20,7 +20,8 @@ const DIR = join(import.meta.dir, "..", "tests", "fixtures", "model");
 function load(name, edit = (f) => f) {
   const f = edit(JSON.parse(readFileSync(join(DIR, `${name}.json`), "utf8")));
   const places = {};
-  for (const p of f.git.places) places[placeKey(p.machine, p.folder)] = p.not_git ? "not_git" : { commonDir: p.commonDir, top: p.top };
+  for (const p of f.git.places)
+    places[placeKey(p.machine, p.folder)] = p.not_git ? "not_git" : { commonDir: p.commonDir, top: p.top };
   const worktrees = {};
   for (const w of f.git.worktrees) worktrees[projectKey(w.machine, w.commonDir)] = { list: w.list, stale: w.stale };
   const counts = {};
@@ -70,7 +71,9 @@ describe("buildProjects", () => {
       ["alpha", "A", true],
       ["beta", "B", false],
     ]);
-    expect(machineOf(tree, "macmini").projects.map((p) => [p.name, p.open, p.commonDir])).toEqual([["gamma", true, "/home/u/gamma/.git"]]);
+    expect(machineOf(tree, "macmini").projects.map((p) => [p.name, p.open, p.commonDir])).toEqual([
+      ["gamma", true, "/home/u/gamma/.git"],
+    ]);
     const beta = projectOf(tree, null, "beta");
     expect(beta.key).toBe(projectKey(null, "/r/beta/.git"));
     expect(beta.main).toBe("/r/beta");
@@ -94,7 +97,16 @@ describe("buildProjects", () => {
     expect(alpha.checked).toBe(true);
     const feat = rowOf(alpha, "/r/alpha-wt/feat");
     expect(feat.key).toBe(worktreeKey(null, "/r/alpha-wt/feat"));
-    expect(feat.counts).toEqual({ branch: "feat", detached: false, upstream: true, ahead: 1, behind: 0, files: 1, added: 3, removed: 1 });
+    expect(feat.counts).toEqual({
+      branch: "feat",
+      detached: false,
+      upstream: true,
+      ahead: 1,
+      behind: 0,
+      files: 1,
+      added: 3,
+      removed: 1,
+    });
     expect(feat.stale).toBe(false);
     expect(rowOf(alpha, "/r/alpha-wt/detached").counts).toBe(null);
   });
@@ -108,8 +120,24 @@ describe("buildProjects", () => {
           commonDir: "/r/delta-origin.git",
           stale: false,
           list: [
-            { path: "/r/delta-origin.git", head: null, branch: null, detached: false, bare: true, locked: false, prunable: false },
-            { path: "/r/delta-wt/x", head: "d1", branch: "x", detached: false, bare: false, locked: false, prunable: false },
+            {
+              path: "/r/delta-origin.git",
+              head: null,
+              branch: null,
+              detached: false,
+              bare: true,
+              locked: false,
+              prunable: false,
+            },
+            {
+              path: "/r/delta-wt/x",
+              head: "d1",
+              branch: "x",
+              detached: false,
+              bare: false,
+              locked: false,
+              prunable: false,
+            },
           ],
         });
         return f;
@@ -174,8 +202,28 @@ describe("buildProjects", () => {
   test("agent lines carry title, status, program, change time and space", () => {
     const main = rowOf(projectOf(buildProjects(load("two-machines")), null, "alpha"), "/r/alpha");
     expect(main.agents).toEqual([
-      { address: "t1", space: "s1", tab: "tb1", title: "refactor the parser", status: "working", program: expect.objectContaining({ key: "claude" }), subagents: 0, requests: 0, changedAt: 1000 },
-      { address: "t2", space: "s1", tab: "tb2", title: "fix login", status: "blocked", program: expect.objectContaining({ key: "codex" }), subagents: 0, requests: 0, changedAt: 2000 },
+      {
+        address: "t1",
+        space: "s1",
+        tab: "tb1",
+        title: "refactor the parser",
+        status: "working",
+        program: expect.objectContaining({ key: "claude" }),
+        subagents: 0,
+        requests: 0,
+        changedAt: 1000,
+      },
+      {
+        address: "t2",
+        space: "s1",
+        tab: "tb2",
+        title: "fix login",
+        status: "blocked",
+        program: expect.objectContaining({ key: "codex" }),
+        subagents: 0,
+        requests: 0,
+        changedAt: 2000,
+      },
     ]);
   });
 
@@ -183,8 +231,31 @@ describe("buildProjects", () => {
     const tree = buildProjects(
       load("two-machines", (f) => {
         f.spaces.push({
-          id: "s9", index: 4, name: "~", named: false, folder: "/Users/u", machine: null, branch: null, active: false, status: "working",
-          tabs: [{ id: "tb9", index: 1, name: "1", named: false, active: true, status: "working", panes: 1, zoomed: false, settled: false, settled_at: null, changed_at: 9000, working_since: null }],
+          id: "s9",
+          index: 4,
+          name: "~",
+          named: false,
+          folder: "/Users/u",
+          machine: null,
+          branch: null,
+          active: false,
+          status: "working",
+          tabs: [
+            {
+              id: "tb9",
+              index: 1,
+              name: "1",
+              named: false,
+              active: true,
+              status: "working",
+              panes: 1,
+              zoomed: false,
+              settled: false,
+              settled_at: null,
+              changed_at: 9000,
+              working_since: null,
+            },
+          ],
         });
         f.panes.push({ ...f.panes[0], pane: "p9", terminal: "t9", tab: "tb9", cwd: "/Users/u" });
         f.agents.push({ ...f.agents[0], address: "t9", pane: "p9", space: "s9", tab: "tb9", title: "home work" });
@@ -193,7 +264,9 @@ describe("buildProjects", () => {
       }),
     );
     const local = machineOf(tree, null);
-    expect(local.plain.map((s) => [s.id, s.name, s.active, s.status, s.agents.map((a) => a.address)])).toEqual([["s9", "~", false, "working", ["t9"]]]);
+    expect(local.plain.map((s) => [s.id, s.name, s.active, s.status, s.agents.map((a) => a.address)])).toEqual([
+      ["s9", "~", false, "working", ["t9"]],
+    ]);
     expect(tree.agentOrder).toEqual(["t1", "t2", "t3", "t9", "macmini/t5"]);
   });
 
@@ -222,10 +295,19 @@ describe("buildProjects", () => {
 
   test("agent lines add in-process sub-agents and requests", () => {
     const input = load("two-machines");
-    input.counts = { t1: { subagents: 2, requests: 0 }, t2: { subagents: 0, requests: 1 }, t3: { subagents: 1, requests: 3 }, "macmini/t5": { subagents: 0, requests: 0 } };
+    input.counts = {
+      t1: { subagents: 2, requests: 0 },
+      t2: { subagents: 0, requests: 1 },
+      t3: { subagents: 1, requests: 3 },
+      "macmini/t5": { subagents: 0, requests: 0 },
+    };
     const tree = buildProjects(input);
-    const lines = (machine, project, path) => rowOf(projectOf(tree, machine, project), path).agents.map((a) => [a.address, a.subagents, a.requests]);
-    expect(lines(null, "alpha", "/r/alpha")).toEqual([["t1", 2, 0], ["t2", 0, 1]]);
+    const lines = (machine, project, path) =>
+      rowOf(projectOf(tree, machine, project), path).agents.map((a) => [a.address, a.subagents, a.requests]);
+    expect(lines(null, "alpha", "/r/alpha")).toEqual([
+      ["t1", 2, 0],
+      ["t2", 0, 1],
+    ]);
     // t3 already counts its terminal sub-agent t4.
     expect(lines(null, "alpha", "/r/alpha-wt/feat")).toEqual([["t3", 2, 3]]);
     expect(lines("macmini", "gamma", "/home/u/gamma")).toEqual([["macmini/t5", 1, 0]]);
@@ -235,13 +317,23 @@ describe("buildProjects", () => {
     const input = load("two-machines");
     input.counts = { t1: { subagents: -1, requests: "2" }, t2: null };
     const main = rowOf(projectOf(buildProjects(input), null, "alpha"), "/r/alpha");
-    expect(main.agents.map((a) => [a.address, a.subagents, a.requests])).toEqual([["t1", 0, 0], ["t2", 0, 0]]);
+    expect(main.agents.map((a) => [a.address, a.subagents, a.requests])).toEqual([
+      ["t1", 0, 0],
+      ["t2", 0, 0],
+    ]);
   });
 
   test("count targets: each ready machine's agent lines with their local addresses", () => {
     const tree = buildProjects(load("two-machines"));
     expect(countTargets(tree)).toEqual([
-      { machine: null, terminals: [{ address: "t1", local: "t1" }, { address: "t2", local: "t2" }, { address: "t3", local: "t3" }] },
+      {
+        machine: null,
+        terminals: [
+          { address: "t1", local: "t1" },
+          { address: "t2", local: "t2" },
+          { address: "t3", local: "t3" },
+        ],
+      },
       { machine: "macmini", terminals: [{ address: "macmini/t5", local: "t5" }] },
     ]);
     const offline = buildProjects(
@@ -285,7 +377,16 @@ describe("buildProjects", () => {
     const mini = machineOf(tree, "macmini");
     expect(mini.state).toBe("offline");
     const row = rowOf(projectOf(tree, "macmini", "gamma"), "/home/u/gamma");
-    expect(row.counts).toEqual({ branch: "main", detached: false, upstream: true, ahead: 0, behind: 2, files: 2, added: 5, removed: 0 });
+    expect(row.counts).toEqual({
+      branch: "main",
+      detached: false,
+      upstream: true,
+      ahead: 0,
+      behind: 2,
+      files: 2,
+      added: 5,
+      removed: 0,
+    });
     expect(row.stale).toBe(true);
     expect(rowOf(projectOf(tree, null, "alpha"), "/r/alpha-wt/feat").stale).toBe(false);
   });
@@ -333,7 +434,9 @@ describe("buildProjects", () => {
       ["macmini", "ready"],
       ["tsuki", "not_connected"],
     ]);
-    expect(machineOf(tree, "tsuki").projects.map((p) => [p.name, p.letter, p.open, p.checked])).toEqual([["omega", "O", false, false]]);
+    expect(machineOf(tree, "tsuki").projects.map((p) => [p.name, p.letter, p.open, p.checked])).toEqual([
+      ["omega", "O", false, false],
+    ]);
   });
 
   test("this Mac is listed first even when machines() leaves it out", () => {
@@ -342,8 +445,21 @@ describe("buildProjects", () => {
       [null, "ready"],
       ["macmini", "ready"],
     ]);
-    const empty = buildProjects({ machines: [], spaces: [], panes: [], agents: [], terminals: [], stored: [], platform: "macos", git: { places: {}, worktrees: {}, counts: {}, unreachable: [] } });
-    expect(empty).toEqual({ machines: [{ name: null, label: "This Mac", state: "ready", projects: [], plain: [] }], agentOrder: [], remember: [] });
+    const empty = buildProjects({
+      machines: [],
+      spaces: [],
+      panes: [],
+      agents: [],
+      terminals: [],
+      stored: [],
+      platform: "macos",
+      git: { places: {}, worktrees: {}, counts: {}, unreachable: [] },
+    });
+    expect(empty).toEqual({
+      machines: [{ name: null, label: "This Mac", state: "ready", projects: [], plain: [] }],
+      agentOrder: [],
+      remember: [],
+    });
   });
 
   test("projects sort by name, then common dir", () => {
@@ -354,7 +470,12 @@ describe("buildProjects", () => {
         return f;
       }),
     );
-    expect(machineOf(tree, null).projects.map((p) => p.commonDir)).toEqual(["/r/aardvark/.git", "/r/alpha/.git", "/r/beta/.git", "/z/beta/.git"]);
+    expect(machineOf(tree, null).projects.map((p) => p.commonDir)).toEqual([
+      "/r/aardvark/.git",
+      "/r/alpha/.git",
+      "/r/beta/.git",
+      "/z/beta/.git",
+    ]);
   });
 
   test("remember lists only new projects", () => {
@@ -375,7 +496,9 @@ describe("stored projects", () => {
     expect(readStored(undefined)).toEqual([]);
     expect(readStored([])).toEqual([]);
     expect(readStored("x")).toEqual([]);
-    expect(readStored({ version: 2, projects: [{ machine: null, commonDir: "/a/.git", name: "a", main: "/a" }] })).toEqual([]);
+    expect(
+      readStored({ version: 2, projects: [{ machine: null, commonDir: "/a/.git", name: "a", main: "/a" }] }),
+    ).toEqual([]);
     expect(readStored({ version: 1, projects: "nope" })).toEqual([]);
     expect(
       readStored({
@@ -416,7 +539,18 @@ describe("refreshTargets", () => {
     const input = load("two-machines", (f) => {
       // Two spaces in one unread folder ask for one place read.
       for (const id of ["s10", "s11"]) {
-        f.spaces.push({ id, index: 9, name: "new", named: false, folder: "/r/new", machine: null, branch: null, active: false, status: null, tabs: [] });
+        f.spaces.push({
+          id,
+          index: 9,
+          name: "new",
+          named: false,
+          folder: "/r/new",
+          machine: null,
+          branch: null,
+          active: false,
+          status: null,
+          tabs: [],
+        });
       }
       return f;
     });
@@ -453,7 +587,11 @@ describe("refreshTargets", () => {
     const input = load("two-machines");
     const targets = refreshTargets(buildProjects(input), input, "s2");
     expect(byKind(targets, "place")).toEqual([]);
-    expect(byKind(targets, "counts").filter((t) => t.selected).map((t) => t.path)).toEqual(["/r/alpha-wt/feat"]);
+    expect(
+      byKind(targets, "counts")
+        .filter((t) => t.selected)
+        .map((t) => t.path),
+    ).toEqual(["/r/alpha-wt/feat"]);
   });
 
   test("targets: an unreachable machine keeps its reads so a success can clear it, but no helper", () => {

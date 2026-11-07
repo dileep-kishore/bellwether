@@ -4,7 +4,16 @@ import { createSchedule } from "./refresh-schedule.js";
 
 function target(kind, path, over = {}) {
   const machine = over.machine ?? null;
-  return { key: `${kind}:${machine ?? ""}:${path}`, kind, machine, path, open: false, selected: false, wakeOn: [], ...over };
+  return {
+    key: `${kind}:${machine ?? ""}:${path}`,
+    kind,
+    machine,
+    path,
+    open: false,
+    selected: false,
+    wakeOn: [],
+    ...over,
+  };
 }
 
 const settle = async () => {
@@ -208,7 +217,10 @@ describe("refresh driver", () => {
       },
     });
     await w.advance(0);
-    expect(r.results).toContainEqual([a.key, { ok: false, state: "unreachable", message: "machine macmini is unreachable" }]);
+    expect(r.results).toContainEqual([
+      a.key,
+      { ok: false, state: "unreachable", message: "machine macmini is unreachable" },
+    ]);
     expect(r.results).toContainEqual([b.key, { ok: false, state: "failed", message: "boom" }]);
     expect(r.schedule.inFlight("macmini")).toBe(false);
     expect(r.schedule.inFlight("box")).toBe(false);
@@ -230,14 +242,14 @@ describe("refresh driver", () => {
     });
     await w.advance(0);
     expect(gates).toHaveLength(2);
-    gates.splice(0).forEach((g) => g({ ok: true }));
+    for (const g of gates.splice(0)) g({ ok: true });
     await w.advance(0);
     expect(r.results).toHaveLength(2);
     expect(w.cx.notified).toBe(1);
 
     changed = false;
     await w.advance(15_000);
-    gates.splice(0).forEach((g) => g({ ok: true }));
+    for (const g of gates.splice(0)) g({ ok: true });
     await w.advance(0);
     expect(r.results).toHaveLength(4);
     expect(w.cx.notified).toBe(1);
@@ -247,7 +259,10 @@ describe("refresh driver", () => {
   test("driver: a place whose first read fails is read again", async () => {
     const w = world();
     const p = target("place", "/home/u/gamma", { machine: "macmini" });
-    const answers = [{ ok: false, state: "unreachable", message: "temporary" }, { ok: true, place: {} }];
+    const answers = [
+      { ok: false, state: "unreachable", message: "temporary" },
+      { ok: true, place: {} },
+    ];
     const r = start(w, [p], { run: async () => answers.shift() });
     await w.advance(14_999);
     expect(r.calls).toEqual([[p.key, 0]]);

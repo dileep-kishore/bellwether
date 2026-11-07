@@ -33,14 +33,19 @@ export function reporter() {
 export const short = (/** @type {unknown} */ v) => JSON.stringify(v).slice(0, 300);
 export const sleep = (/** @type {number} */ ms) => new Promise((r) => setTimeout(r, ms));
 /** A word no earlier message holds, so a search of every log finds only this run's text. */
-export const marker = (/** @type {string} */ what) => `BW-${what}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+export const marker = (/** @type {string} */ what) =>
+  `BW-${what}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 
 /** @typedef {{ code: number, stdout: string, stderr: string }} ExecResult */
 
 /** @param {string[]} argv @param {{ env?: Record<string, string>, stdin?: Blob }} [o] @returns {Promise<ExecResult>} */
 export async function spawn(argv, o = {}) {
   const p = Bun.spawn(argv, { stdin: o.stdin ?? "ignore", stdout: "pipe", stderr: "pipe", env: o.env ?? process.env });
-  const [stdout, stderr, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(p.stdout).text(),
+    new Response(p.stderr).text(),
+    p.exited,
+  ]);
   return { code, stdout, stderr };
 }
 
@@ -96,7 +101,8 @@ export async function until(f, limit = 30000, ms = 1000) {
  * @param {(argv: string[]) => Promise<ExecResult>} [run] where to run the commands
  */
 export async function makeRepo(dir, files = {}, run = (argv) => spawn(argv)) {
-  const script = 'set -e; mkdir -p "$1"; cd "$1"; git init -q; printf "alpha\\n" > a.txt; git add .; git -c user.name="Test User" -c user.email=user@example.com commit -qm init';
+  const script =
+    'set -e; mkdir -p "$1"; cd "$1"; git init -q; printf "alpha\\n" > a.txt; git add .; git -c user.name="Test User" -c user.email=user@example.com commit -qm init';
   const r = await run(["sh", "-c", script, "sh", dir]);
   if (r.code !== 0) throw new Error(`git repository ${dir}: ${r.stderr.trim()}`);
   for (const [name, body] of Object.entries(files)) {
@@ -166,7 +172,19 @@ export class Term {
   }
   /** @param {{ agent: string, session: string, path: string }} c @param {string} text */
   async send(c, text) {
-    const out = await this.bw(["send", "--terminal", this.local, "--expect-kind", c.agent, "--expect-session", c.session, "--expect-path", c.path, "--text", text]);
+    const out = await this.bw([
+      "send",
+      "--terminal",
+      this.local,
+      "--expect-kind",
+      c.agent,
+      "--expect-session",
+      c.session,
+      "--expect-path",
+      c.path,
+      "--text",
+      text,
+    ]);
     return out.find((l) => l.type === "send") ?? out[0] ?? null;
   }
   async kill() {
@@ -176,16 +194,19 @@ export class Term {
 
 /** Claude's trust dialog for a new folder defaults to "No, exit". @param {Term} t */
 export async function claudeReady(t) {
-  if (!(await t.waitScreen(/trust this folder|Try "|for shortcuts/))) throw new Error(`Claude in ${t.address} never showed its prompt`);
+  if (!(await t.waitScreen(/trust this folder|Try "|for shortcuts/)))
+    throw new Error(`Claude in ${t.address} never showed its prompt`);
   if (/trust this folder/.test(await t.screen(60))) await t.keys("down", "enter");
   if (!(await t.waitScreen(/Try "|for shortcuts/))) throw new Error(`Claude in ${t.address} never showed its prompt`);
 }
 
 /** @param {Term} t */
 export async function codexReady(t) {
-  if (!(await t.waitScreen(/Ask Codex|Trust this folder|Hooks need review/))) throw new Error(`Codex in ${t.address} never showed its prompt`);
+  if (!(await t.waitScreen(/Ask Codex|Trust this folder|Hooks need review/)))
+    throw new Error(`Codex in ${t.address} never showed its prompt`);
   const s = await t.screen(60);
-  if (/Hooks need review/.test(s)) throw new Error(`Codex in ${t.address} asks to review its hooks: the trust entries were not accepted`);
+  if (/Hooks need review/.test(s))
+    throw new Error(`Codex in ${t.address} asks to review its hooks: the trust entries were not accepted`);
   if (/Trust this folder/.test(s)) await t.keys("enter");
   if (!(await t.waitScreen(/Ask Codex|›/))) throw new Error(`Codex in ${t.address} never showed its prompt`);
 }
@@ -193,7 +214,11 @@ export async function codexReady(t) {
 /** Lines of `after` that `before` does not have. @param {string} before @param {string} after */
 export function changed(before, after) {
   const was = new Set(before.split("\n"));
-  return after.split("\n").filter((l) => !was.has(l)).map((l) => l.trim()).filter(Boolean);
+  return after
+    .split("\n")
+    .filter((l) => !was.has(l))
+    .map((l) => l.trim())
+    .filter(Boolean);
 }
 
 /**
@@ -238,7 +263,9 @@ export function rollouts(home) {
         return []; // still being written
       }
       const source = meta.payload?.source;
-      return [{ path, id: meta.payload?.id, child: typeof source === "object" && source !== null && "subagent" in source }];
+      return [
+        { path, id: meta.payload?.id, child: typeof source === "object" && source !== null && "subagent" in source },
+      ];
     });
 }
 
@@ -250,12 +277,18 @@ export function codexHome(home, ...repos) {
 }
 
 /** `[projects."<repo>"] trust_level = "trusted"` for each repository. @param {string[]} repos */
-export const trustProjects = (repos) => repos.map((r) => `[projects.${JSON.stringify(r)}]\ntrust_level = "trusted"\n`).join("\n");
+export const trustProjects = (repos) =>
+  repos.map((r) => `[projects.${JSON.stringify(r)}]\ntrust_level = "trusted"\n`).join("\n");
 
 /** @param {unknown} v @returns {unknown} */
 function sortedKeys(v) {
   if (Array.isArray(v)) return v.map(sortedKeys);
-  if (v && typeof v === "object") return Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortedKeys(/** @type {any} */ (v)[k])]));
+  if (v && typeof v === "object")
+    return Object.fromEntries(
+      Object.keys(v)
+        .sort()
+        .map((k) => [k, sortedKeys(/** @type {any} */ (v)[k])]),
+    );
   return v;
 }
 
@@ -271,8 +304,14 @@ export function trustHooks(hooks, path) {
     const ev = event.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
     /** @type {any[]} */ (groups).forEach((g, gi) => {
       g.hooks.forEach((/** @type {any} */ h, hi) => {
-        const id = { event_name: ev, hooks: [{ ...h, async: h.async ?? false, timeout: h.timeout ?? 600 }], ...(g.matcher ? { matcher: g.matcher } : {}) };
-        const hash = createHash("sha256").update(JSON.stringify(sortedKeys(id))).digest("hex");
+        const id = {
+          event_name: ev,
+          hooks: [{ ...h, async: h.async ?? false, timeout: h.timeout ?? 600 }],
+          ...(g.matcher ? { matcher: g.matcher } : {}),
+        };
+        const hash = createHash("sha256")
+          .update(JSON.stringify(sortedKeys(id)))
+          .digest("hex");
         out += `[hooks.state.${JSON.stringify(`${path}:${ev}:${gi}:${hi}`)}]\ntrusted_hash = "sha256:${hash}"\n\n`;
       });
     });

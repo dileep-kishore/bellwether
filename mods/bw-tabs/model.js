@@ -25,7 +25,15 @@ export function tabItems(space, panes) {
     const program = own.find((p) => p.program?.agent)?.program ?? own.find((p) => p.program)?.program ?? null;
     // An unnamed tab's `name` is only its position, which says nothing a person can use.
     const title = tab.named ? tab.name : (program?.name ?? "Terminal");
-    return { id: tab.id, index: tab.index, title, program, status: tab.status ?? null, active: Boolean(tab.active), settled: Boolean(tab.settled) };
+    return {
+      id: tab.id,
+      index: tab.index,
+      title,
+      program,
+      status: tab.status ?? null,
+      active: Boolean(tab.active),
+      settled: Boolean(tab.settled),
+    };
   });
 }
 

@@ -9,13 +9,24 @@ import { HELPER_SCRIPT } from "../../shared/helper.js";
 import { canForward, forwardLabel, isShown, viewOf } from "../../mods/bw-browser/model.js";
 
 const PANEL = live("browser-panel");
-const STATUS = PANEL.exec.find((e) => e.argsInclude.includes("status")).result.stdout.trim().split("\n").map((l) => JSON.parse(l));
+const STATUS = PANEL.exec
+  .find((e) => e.argsInclude.includes("status"))
+  .result.stdout.trim()
+  .split("\n")
+  .map((l) => JSON.parse(l));
 const VERSION = PANEL.exec.find((e) => e.argsInclude.includes("version")).result;
 const [CHROME, GH, PAGE] = STATUS;
-const STOPPED = { ...CHROME, state: "stopped", pid: null, browser_id: null, version: null, message: "the Bellwether Chrome is not running" };
+const STOPPED = {
+  ...CHROME,
+  state: "stopped",
+  pid: null,
+  browser_id: null,
+  version: null,
+  message: "the Bellwether Chrome is not running",
+};
 
 /** @param {object[]} lines */
-const out = (lines) => ({ code: 0, stdout: lines.map((l) => JSON.stringify(l)).join("\n") + "\n", stderr: "" });
+const out = (lines) => ({ code: 0, stdout: `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`, stderr: "" });
 
 /**
  * A fake `exec` for the window machine's helper: `answers` maps "browser <sub>" to lines or a function.
@@ -23,7 +34,8 @@ const out = (lines) => ({ code: 0, stdout: lines.map((l) => JSON.stringify(l)).j
  */
 function bw(answers) {
   return async (/** @type {string} */ cmd, /** @type {string[]} */ args, /** @type {any} */ opts) => {
-    if (cmd !== "sh" || args[1] !== HELPER_SCRIPT || args[2] !== "bw" || (opts?.on ?? null) !== null) return { code: 127, stdout: "", stderr: "sh: no such fake" };
+    if (cmd !== "sh" || args[1] !== HELPER_SCRIPT || args[2] !== "bw" || (opts?.on ?? null) !== null)
+      return { code: 127, stdout: "", stderr: "sh: no such fake" };
     if (args[3] === "version") return VERSION;
     const a = answers[`${args[3]} ${args[4]}`];
     if (!a) return out([{ type: "error", code: "stub", message: `no ${args[3]} ${args[4]} answer` }]);
@@ -52,7 +64,8 @@ async function panel({ answers = { "browser status": STATUS }, hidden = false, d
 /** @param {any} m */
 const statusCalls = (m) => m.log.exec.filter(([c, a]) => c === "sh" && a[3] === "browser" && a[4] === "status");
 /** Every `bw browser …` call after the subcommand. @param {any} m */
-const browserCalls = (m) => m.log.exec.filter(([c, a]) => c === "sh" && a[3] === "browser" && a[4] !== "status").map(([, a]) => a.slice(4));
+const browserCalls = (m) =>
+  m.log.exec.filter(([c, a]) => c === "sh" && a[3] === "browser" && a[4] !== "status").map(([, a]) => a.slice(4));
 /** Draws the panel (as Herdr does after the loop's notify), then wakes the loop's sleep. @param {any} m */
 async function nextPoll(m) {
   m.render();
@@ -71,7 +84,10 @@ describe("model", () => {
       [PAGE.id, "Bellwether test page", "127.0.0.1:41733/page.html", null, false],
       [STATUS[3].id, "New Tab", "chrome://newtab/", null, false],
     ]);
-    expect(v.forwards.map((f) => [f.kind, f.machine, f.port, f.state])).toEqual([["browser", "macmini", 52817, "ready"], ["dev", "macmini", 3000, "reconnecting"]]);
+    expect(v.forwards.map((f) => [f.kind, f.machine, f.port, f.state])).toEqual([
+      ["browser", "macmini", 52817, "ready"],
+      ["dev", "macmini", 3000, "reconnecting"],
+    ]);
   });
 
   test("one tab is singular, a title falls back to the URL, a favicon outside the cache is dropped", () => {
@@ -82,15 +98,48 @@ describe("model", () => {
   });
 
   test("named states replace the list", () => {
-    expect(viewOf([STOPPED], null)).toMatchObject({ chrome: { state: "stopped", label: "Not running" }, tabs: [], states: "The Bellwether Chrome is not running" });
-    const taken = { ...CHROME, state: "port_taken", pid: 812, message: "Port 9222 is used by another program: node (pid 812)" };
-    expect(viewOf([taken], null)).toMatchObject({ chrome: { label: "Port taken" }, states: "Port 9222 is used by another program: node (pid 812)" });
-    const noPort = { ...STOPPED, state: "no_debug_port", message: "the Bellwether Chrome is running without its debugging port; quit it, then Start" };
-    expect(viewOf([noPort], null).states).toBe("The Bellwether Chrome is running without its debugging port; quit it, then Start");
-    expect(viewOf([{ ...STOPPED, state: "not_installed", message: "Google Chrome is not installed on this Mac" }], null).states).toBe("Google Chrome is not installed on this Mac");
-    const missing = { ok: false, state: "missing", message: "bw is not installed on this machine: run scripts/install-helper.sh" };
-    expect(viewOf(null, missing)).toMatchObject({ chrome: { state: "helper", label: "Helper missing" }, tabs: [], forwards: [], states: missing.message });
-    expect(viewOf(null, null)).toMatchObject({ chrome: { state: "loading" }, states: "Reading the Bellwether Chrome…" });
+    expect(viewOf([STOPPED], null)).toMatchObject({
+      chrome: { state: "stopped", label: "Not running" },
+      tabs: [],
+      states: "The Bellwether Chrome is not running",
+    });
+    const taken = {
+      ...CHROME,
+      state: "port_taken",
+      pid: 812,
+      message: "Port 9222 is used by another program: node (pid 812)",
+    };
+    expect(viewOf([taken], null)).toMatchObject({
+      chrome: { label: "Port taken" },
+      states: "Port 9222 is used by another program: node (pid 812)",
+    });
+    const noPort = {
+      ...STOPPED,
+      state: "no_debug_port",
+      message: "the Bellwether Chrome is running without its debugging port; quit it, then Start",
+    };
+    expect(viewOf([noPort], null).states).toBe(
+      "The Bellwether Chrome is running without its debugging port; quit it, then Start",
+    );
+    expect(
+      viewOf([{ ...STOPPED, state: "not_installed", message: "Google Chrome is not installed on this Mac" }], null)
+        .states,
+    ).toBe("Google Chrome is not installed on this Mac");
+    const missing = {
+      ok: false,
+      state: "missing",
+      message: "bw is not installed on this machine: run scripts/install-helper.sh",
+    };
+    expect(viewOf(null, missing)).toMatchObject({
+      chrome: { state: "helper", label: "Helper missing" },
+      tabs: [],
+      forwards: [],
+      states: missing.message,
+    });
+    expect(viewOf(null, null)).toMatchObject({
+      chrome: { state: "loading" },
+      states: "Reading the Bellwether Chrome…",
+    });
     expect(viewOf([], null).states).toBe("bw browser status printed no chrome line");
   });
 
@@ -104,7 +153,10 @@ describe("model", () => {
   test("canForward needs a space on another machine", () => {
     expect(canForward(null)).toEqual({ ok: false, hint: "No space is open" });
     expect(canForward({ id: "s1", machine: null })).toEqual({ ok: false, hint: "This space is on this Mac" });
-    expect(canForward({ id: "macmini/s3", machine: "macmini" })).toEqual({ ok: true, hint: "Forward a port from macmini" });
+    expect(canForward({ id: "macmini/s3", machine: "macmini" })).toEqual({
+      ok: true,
+      hint: "Forward a port from macmini",
+    });
   });
 
   test("isShown is the right-body stack showing browser in a column that is not hidden", () => {
@@ -171,7 +223,9 @@ describe("bw-browser", () => {
     await nextPoll(m);
     await nextPoll(m);
     expect(statusCalls(m)).toHaveLength(3);
-    const reads = m.log.live.filter(([name]) => ["layout", "spaces", "panes", "agents", "terminals", "focused"].includes(name));
+    const reads = m.log.live.filter(([name]) =>
+      ["layout", "spaces", "panes", "agents", "terminals", "focused"].includes(name),
+    );
     expect(reads.length).toBeGreaterThan(0);
     expect(reads.every(([, phase]) => phase === "render")).toBe(true);
   });
@@ -182,7 +236,10 @@ describe("bw-browser", () => {
     expect(row.attrs.h).toBe(40);
     expect(row.attrs.bg).toBe("#selected");
     expect(byId(row, `browser-tab-bar-${GH.id}`).attrs).toMatchObject({ w: 2, bg: "#accent" });
-    expect(byId(row, `browser-favicon-${GH.id}`)).toMatchObject({ tag: "image", attrs: { path: "data/bellwether/favicons/0123456789abcdef.png", w: 16, h: 16 } });
+    expect(byId(row, `browser-favicon-${GH.id}`)).toMatchObject({
+      tag: "image",
+      attrs: { path: "data/bellwether/favicons/0123456789abcdef.png", w: 16, h: 16 },
+    });
     expect(textOf(row)).toBe("Pull requests · bellwether github.com/pulls");
     const page = byId(m.el, `browser-tab-${PAGE.id}`);
     expect(page.attrs.bg).not.toBe("#selected");
@@ -193,11 +250,16 @@ describe("bw-browser", () => {
 
   test("missing favicon shows the globe", async () => {
     const m = await panel();
-    expect(byId(m.el, `browser-favicon-${PAGE.id}`)).toMatchObject({ tag: "svg", attrs: { path: "mods/bw-browser/icons/globe.svg", size: 16 } });
+    expect(byId(m.el, `browser-favicon-${PAGE.id}`)).toMatchObject({
+      tag: "svg",
+      attrs: { path: "mods/bw-browser/icons/globe.svg", size: 16 },
+    });
   });
 
   test("named states: not running, port taken, no debug port, not installed, helper missing", async () => {
-    const stopped = await panel({ answers: { "browser status": [STOPPED], "browser up": [{ ...CHROME, started: true }] } });
+    const stopped = await panel({
+      answers: { "browser status": [STOPPED], "browser up": [{ ...CHROME, started: true }] },
+    });
     expect(textOf(byId(stopped.el, "browser-header"))).toBe("Bellwether Chrome Not running Start");
     expect(textOf(byId(stopped.el, "browser-state"))).toBe("The Bellwether Chrome is not running");
     expect(byId(stopped.el, "browser-tabs")).toBe(null);
@@ -206,28 +268,48 @@ describe("bw-browser", () => {
     expect(statusCalls(stopped)).toHaveLength(2);
     expect(textOf(byId(stopped.el, "browser-note"))).toBe("Started the Bellwether Chrome");
 
-    const taken = { ...CHROME, state: "port_taken", pid: 812, message: "Port 9222 is used by another program: node (pid 812)" };
+    const taken = {
+      ...CHROME,
+      state: "port_taken",
+      pid: 812,
+      message: "Port 9222 is used by another program: node (pid 812)",
+    };
     const t = await panel({ answers: { "browser status": [taken] } });
     expect(textOf(byId(t.el, "browser-state"))).toBe("Port 9222 is used by another program: node (pid 812)");
     expect(byId(t.el, "browser-start")).toBe(null);
 
-    const noPort = { ...STOPPED, state: "no_debug_port", message: "the Bellwether Chrome is running without its debugging port; quit it, then Start" };
+    const noPort = {
+      ...STOPPED,
+      state: "no_debug_port",
+      message: "the Bellwether Chrome is running without its debugging port; quit it, then Start",
+    };
     const n = await panel({ answers: { "browser status": [noPort] } });
     expect(textOf(byId(n.el, "browser-state"))).toContain("without its debugging port; quit it, then Start");
     expect(byId(n.el, "browser-start")).not.toBe(null);
 
-    const ni = await panel({ answers: { "browser status": [{ ...STOPPED, state: "not_installed", message: "Google Chrome is not installed on this Mac" }] } });
+    const ni = await panel({
+      answers: {
+        "browser status": [
+          { ...STOPPED, state: "not_installed", message: "Google Chrome is not installed on this Mac" },
+        ],
+      },
+    });
     expect(textOf(byId(ni.el, "browser-state"))).toBe("Google Chrome is not installed on this Mac");
     expect(byId(ni.el, "browser-start")).toBe(null);
 
-    const data = { ...structuredClone(PANEL), exec: async () => ({ code: 127, stdout: "", stderr: "sh: 1: exec: bw: not found" }) };
+    const data = {
+      ...structuredClone(PANEL),
+      exec: async () => ({ code: 127, stdout: "", stderr: "sh: 1: exec: bw: not found" }),
+    };
     const missing = await mount("bw-browser", { live: data });
     showInLayout("browser");
     missing.render();
     await missing.cx.flush();
     missing.render();
     expect(textOf(byId(missing.el, "browser-header"))).toBe("Bellwether Chrome Helper missing");
-    expect(textOf(byId(missing.el, "browser-state"))).toBe("bw is not installed on this machine: run scripts/install-helper.sh");
+    expect(textOf(byId(missing.el, "browser-state"))).toBe(
+      "bw is not installed on this machine: run scripts/install-helper.sh",
+    );
   });
 
   test("a status the helper cannot run yet names it", async () => {
@@ -236,12 +318,18 @@ describe("bw-browser", () => {
   });
 
   test("forwards list states and Stop runs forward stop", async () => {
-    const m = await panel({ answers: { "browser status": STATUS, "browser forward": [{ ...STATUS[4], state: "stopped" }] } });
-    const rows = findAll(byId(m.el, "browser-forwards"), (e) => String(e.attrs.id ?? "").startsWith("browser-forward-row-"));
+    const m = await panel({
+      answers: { "browser status": STATUS, "browser forward": [{ ...STATUS[4], state: "stopped" }] },
+    });
+    const rows = findAll(byId(m.el, "browser-forwards"), (e) =>
+      String(e.attrs.id ?? "").startsWith("browser-forward-row-"),
+    );
     expect(rows.map((r) => r.attrs.h)).toEqual([28, 28]);
     expect(textOf(byId(m.el, "browser-forwards"))).toContain("FORWARDS");
     expect(textOf(rows[0])).toBe("macmini · browser :52817 · ready Stop");
-    expect(textOf(rows[1])).toBe("localhost:3000 ← macmini · reconnecting ssh: connect to host macmini port 22: Operation timed out Stop");
+    expect(textOf(rows[1])).toBe(
+      "localhost:3000 ← macmini · reconnecting ssh: connect to host macmini port 22: Operation timed out Stop",
+    );
     await m.click("browser-forward-stop-macmini-browser-52817");
     expect(browserCalls(m)).toEqual([["forward", "stop", "--machine", "macmini"]]);
     expect(statusCalls(m)).toHaveLength(2);
@@ -260,7 +348,16 @@ describe("bw-browser", () => {
   test("Forward port on a remote space adds a dev forward", async () => {
     const data = structuredClone(PANEL);
     for (const s of data.spaces) s.active = s.id === "macmini/s3";
-    const dev = { type: "forward", kind: "dev", machine: "macmini", target: "macmini", port: 5173, state: "ready", reason: "", terminal: "bw-dev-macmini-5173" };
+    const dev = {
+      type: "forward",
+      kind: "dev",
+      machine: "macmini",
+      target: "macmini",
+      port: 5173,
+      state: "ready",
+      reason: "",
+      terminal: "bw-dev-macmini-5173",
+    };
     const m = await panel({ data, answers: { "browser status": STATUS, "browser forward": [dev] } });
     await m.click("browser-forward-port");
     const input = byId(m.el, "browser-forward-input");
@@ -278,7 +375,13 @@ describe("bw-browser", () => {
   });
 
   test("Arrange shows its result for 4 s", async () => {
-    const placed = { type: "arrange", state: "placed", side: "over", bounds: { left: 960, top: 25, width: 960, height: 1055 }, message: "No room beside Herdr: Chrome covers the right half" };
+    const placed = {
+      type: "arrange",
+      state: "placed",
+      side: "over",
+      bounds: { left: 960, top: 25, width: 960, height: 1055 },
+      message: "No room beside Herdr: Chrome covers the right half",
+    };
     const m = await panel({ answers: { "browser status": STATUS, "browser arrange": [placed] } });
     await m.click("browser-arrange");
     expect(browserCalls(m)).toEqual([["arrange"]]);
@@ -304,14 +407,24 @@ describe("bw-browser", () => {
   });
 
   test("row click focuses that id", async () => {
-    const m = await panel({ answers: { "browser status": STATUS, "browser focus": [{ type: "tab-action", action: "focus", id: PAGE.id, ok: true, message: "focused" }] } });
+    const m = await panel({
+      answers: {
+        "browser status": STATUS,
+        "browser focus": [{ type: "tab-action", action: "focus", id: PAGE.id, ok: true, message: "focused" }],
+      },
+    });
     await m.click(`browser-tab-${PAGE.id}`);
     expect(browserCalls(m)).toEqual([["focus", "--id", PAGE.id]]);
     expect(statusCalls(m)).toHaveLength(2);
   });
 
   test("hover shows close, and close runs close for that id", async () => {
-    const m = await panel({ answers: { "browser status": STATUS, "browser close": [{ type: "tab-action", action: "close", id: PAGE.id, ok: true, message: "closed" }] } });
+    const m = await panel({
+      answers: {
+        "browser status": STATUS,
+        "browser close": [{ type: "tab-action", action: "close", id: PAGE.id, ok: true, message: "closed" }],
+      },
+    });
     expect(byId(m.el, `browser-tab-close-${PAGE.id}`)).toBe(null);
     fire(byId(m.el, `browser-tab-${PAGE.id}`), "on_hover", true, m.cx);
     m.render();
@@ -333,7 +446,11 @@ describe("bw-browser", () => {
     expect(textOf(byId(f.el, "browser-note"))).toBe("New tab failed: chrome refused");
 
     // A tab-action with ok false exits 1, and the shared helper keeps only the exit code then.
-    const notOk = () => ({ code: 1, stdout: JSON.stringify({ type: "tab-action", action: "new", id: "", ok: false, message: "chrome refused" }) + "\n", stderr: "" });
+    const notOk = () => ({
+      code: 1,
+      stdout: `${JSON.stringify({ type: "tab-action", action: "new", id: "", ok: false, message: "chrome refused" })}\n`,
+      stderr: "",
+    });
     const g = await panel({ answers: { "browser status": STATUS, "browser new": notOk } });
     await g.click("browser-new-tab");
     expect(textOf(byId(g.el, "browser-note"))).toBe("New tab failed: bw exited 1:");

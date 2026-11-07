@@ -13,11 +13,22 @@ const STORED = {
 };
 
 /** A project prop as bw-projects' projectMenu passes it. */
-const project = (machine, commonDir, main, open) => ({ key: projectKey(machine, commonDir), machine, commonDir, main, name: main?.split("/").pop() ?? "repo", open });
+const project = (machine, commonDir, main, open) => ({
+  key: projectKey(machine, commonDir),
+  machine,
+  commonDir,
+  main,
+  name: main?.split("/").pop() ?? "repo",
+  open,
+});
 const beta = (open = false) => project(null, "/r/beta/.git", "/r/beta", open);
 const gamma = (open = false) => project("macmini", "/home/u/gamma/.git", "/home/u/gamma", open);
 
-const open = (p) => mount("bw-menu", { props: { project: p, overlay: "o7" }, live: { ...live("two-machines"), shared: { "bw.projects": structuredClone(STORED) } } });
+const open = (p) =>
+  mount("bw-menu", {
+    props: { project: p, overlay: "o7" },
+    live: { ...live("two-machines"), shared: { "bw.projects": structuredClone(STORED) } },
+  });
 
 /** Records which log each stub call landed in, in call order. */
 function sequence(m) {
@@ -25,7 +36,10 @@ function sequence(m) {
   for (const k of ["closed", "shared", "overlays", "run"]) {
     const a = m.log[k];
     const push = a.push.bind(a);
-    a.push = (...x) => { seq.push(k); return push(...x); };
+    a.push = (...x) => {
+      seq.push(k);
+      return push(...x);
+    };
   }
   return seq;
 }
@@ -34,7 +48,8 @@ describe("bw-menu", () => {
   test("rows: worktree actions, Linear coming in phase 6, Remove", async () => {
     const m = await open(beta());
     const text = textOf(m.el);
-    for (const s of ["beta", "New worktree…", "Open worktree…", "Link Linear project", "coming in phase 6", "Remove"]) expect(text).toContain(s);
+    for (const s of ["beta", "New worktree…", "Open worktree…", "Link Linear project", "coming in phase 6", "Remove"])
+      expect(text).toContain(s);
   });
 
   test("remove forgets exactly that key", async () => {
@@ -49,9 +64,16 @@ describe("bw-menu", () => {
   test("remove on another machine keeps the same path on this Mac", async () => {
     const stored = structuredClone(STORED);
     stored.projects.push({ machine: null, commonDir: "/home/u/gamma/.git", name: "gamma", main: "/home/u/gamma" });
-    const m = await mount("bw-menu", { props: { project: gamma(), overlay: "o7" }, live: { ...live("two-machines"), shared: { "bw.projects": stored } } });
+    const m = await mount("bw-menu", {
+      props: { project: gamma(), overlay: "o7" },
+      live: { ...live("two-machines"), shared: { "bw.projects": stored } },
+    });
     await m.click("menu-remove");
-    expect(m.log.shared.at(-1)[1].projects.map((p) => [p.machine, p.commonDir])).toEqual([[null, "/r/alpha/.git"], [null, "/r/beta/.git"], [null, "/home/u/gamma/.git"]]);
+    expect(m.log.shared.at(-1)[1].projects.map((p) => [p.machine, p.commonDir])).toEqual([
+      [null, "/r/alpha/.git"],
+      [null, "/r/beta/.git"],
+      [null, "/home/u/gamma/.git"],
+    ]);
   });
 
   test("remove is disabled while the project is open", async () => {
@@ -66,12 +88,28 @@ describe("bw-menu", () => {
     const m = await open(gamma(true));
     const seq = sequence(m);
     await m.click("menu-worktree-new");
-    expect(m.log.overlays).toEqual([{ mod: "worktree", kind: "dialog", width: 460, height: 280, props: { folder: "/home/u/gamma", machine: "macmini", action: "new" } }]);
+    expect(m.log.overlays).toEqual([
+      {
+        mod: "worktree",
+        kind: "dialog",
+        width: 460,
+        height: 280,
+        props: { folder: "/home/u/gamma", machine: "macmini", action: "new" },
+      },
+    ]);
     expect(seq).toEqual(["closed", "overlays"]);
 
     const local = await open(beta());
     await local.click("menu-worktree-open");
-    expect(local.log.overlays).toEqual([{ mod: "worktree", kind: "dialog", width: 560, height: 480, props: { folder: "/r/beta", machine: null, action: "open" } }]);
+    expect(local.log.overlays).toEqual([
+      {
+        mod: "worktree",
+        kind: "dialog",
+        width: 560,
+        height: 480,
+        props: { folder: "/r/beta", machine: null, action: "open" },
+      },
+    ]);
     expect(local.log.closed).toEqual(["o7"]);
   });
 

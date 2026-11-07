@@ -77,7 +77,9 @@ export async function mount(name, { props = {}, live: data = {}, root = "mods" }
   return {
     view,
     cx,
-    get el() { return el; },
+    get el() {
+      return el;
+    },
     render,
     click,
     tickTimer,

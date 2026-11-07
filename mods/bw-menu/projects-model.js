@@ -148,7 +148,8 @@ import { worst } from "./status.js";
  * @property {string[]} wakeOn
  */
 
-const keyOf = (/** @type {string | null | undefined} */ machine, /** @type {string} */ value) => JSON.stringify([machine ?? null, value]);
+const keyOf = (/** @type {string | null | undefined} */ machine, /** @type {string} */ value) =>
+  JSON.stringify([machine ?? null, value]);
 
 /** @param {string | null | undefined} machine @param {string} folder */
 export const placeKey = (machine, folder) => keyOf(machine, folder);
@@ -291,7 +292,9 @@ function agentLines(spaces, agents, terminals, counts) {
     if (root) subagents.set(root, (subagents.get(root) ?? 0) + 1);
   }
 
-  const tabs = new Map(spaces.flatMap((s) => (s.tabs ?? []).map((t) => [t.id, t])));
+  const tabs = new Map(
+    spaces.flatMap((s) => (s.tabs ?? []).map((/** @type {import("herdr").TabInfo} */ t) => [t.id, t])),
+  );
   return agents
     .filter((a) => lined.has(a.address))
     .map((a) => {
@@ -322,6 +325,7 @@ export function buildProjects(input) {
   const spaces = input.spaces ?? [];
   const panes = input.panes ?? [];
   const stored = input.stored ?? [];
+  /** @type {GitCache} */
   const git = { places: {}, worktrees: {}, counts: {}, unreachable: [], ...input.git };
   const unreachable = new Set(git.unreachable.map((u) => u || null));
   const layouts = new Map(machines.map((m) => [m.name ?? null, m.layout]));
@@ -332,7 +336,8 @@ export function buildProjects(input) {
     if (nodes.has(name)) return;
     const layout = layouts.get(name);
     /** @type {MachineNode["state"]} */
-    let state = layout === undefined ? fallback : layout === "ready" ? "ready" : layout === "loading" ? "loading" : "offline";
+    let state =
+      layout === undefined ? fallback : layout === "ready" ? "ready" : layout === "loading" ? "loading" : "offline";
     if (unreachable.has(name) && state !== "not_connected") state = "offline";
     const label = name !== null ? name : input.platform === "macos" ? "This Mac" : "This computer";
     nodes.set(name, { name, label, state, projects: [], plain: [] });
@@ -340,7 +345,8 @@ export function buildProjects(input) {
   addMachine(null, "ready");
   for (const m of machines) addMachine(m.name ?? null, "ready");
   for (const s of spaces) addMachine(s.machine ?? null, "loading");
-  for (const name of [...new Set(stored.map((p) => p.machine))].sort((a, b) => cmp(a ?? "", b ?? ""))) addMachine(name, "not_connected");
+  for (const name of [...new Set(stored.map((p) => p.machine))].sort((a, b) => cmp(a ?? "", b ?? "")))
+    addMachine(name, "not_connected");
 
   const lines = agentLines(spaces, input.agents ?? [], input.terminals ?? [], input.counts ?? {});
 
@@ -411,7 +417,7 @@ export function buildProjects(input) {
         let best = -1;
         for (const r of rows) {
           const p = trim(r.path);
-          if (t.startsWith(p === "/" ? "/" : p + "/") && p.length > best) {
+          if (t.startsWith(p === "/" ? "/" : `${p}/`) && p.length > best) {
             hit = r;
             best = p.length;
           }
@@ -419,7 +425,18 @@ export function buildProjects(input) {
       }
       if (!hit) {
         // The list predates this worktree or is not read yet.
-        hit = row({ path: t, head: null, branch: space.branch ?? null, detached: false, bare: false, locked: false, prunable: false }, main !== null && trim(main) === t);
+        hit = row(
+          {
+            path: t,
+            head: null,
+            branch: space.branch ?? null,
+            detached: false,
+            bare: false,
+            locked: false,
+            prunable: false,
+          },
+          main !== null && trim(main) === t,
+        );
         rows.push(hit);
       }
       hit.spaces.push(space.id);
@@ -481,10 +498,12 @@ export function countTargets(tree) {
       ...m.plain.flatMap((s) => s.agents),
     ];
     const prefix = m.name === null ? "" : `${m.name}/`;
+    /** @type {CountTarget["terminals"]} */
     const terminals = [];
     for (const { address } of lines) {
       const local = address.startsWith(prefix) ? address.slice(prefix.length) : address;
-      if (local && !local.includes("/") && !terminals.some((t) => t.address === address)) terminals.push({ address, local });
+      if (local && !local.includes("/") && !terminals.some((t) => t.address === address))
+        terminals.push({ address, local });
     }
     if (terminals.length) out.push({ machine: m.name, terminals });
   }
@@ -504,13 +523,25 @@ export function countTargets(tree) {
  */
 export function refreshTargets(tree, input, activeSpaceId) {
   const layouts = new Map((input.machines ?? []).map((m) => [m.name ?? null, m.layout]));
-  const callable = new Set(tree.machines.filter((m) => m.state !== "not_connected" && layouts.get(m.name) !== "unavailable").map((m) => m.name));
+  const callable = new Set(
+    tree.machines
+      .filter((m) => m.state !== "not_connected" && layouts.get(m.name) !== "unavailable")
+      .map((m) => m.name),
+  );
   const places = input.git?.places ?? {};
   /** @type {Target[]} */
   const targets = [];
   /** @type {(kind: Target["kind"], machine: string | null, path: string, open: boolean, selected: boolean, wakeOn: string[]) => void} */
   const add = (kind, machine, path, open, selected, wakeOn) =>
-    targets.push({ key: JSON.stringify([kind, machine, path]), kind, machine, path, open, selected, wakeOn: machine === null ? wakeOn : [] });
+    targets.push({
+      key: JSON.stringify([kind, machine, path]),
+      kind,
+      machine,
+      path,
+      open,
+      selected,
+      wakeOn: machine === null ? wakeOn : [],
+    });
 
   const asked = new Set();
   for (const space of input.spaces ?? []) {
@@ -528,10 +559,18 @@ export function refreshTargets(tree, input, activeSpaceId) {
       add("list", m.name, p.commonDir, p.open, false, [p.commonDir]);
       for (const w of p.worktrees) {
         if (w.prunable) continue;
-        add("counts", m.name, w.path, w.open, activeSpaceId !== null && w.spaces.includes(activeSpaceId), w.open ? [w.path, p.commonDir] : [p.commonDir]);
+        add(
+          "counts",
+          m.name,
+          w.path,
+          w.open,
+          activeSpaceId !== null && w.spaces.includes(activeSpaceId),
+          w.open ? [w.path, p.commonDir] : [p.commonDir],
+        );
       }
     }
   }
-  for (const m of tree.machines) if (m.name !== null && m.state === "ready") add("helper", m.name, "", false, false, []);
+  for (const m of tree.machines)
+    if (m.name !== null && m.state === "ready") add("helper", m.name, "", false, false, []);
   return targets;
 }

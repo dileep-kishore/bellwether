@@ -4,16 +4,36 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import {
-  agents, exec, home, machines, openOverlay, panes, run, setAgentOrder, setShared, shared, spaces, terminals, theme, watchFolder, window,
+  agents,
+  exec,
+  home,
+  machines,
+  openOverlay,
+  panes,
+  run,
+  setAgentOrder,
+  setShared,
+  shared,
+  spaces,
+  terminals,
+  watchFolder,
+  window,
 } from "herdr";
 import { addProject, focusAgent, newInMain, openWorktree, projectMenu } from "./actions.js";
 import { createHelper, parseLines } from "./helper.js";
-import { buildProjects, countTargets, projectKey, readStored, refreshTargets, rememberProjects } from "./projects-model.js";
+import {
+  buildProjects,
+  countTargets,
+  projectKey,
+  readStored,
+  refreshTargets,
+  rememberProjects,
+} from "./projects-model.js";
 import { createPoke, runRefresher } from "./refresh-driver.js";
 import { createSchedule } from "./refresh-schedule.js";
 import { machineSection, rail } from "./rows.js";
 import { makeRun, mergeResult } from "./run-git.js";
-import { ICONS } from "./ui.js";
+import { ICONS, themeColors } from "./ui.js";
 
 const STORE = "bw.projects";
 const FOLDED = "bw-projects.folded";
@@ -42,6 +62,7 @@ function loadFolded() {
 }
 
 export default class Projects extends View {
+  /** @param {unknown} _props @param {import("gpui-kit").AsyncContext} cx */
   init(_props, cx) {
     this.alive = true;
     /** @type {import("./projects-model.js").GitCache} */
@@ -84,7 +105,9 @@ export default class Projects extends View {
         try {
           r = await exec(bw, ["machine", "install", machine], { on: null });
         } catch (e) {
-          throw new Error(`could not start bw on this Mac (${e instanceof Error ? e.message : String(e)}): run scripts/install-helper.sh`);
+          throw new Error(
+            `could not start bw on this Mac (${e instanceof Error ? e.message : String(e)}): run scripts/install-helper.sh`,
+          );
         }
         if (!r.stdout.trim()) throw new Error(r.stderr.trim() || `bw exited ${r.code}`);
         return parseLines(r.stdout);
@@ -144,12 +167,16 @@ export default class Projects extends View {
       for (let i = 0; i < terminals.length; i += COUNTS_PER_CALL) {
         const part = terminals.slice(i, i + COUNTS_PER_CALL);
         // The Git loop's helper target installs bw; this loop only waits for it.
-        const r = await this.helper.call(machine, ["counts", "--terminals", part.map((t) => t.local).join(",")], { install: false });
+        const r = await this.helper.call(machine, ["counts", "--terminals", part.map((t) => t.local).join(",")], {
+          install: false,
+        });
         if (!r.ok) continue;
         const address = new Map(part.map((t) => [t.local, t.address]));
         for (const l of r.lines) {
           const a = l.type === "count" && typeof l.terminal === "string" ? address.get(l.terminal) : undefined;
-          if (a) got[a] = { subagents: l.subagents, requests: l.requests };
+          // bw counts writes both as numbers on every count line.
+          if (a)
+            got[a] = { subagents: /** @type {number} */ (l.subagents), requests: /** @type {number} */ (l.requests) };
         }
       }
       if (this.alive && loop.live && this.mergeCounts(got)) cx.notify();
@@ -215,7 +242,10 @@ export default class Projects extends View {
     cx.notify();
   }
 
-  /** @param {any} tree @param {any} input @param {string | null} active @param {unknown} stored */
+  /**
+   * @param {import("./projects-model.js").ProjectTree} tree @param {any} input @param {string | null} active
+   * @param {unknown} stored
+   */
   sync(tree, input, active, stored) {
     const order = JSON.stringify(tree.agentOrder);
     if (order !== this.order) {
@@ -233,7 +263,7 @@ export default class Projects extends View {
   }
 
   render() {
-    const t = theme();
+    const t = themeColors();
     const win = window();
     const stored = shared(STORE);
     const all = spaces();
@@ -283,21 +313,45 @@ export default class Projects extends View {
     const narrow = this.width !== null && this.width < RAIL_BELOW;
     // Leave the macOS window buttons room when the layout hides the title bar.
     const lights = win.platform === "macos" && win.titlebar === "none" && !win.fullscreen;
-    const root = v_flex().id("root").size_full().bg(t.chrome).on_size_change((size, cx) => {
-      if (size.width === this.width) return;
-      this.width = size.width;
-      cx.notify();
-    });
+    const root = v_flex()
+      .id("root")
+      .size_full()
+      .bg(t.chrome)
+      .on_size_change((size, cx) => {
+        if (size.width === this.width) return;
+        this.width = size.width;
+        cx.notify();
+      });
 
-    const add = h_flex().id("add-project").h(24).flex_none().px(narrow ? 4 : 8).gap(4).items_center().rounded(6).cursor_pointer()
-      .text_size(12).text_color(t.muted).hover((s) => s.bg(t.hover))
+    const add = h_flex()
+      .id("add-project")
+      .h(24)
+      .flex_none()
+      .px(narrow ? 4 : 8)
+      .gap(4)
+      .items_center()
+      .rounded(6)
+      .cursor_pointer()
+      .text_size(12)
+      .text_color(t.muted)
+      .hover((s) => s.bg(t.hover))
       .on_click(() => d.addProject())
       .child(svg(ICONS.plus).size(12).text_color(t.muted))
       .when(!narrow, (el) => el.child("Add project"));
-    root.child(h_flex().id("projects-header").h(46).flex_none().pl(lights ? 76 : 12).pr(8).items_center().justify_end().child(add));
+    root.child(
+      h_flex()
+        .id("projects-header")
+        .h(46)
+        .flex_none()
+        .pl(lights ? 76 : 12)
+        .pr(8)
+        .items_center()
+        .justify_end()
+        .child(add),
+    );
 
     if (narrow) {
-      const openFirst = (/** @type {any} */ p) => {
+      const openFirst = (/** @type {import("./projects-model.js").ProjectNode} */ p) => {
         const w = p.worktrees.find((x) => x.open) ?? p.worktrees.find((x) => !x.prunable);
         if (w) d.openWorktree(w, p);
       };
@@ -307,7 +361,14 @@ export default class Projects extends View {
     const body = v_flex().id("projects-body").flex_1().min_h(0).overflow_y_scrollbar().pb(8);
     body.children(tree.machines.map((m) => machineSection(d, m)));
     if (tree.machines.every((m) => m.projects.length === 0 && m.plain.length === 0)) {
-      body.child(div().px(16).pt(8).text_size(12).text_color(t.dim).child("No projects yet. Add one, or open a space in a Git folder."));
+      body.child(
+        div()
+          .px(16)
+          .pt(8)
+          .text_size(12)
+          .text_color(t.dim)
+          .child("No projects yet. Add one, or open a space in a Git folder."),
+      );
     }
     return root.child(body);
   }

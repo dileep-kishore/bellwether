@@ -112,8 +112,9 @@ export function threadRows(tree, terminals, requests, root, now) {
   /** @param {TreeChild} c */
   const parentOf = (c) => (typeof c.parent === "string" && ids.has(c.parent) && c.parent !== c.id ? c.parent : rootId);
   // Stable sort: children without a start time keep the line's order after those with one.
-  const byStart = children.map((c, i) => ({ c, i })).sort((a, b) =>
-    (a.c.started_ms ?? Infinity) - (b.c.started_ms ?? Infinity) || a.i - b.i);
+  const byStart = children
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => (a.c.started_ms ?? Infinity) - (b.c.started_ms ?? Infinity) || a.i - b.i);
   for (const { c } of byStart) {
     const p = parentOf(c);
     if (!under.has(p)) under.set(p, []);
@@ -122,8 +123,19 @@ export function threadRows(tree, terminals, requests, root, now) {
 
   const parentState = rootAsks ? "asks" : stateOfStatus(root.status);
   /** @type {Row[]} */
-  const rows = [{ id: rootId, kind: "parent", depth: 0, state: parentState, type: root.name, description: "",
-    since: "", requests: rootAsks, open: null }];
+  const rows = [
+    {
+      id: rootId,
+      kind: "parent",
+      depth: 0,
+      state: parentState,
+      type: root.name,
+      description: "",
+      since: "",
+      requests: rootAsks,
+      open: null,
+    },
+  ];
   /** @type {Set<string>} */
   const placed = new Set();
   /** @param {TreeChild} c @param {number} depth */
@@ -131,9 +143,17 @@ export function threadRows(tree, terminals, requests, root, now) {
     if (placed.has(c.id) || depth > MAX_DEPTH) return;
     placed.add(c.id);
     const n = asks.get(c.id) ?? 0;
-    rows.push({ id: c.id, kind: "child", depth, state: n ? "asks" : c.state === "running" ? "running" : "done",
-      type: c.type || c.nickname || "sub-agent", description: c.description || c.nickname || "",
-      since: sinceOf(c, now), requests: n, open: { child: c.id } });
+    rows.push({
+      id: c.id,
+      kind: "child",
+      depth,
+      state: n ? "asks" : c.state === "running" ? "running" : "done",
+      type: c.type || c.nickname || "sub-agent",
+      description: c.description || c.nickname || "",
+      since: sinceOf(c, now),
+      requests: n,
+      open: { child: c.id },
+    });
     for (const k of under.get(c.id) ?? []) place(k, depth + 1);
   };
   for (const c of under.get(rootId) ?? []) place(c, 1);
@@ -143,9 +163,17 @@ export function threadRows(tree, terminals, requests, root, now) {
   for (const t of terminals ?? []) {
     if (parentAddress(t) !== root.terminal || (t.state ?? "live") !== "live") continue;
     const state = stateOfStatus(t.status);
-    rows.push({ id: t.address, kind: "terminal", depth: 1, state,
-      type: t.program?.name || t.program?.key || "terminal", description: t.name || t.title || "",
-      since: "", requests: state === "asks" ? 1 : 0, open: { terminal: t.address } });
+    rows.push({
+      id: t.address,
+      kind: "terminal",
+      depth: 1,
+      state,
+      type: t.program?.name || t.program?.key || "terminal",
+      description: t.name || t.title || "",
+      since: "",
+      requests: state === "asks" ? 1 : 0,
+      open: { terminal: t.address },
+    });
   }
   return rows;
 }
@@ -157,7 +185,11 @@ const subRows = (rows) => rows.filter((r) => r.kind !== "parent");
  * The sub-agents still at work (running or asking), sorted; the user's fold holds while this set stays.
  * @param {Row[]} rows @returns {string[]}
  */
-export const runningIds = (rows) => subRows(rows).filter((r) => r.state !== "done").map((r) => r.id).sort();
+export const runningIds = (rows) =>
+  subRows(rows)
+    .filter((r) => r.state !== "done")
+    .map((r) => r.id)
+    .sort();
 
 /** @param {Row[]} rows @returns {string} "2 sub-agents · 1 asks" */
 export function pillText(rows) {
@@ -196,4 +228,5 @@ const STATE_WORDS = { running: "running", done: "done", asks: "waiting for an an
  * The bar that replaces the composer in a sub-agent's view, without its Back button.
  * @param {Row} row @param {string} parentName
  */
-export const barText = (row, parentName) => `${row.type} · sub-agent of ${parentName} · ${STATE_WORDS[row.state] ?? row.state}`;
+export const barText = (row, parentName) =>
+  `${row.type} · sub-agent of ${parentName} · ${STATE_WORDS[row.state] ?? row.state}`;

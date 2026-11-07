@@ -63,7 +63,15 @@ const notGit = (/** @type {{ stderr: string }} */ r) => /not a git repository/i.
  * @returns {Promise<{ ok: true, place: { commonDir: string, top: string } } | GitFailure>}
  */
 export async function readPlace(exec, machine, folder) {
-  const args = ["-C", folder, ...READ_ONLY, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"];
+  const args = [
+    "-C",
+    folder,
+    ...READ_ONLY,
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-common-dir",
+    "--show-toplevel",
+  ];
   const r = await run(exec, "git", args, machine);
   if ("ok" in r) return r;
   if (r.code !== 0) return failure(r, notGit(r) ? "not_git" : "failed");
@@ -80,7 +88,12 @@ export async function readPlace(exec, machine, folder) {
  * @returns {Promise<{ ok: true, worktrees: Worktree[] } | GitFailure>}
  */
 export async function readWorktrees(exec, machine, commonDir) {
-  const r = await run(exec, "git", ["--git-dir", commonDir, ...READ_ONLY, "worktree", "list", "--porcelain", "-z"], machine);
+  const r = await run(
+    exec,
+    "git",
+    ["--git-dir", commonDir, ...READ_ONLY, "worktree", "list", "--porcelain", "-z"],
+    machine,
+  );
   if ("ok" in r) return r;
   if (r.code !== 0) return failure(r, notGit(r) ? "not_git" : "failed");
   return { ok: true, worktrees: parseWorktrees(r.stdout) };

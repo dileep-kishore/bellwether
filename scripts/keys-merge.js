@@ -119,8 +119,10 @@ function main(argv) {
   }
   for (const [s, k, a] of r.added) console.log(`added ${s} ${k} ${show(a)}`);
   for (const [s, k, a] of r.same) console.log(`same ${s} ${k} ${show(a)}`);
-  for (const [s, k, theirs, o] of r.conflicts) console.log(`conflict ${s} ${k} is ${show(theirs)}, Bellwether wants ${show(o)}`);
-  for (const [s, k, a] of r.shadowed) console.log(`shadowed ${s} ${k}: terminal binds it to ${show(a)}, which wins while a terminal has focus`);
+  for (const [s, k, theirs, o] of r.conflicts)
+    console.log(`conflict ${s} ${k} is ${show(theirs)}, Bellwether wants ${show(o)}`);
+  for (const [s, k, a] of r.shadowed)
+    console.log(`shadowed ${s} ${k}: terminal binds it to ${show(a)}, which wins while a terminal has focus`);
   console.log("Herdr stops adding new default shortcuts to an edited keys.json (AGENTS.md, Keys)");
 
   if (r.conflicts.length) {
@@ -136,11 +138,12 @@ function main(argv) {
     return 0;
   }
   // Writing only our section would drop the defaults Herdr keeps in this file.
-  if (!exists) throw new Error(`no keys.json at ${file}: open the Herdr app once so it writes its keys, then run again`);
+  if (!exists)
+    throw new Error(`no keys.json at ${file}: open the Herdr app once so it writes its keys, then run again`);
   const backup = `${file}.bw-${Math.floor(Date.now() / 1000)}`;
   copyFileSync(file, backup);
   const tmp = `${file}.bw-tmp-${process.pid}`;
-  writeFileSync(tmp, JSON.stringify(r.merged, null, 2) + "\n");
+  writeFileSync(tmp, `${JSON.stringify(r.merged, null, 2)}\n`);
   renameSync(tmp, file);
   console.log(`wrote ${file}; the old file is ${backup}`);
   return 0;

@@ -387,18 +387,32 @@ scripts/sync.sh           copy layouts and bw-* mods into ~/.config/herdr-app
 scripts/keys-merge.js     merge keys/bellwether.json into the app home's keys.json
 scripts/check.sh          herdr-app check (or the headless stand-in) on every mod, and shared copies match
 scripts/test.sh           every check that needs no Herdr window
-scripts/gen-herdr-api.js  extract Herdr's API names into tests/harness/api.json
+scripts/gen-herdr-api.js  extract Herdr's API names into tests/harness/api.json and copy its types into types/herdr
 scripts/install-helper.sh build bw and install it on this machine
 scripts/build-dist.sh     build bw for other platforms into ~/.local/share/bellwether/dist
 scripts/verify/           checks against real machines and agents
 crates/                   Rust helpers; crates/bw is the bw binary the mods run
 crates/vendor/            code copied from other projects, in its own Cargo workspace
 tests/                    Bun tests, and the headless harness that stubs herdr and gpui-kit
+types/                    Herdr's type files and the tsconfig that type-checks every mod against them
 hooks/bw-event            the hook bw machine setup installs; it hands each event to bw event
 agent/                    the browser instructions and MCP launcher that bw embeds and bw agent ensure writes to each machine
 docs/brief/               the requests this work answers, verbatim
 docs/research/            what the reference projects do, with evidence
+package.json, bun.lock    the pinned JavaScript dev tools: Biome and TypeScript
+biome.jsonc               Biome's format and lint settings
 ```
+
+Run `bun install` once per checkout to put the pinned tools in
+`node_modules`, which Git and Syncthing both ignore. `scripts/test.sh` runs
+`bunx biome ci --error-on-warnings .`, so a format or lint finding fails it;
+`bunx biome check --write .` fixes most of them. It then runs
+`bunx tsc -p types`, which checks every `mods/bw-*` file and `shared/` with
+the compiler options Herdr writes into each mod's `jsconfig.json` (plus
+`skipLibCheck`, since Herdr's own `.d.ts` files fail TypeScript 7), against
+the copies of `herdr.d.ts` and `gpui-kit.d.ts` in `types/herdr`. After a
+Herdr update, `bun scripts/gen-herdr-api.js` refreshes those copies and
+`tests/harness/api.json` together.
 
 ## Install on a machine
 

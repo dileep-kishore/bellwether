@@ -12,7 +12,10 @@ import { placeOf } from "./projects-model.js";
  */
 
 /** @type {{ id: import("./chat-tabs.js").ChatKind, label: string }[]} */
-const AGENTS = [{ id: "claude", label: "Claude" }, { id: "codex", label: "Codex" }];
+const AGENTS = [
+  { id: "claude", label: "Claude" },
+  { id: "codex", label: "Codex" },
+];
 const DIALOGS = [
   { id: "worktree-new", label: "New worktree…", action: "new", width: 460, height: 280 },
   { id: "worktree-open", label: "Open worktree…", action: "open", width: 560, height: 480 },
@@ -73,18 +76,51 @@ export function menuEntries({ agents, failed, ctx }) {
   });
 
   /** @type {Row[]} */
-  const rows = known.map((a) => /** @type {Row} */ ({
-    id: `chat-${a.id}`, section: "New chat", label: a.label, enabled: a.ok, hint: a.hint, agent: a.agent, kind: a.id,
-    action: ["chat", { kind: a.id, name: a.start.name, argv: chatArgv(a.id, a.start.run) }],
-  }));
-  rows.push({ id: "shell", section: "New terminal", label: "Shell", enabled: true, hint: "", agent: null, kind: null, action: start(null) });
+  const rows = known.map(
+    (a) =>
+      /** @type {Row} */ ({
+        id: `chat-${a.id}`,
+        section: "New chat",
+        label: a.label,
+        enabled: a.ok,
+        hint: a.hint,
+        agent: a.agent,
+        kind: a.id,
+        action: ["chat", { kind: a.id, name: a.start.name, argv: chatArgv(a.id, a.start.run) }],
+      }),
+  );
+  rows.push({
+    id: "shell",
+    section: "New terminal",
+    label: "Shell",
+    enabled: true,
+    hint: "",
+    agent: null,
+    kind: null,
+    action: start(null),
+  });
   for (const a of known) {
-    rows.push({ id: a.id, section: "New terminal", label: a.label, enabled: a.ok, hint: a.hint, agent: a.agent, kind: a.id, action: start(a.start) });
+    rows.push({
+      id: a.id,
+      section: "New terminal",
+      label: a.label,
+      enabled: a.ok,
+      hint: a.hint,
+      agent: a.agent,
+      kind: a.id,
+      action: start(a.start),
+    });
   }
   for (const d of DIALOGS) {
     const props = space ? { space, folder, action: d.action } : { folder, machine, action: d.action };
     rows.push({
-      id: d.id, section: "Worktree", label: d.label, enabled: Boolean(folder), hint: "", agent: null, kind: null,
+      id: d.id,
+      section: "Worktree",
+      label: d.label,
+      enabled: Boolean(folder),
+      hint: "",
+      agent: null,
+      kind: null,
       action: ["overlay", { mod: "worktree", kind: "dialog", width: d.width, height: d.height, props }],
     });
   }
@@ -105,7 +141,10 @@ export function chatLaunch({ kind, name, argv }, ctx, spaces) {
   const beforeTabs = space ? (spaces.find((s) => s.id === space)?.tabs ?? []).map((/** @type {any} */ t) => t.id) : [];
   const pending = { kind, machine, space, folder, beforeTabs, beforeSpaces: spaces.map((s) => s.id), name };
   if (space) return { pending, command: ["tab.new", { space, ...(folder ? { folder } : {}), name, argv }] };
-  return { pending, command: ["space.new", { ...(folder ? { folder } : {}), machine: machine ?? "", tab: name, argv }] };
+  return {
+    pending,
+    command: ["space.new", { ...(folder ? { folder } : {}), machine: machine ?? "", tab: name, argv }],
+  };
 }
 
 /**
@@ -146,7 +185,12 @@ function codexProfile(run) {
 export function argsRequest(kind, ctx, run) {
   const profile = kind === "codex" ? codexProfile(run) : null;
   return [
-    "browser", "agent-args", "--kind", kind, "--machine", ctx.machine ?? "",
+    "browser",
+    "agent-args",
+    "--kind",
+    kind,
+    "--machine",
+    ctx.machine ?? "",
     // Without a folder Herdr starts the agent in its default folder, which this side does not know.
     ...(ctx.folder ? ["--cwd", ctx.folder] : []),
     ...(profile ? ["--profile", profile] : []),
@@ -160,12 +204,14 @@ export function argsRequest(kind, ctx, run) {
  * @returns {{ extras: string[], notice: string | null }}
  */
 export function extrasFrom(result) {
-  const plain = (/** @type {string} */ notice) => ({ extras: [], notice });
-  if (!result.ok) return plain(result.message || `the browser helper failed (${result.state})`);
+  const plain = (/** @type {string} */ notice) => ({ extras: /** @type {string[]} */ ([]), notice });
+  if (result.ok === false) return plain(result.message || `the browser helper failed (${result.state})`);
   const line = result.lines.find((l) => l.type === "agent-args");
   if (!line) return plain("bw browser agent-args printed no agent-args line");
-  if (line.browser !== "ready") return plain(typeof line.reason === "string" && line.reason ? line.reason : "the browser is unavailable");
+  if (line.browser !== "ready")
+    return plain(typeof line.reason === "string" && line.reason ? line.reason : "the browser is unavailable");
   const argv = line.argv;
-  if (!Array.isArray(argv) || !argv.every((a) => typeof a === "string")) return plain("bw browser agent-args printed no argv");
+  if (!Array.isArray(argv) || !argv.every((a) => typeof a === "string"))
+    return plain("bw browser agent-args printed no argv");
   return { extras: [...argv], notice: null };
 }

@@ -3,11 +3,13 @@
 // live data; render reads the layout and the active space, decides shown, and pokes the loop.
 import { View, div, image, svg } from "gpui-kit";
 import { Input, InputState, h_flex, v_flex } from "gpui-base";
-import { exec, layout, spaces, theme } from "herdr";
+import { exec, layout, spaces } from "herdr";
 import { createHelper } from "./helper.js";
 import { canForward, canStart, forwardKey, forwardLabel, isShown, portOf, resultText, viewOf } from "./model.js";
 import { createPoke } from "./refresh-driver.js";
-import { ICONS } from "./ui.js";
+import { ICONS, themeColors } from "./ui.js";
+
+/** @typedef {import("./ui.js").Theme} Theme */
 
 const POLL_MS = 2000;
 const MIN_SLEEP_MS = 1000;
@@ -27,7 +29,7 @@ export default class Browser extends View {
     this.alive = true;
     /** @type {PanelView} */
     this.view = viewOf(null, null);
-    /** Whether the layout shows the panel, as render last read it. */
+    /** Whether the layout shows the panel, as render last read it. @type {boolean} */
     this.shown = false;
     // Herdr draws only shown copies: a read whose notify brought no render means the copy is hidden.
     this.drawn = false;
@@ -133,11 +135,16 @@ export default class Browser extends View {
       this.say("Enter a port from 1 to 65535", cx);
       return;
     }
-    this.act("dev", ["forward", "dev", "--machine", /** @type {string} */ (space.machine), "--port", String(port)], cx, { key: "browser-forward-add" });
+    this.act(
+      "dev",
+      ["forward", "dev", "--machine", /** @type {string} */ (space.machine), "--port", String(port)],
+      cx,
+      { key: "browser-forward-add" },
+    );
   }
 
   render() {
-    const t = theme();
+    const t = themeColors();
     const shown = isShown(layout());
     const space = spaces().find((s) => s.active) ?? null;
     this.space = space ? { id: space.id, machine: space.machine ?? null } : null;
@@ -151,60 +158,146 @@ export default class Browser extends View {
     this.drawn = true;
 
     const v = this.view;
-    const root = v_flex().id("browser-root").size_full().bg(t.chrome).text_size(13).text_color(t.foreground)
+    const root = v_flex()
+      .id("browser-root")
+      .size_full()
+      .bg(t.chrome)
+      .text_size(13)
+      .text_color(t.foreground)
       .child(this.header(t, v));
     if (this.note) {
-      root.child(div().id("browser-note").flex_none().px(12).py(6).text_size(11).text_color(t.muted).border_b(1).border_color(t.border).child(this.note.text));
+      root.child(
+        div()
+          .id("browser-note")
+          .flex_none()
+          .px(12)
+          .py(6)
+          .text_size(11)
+          .text_color(t.muted)
+          .border_b(1)
+          .border_color(t.border)
+          .child(this.note.text),
+      );
     }
     if (v.states !== null) {
-      root.child(v_flex().id("browser-state").flex_1().items_center().justify_center().px(24).text_size(13).text_color(t.dim)
-        .child(div().text_center().child(v.states)));
+      root.child(
+        v_flex()
+          .id("browser-state")
+          .flex_1()
+          .items_center()
+          .justify_center()
+          .px(24)
+          .text_size(13)
+          .text_color(t.dim)
+          .child(div().text_center().child(v.states)),
+      );
     } else {
-      root.child(v_flex().id("browser-tabs").flex_1().min_h(0).overflow_y_scroll().py(4).children(v.tabs.map((tab) => this.tabRow(t, tab))));
+      root.child(
+        v_flex()
+          .id("browser-tabs")
+          .flex_1()
+          .min_h(0)
+          .overflow_y_scroll()
+          .py(4)
+          .children(v.tabs.map((tab) => this.tabRow(t, tab))),
+      );
     }
     if (v.chrome.state !== "loading") root.child(this.forwards(t, v.forwards));
     return root;
   }
 
-  /** @param {Record<string, string>} t @param {PanelView} v */
+  /** @param {Theme} t @param {PanelView} v */
   header(t, v) {
     const running = v.chrome.state === "running";
-    return h_flex().id("browser-header").h(36).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
+    return h_flex()
+      .id("browser-header")
+      .h(36)
+      .flex_none()
+      .px(12)
+      .gap(8)
+      .items_center()
+      .border_b(1)
+      .border_color(t.border)
       .child(svg(icon("chrome")).size(16).flex_none().text_color(t.muted))
-      .child(h_flex().flex_1().min_w(0).gap(6).items_center()
-        .child(div().flex_none().text_size(13).font_medium().child("Bellwether Chrome"))
-        .child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(v.chrome.label)))
-      .when(running, (el) => el
-        .child(this.button(t, "browser-new-tab", "plus", "New tab", (cx) => this.act("new", ["new"], cx, { key: "browser-new-tab" })))
-        .child(this.button(t, "browser-arrange", "arrange", "Arrange", (cx) => this.act("arrange", ["arrange"], cx, { key: "browser-arrange" }))))
-      .when(canStart(v.chrome.state), (el) => el
-        .child(this.button(t, "browser-start", "chrome", "Start", (cx) => this.act("up", ["up"], cx, { key: "browser-start" }))));
+      .child(
+        h_flex()
+          .flex_1()
+          .min_w(0)
+          .gap(6)
+          .items_center()
+          .child(div().flex_none().text_size(13).font_medium().child("Bellwether Chrome"))
+          .child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(v.chrome.label)),
+      )
+      .when(running, (el) =>
+        el
+          .child(
+            this.button(t, "browser-new-tab", "plus", "New tab", (cx) =>
+              this.act("new", ["new"], cx, { key: "browser-new-tab" }),
+            ),
+          )
+          .child(
+            this.button(t, "browser-arrange", "arrange", "Arrange", (cx) =>
+              this.act("arrange", ["arrange"], cx, { key: "browser-arrange" }),
+            ),
+          ),
+      )
+      .when(canStart(v.chrome.state), (el) =>
+        el.child(
+          this.button(t, "browser-start", "chrome", "Start", (cx) =>
+            this.act("up", ["up"], cx, { key: "browser-start" }),
+          ),
+        ),
+      );
   }
 
   /**
    * A small header or row button; it shows a spinner while its own action runs.
-   * @param {Record<string, string>} t @param {string} id @param {string | null} iconName @param {string} label
+   * @param {Theme} t @param {string} id @param {string | null} iconName @param {string} label
    * @param {(cx: any) => void} onClick
    */
   button(t, id, iconName, label, onClick) {
     const running = this.busy === id;
     const idle = this.busy === null;
-    return h_flex().id(id).flex_none().h(24).px(8).gap(4).items_center().rounded(6).text_size(11)
+    return h_flex()
+      .id(id)
+      .flex_none()
+      .h(24)
+      .px(8)
+      .gap(4)
+      .items_center()
+      .rounded(6)
+      .text_size(11)
       .text_color(idle ? t.foreground : t.dim)
       .when(idle, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)))
       .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => onClick(cx))
       .when(running, (el) => el.child(svg(ICONS["ring-spin"]).size(12).flex_none().text_color(t.muted).spin(900)))
-      .when(!running && iconName !== null, (el) => el.child(svg(icon(/** @type {string} */ (iconName))).size(12).flex_none().text_color(t.muted)))
+      .when(!running && iconName !== null, (el) =>
+        el.child(
+          svg(icon(/** @type {string} */ (iconName)))
+            .size(12)
+            .flex_none()
+            .text_color(t.muted),
+        ),
+      )
       .child(label);
   }
 
-  /** @param {Record<string, string>} t @param {Tab} tab */
+  /** @param {Theme} t @param {Tab} tab */
   tabRow(t, tab) {
     const hovered = this.hovered === tab.id;
     const picture = tab.favicon
       ? image(tab.favicon).id(`browser-favicon-${tab.id}`).w(16).h(16).flex_none()
       : svg(icon("globe")).id(`browser-favicon-${tab.id}`).size(16).flex_none().text_color(t.dim);
-    return h_flex().id(`browser-tab-${tab.id}`).h(40).flex_none().relative().pl(12).pr(8).gap(10).items_center().cursor_pointer()
+    return h_flex()
+      .id(`browser-tab-${tab.id}`)
+      .h(40)
+      .flex_none()
+      .relative()
+      .pl(12)
+      .pr(8)
+      .gap(10)
+      .items_center()
+      .cursor_pointer()
       .when(tab.active, (el) => el.bg(t.selected))
       .when(!tab.active, (el) => el.hover((s) => s.bg(t.hover)))
       .on_hover((/** @type {boolean} */ on, /** @type {any} */ cx) => {
@@ -213,57 +306,139 @@ export default class Browser extends View {
         this.hovered = next;
         cx.notify();
       })
-      .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => this.act("focus", ["focus", "--id", tab.id], cx, { key: `browser-tab-${tab.id}`, title: tab.title }))
-      .when(tab.active, (el) => el.child(div().id(`browser-tab-bar-${tab.id}`).absolute().left(0).top(0).bottom(0).w(2).bg(t.accent)))
+      .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) =>
+        this.act("focus", ["focus", "--id", tab.id], cx, { key: `browser-tab-${tab.id}`, title: tab.title }),
+      )
+      .when(tab.active, (el) =>
+        el.child(div().id(`browser-tab-bar-${tab.id}`).absolute().left(0).top(0).bottom(0).w(2).bg(t.accent)),
+      )
       .child(picture)
-      .child(v_flex().flex_1().min_w(0)
-        .child(div().truncate().text_size(13).text_color(t.foreground).child(tab.title))
-        .child(div().truncate().text_size(11).text_color(t.dim).child(tab.secondary)))
-      .when(hovered, (el) => el.child(h_flex().id(`browser-tab-close-${tab.id}`).flex_none().size(20).items_center().justify_center().rounded(4)
-        .cursor_pointer().hover((s) => s.bg(t.hover))
-        .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => {
-          cx.stop_propagation();
-          this.act("close", ["close", "--id", tab.id], cx, { key: `browser-tab-close-${tab.id}`, title: tab.title });
-        })
-        .child(svg(icon("close")).size(12).text_color(t.muted))));
+      .child(
+        v_flex()
+          .flex_1()
+          .min_w(0)
+          .child(div().truncate().text_size(13).text_color(t.foreground).child(tab.title))
+          .child(div().truncate().text_size(11).text_color(t.dim).child(tab.secondary)),
+      )
+      .when(hovered, (el) =>
+        el.child(
+          h_flex()
+            .id(`browser-tab-close-${tab.id}`)
+            .flex_none()
+            .size(20)
+            .items_center()
+            .justify_center()
+            .rounded(4)
+            .cursor_pointer()
+            .hover((s) => s.bg(t.hover))
+            .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => {
+              cx.stop_propagation();
+              this.act("close", ["close", "--id", tab.id], cx, {
+                key: `browser-tab-close-${tab.id}`,
+                title: tab.title,
+              });
+            })
+            .child(svg(icon("close")).size(12).text_color(t.muted)),
+        ),
+      );
   }
 
-  /** @param {Record<string, string>} t @param {Forward[]} list */
+  /** @param {Theme} t @param {Forward[]} list */
   forwards(t, list) {
     const can = canForward(this.space);
-    const section = v_flex().id("browser-forwards").flex_none().border_t(1).border_color(t.border).py(6)
-      .child(h_flex().h(24).px(12).items_center()
-        .child(div().flex_1().text_size(11).font_medium().text_color(t.dim).child("FORWARDS"))
-        .child(h_flex().id("browser-forward-port").h(20).px(6).items_center().rounded(4).text_size(11)
-          .text_color(can.ok ? t.foreground : t.dim)
-          .when(can.ok, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)))
-          .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => {
-            if (!can.ok) return;
-            this.adding = !this.adding;
-            if (this.adding) this.portInput.focus();
-            cx.notify();
-          })
-          .child("Forward port")));
+    const section = v_flex()
+      .id("browser-forwards")
+      .flex_none()
+      .border_t(1)
+      .border_color(t.border)
+      .py(6)
+      .child(
+        h_flex()
+          .h(24)
+          .px(12)
+          .items_center()
+          .child(div().flex_1().text_size(11).font_medium().text_color(t.dim).child("FORWARDS"))
+          .child(
+            h_flex()
+              .id("browser-forward-port")
+              .h(20)
+              .px(6)
+              .items_center()
+              .rounded(4)
+              .text_size(11)
+              .text_color(can.ok ? t.foreground : t.dim)
+              .when(can.ok, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)))
+              .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => {
+                if (!can.ok) return;
+                this.adding = !this.adding;
+                if (this.adding) this.portInput.focus();
+                cx.notify();
+              })
+              .child("Forward port"),
+          ),
+      );
     if (!can.ok) section.child(div().id("browser-forward-hint").px(12).text_size(11).text_color(t.dim).child(can.hint));
     else if (this.adding) {
-      section.child(h_flex().h(28).px(12).gap(6).items_center()
-        .child(Input.new(this.portInput).id("browser-forward-input").flex_1().h(28).px(8).items_center().rounded(6).border(1)
-          .border_color(t.input).bg(t.background).text_size(13).text_color(t.foreground))
-        .child(this.button(t, "browser-forward-add", null, "Add", (cx) => this.addForward(cx))));
+      section.child(
+        h_flex()
+          .h(28)
+          .px(12)
+          .gap(6)
+          .items_center()
+          .child(
+            Input.new(this.portInput)
+              .id("browser-forward-input")
+              .flex_1()
+              .h(28)
+              .px(8)
+              .items_center()
+              .rounded(6)
+              .border(1)
+              .border_color(t.input)
+              .bg(t.background)
+              .text_size(13)
+              .text_color(t.foreground),
+          )
+          .child(this.button(t, "browser-forward-add", null, "Add", (cx) => this.addForward(cx))),
+      );
     }
     for (const f of list) section.child(this.forwardRow(t, f));
     return section;
   }
 
-  /** @param {Record<string, string>} t @param {Forward} f */
+  /** @param {Theme} t @param {Forward} f */
   forwardRow(t, f) {
     const key = forwardKey(f);
     const ready = f.state === "ready";
     const args = ["forward", "stop", "--machine", f.machine, ...(f.kind === "dev" ? ["--dev", String(f.port)] : [])];
-    return h_flex().id(`browser-forward-row-${key}`).h(28).flex_none().px(12).gap(8).items_center()
-      .child(h_flex().flex_1().min_w(0).gap(6).items_center()
-        .child(div().flex_none().text_size(13).text_color(ready ? t.foreground : t.muted).child(forwardLabel(f)))
-        .when(!ready && f.reason !== "", (el) => el.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(f.reason))))
-      .child(this.button(t, `browser-forward-stop-${key}`, null, "Stop", (cx) => this.act("stop", args, cx, { key: `browser-forward-stop-${key}` })));
+    return h_flex()
+      .id(`browser-forward-row-${key}`)
+      .h(28)
+      .flex_none()
+      .px(12)
+      .gap(8)
+      .items_center()
+      .child(
+        h_flex()
+          .flex_1()
+          .min_w(0)
+          .gap(6)
+          .items_center()
+          .child(
+            div()
+              .flex_none()
+              .text_size(13)
+              .text_color(ready ? t.foreground : t.muted)
+              .child(forwardLabel(f)),
+          )
+          .when(!ready && f.reason !== "", (el) =>
+            el.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(f.reason)),
+          ),
+      )
+      .child(
+        this.button(t, `browser-forward-stop-${key}`, null, "Stop", (cx) =>
+          this.act("stop", args, cx, { key: `browser-forward-stop-${key}` }),
+        ),
+      );
   }
 }

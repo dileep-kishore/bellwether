@@ -46,7 +46,12 @@ export function focusAgent(a) {
  */
 export function projectMenu(p) {
   const { key, machine, commonDir, main, name, open } = p;
-  return { mod: "bw-menu", kind: "popup", width: 220, props: { project: { key, machine, commonDir, main, name, open } } };
+  return {
+    mod: "bw-menu",
+    kind: "popup",
+    width: 220,
+    props: { project: { key, machine, commonDir, main, name, open } },
+  };
 }
 
 /** @returns {OverlaySpec} */
