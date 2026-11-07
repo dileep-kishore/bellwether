@@ -1,0 +1,83 @@
+{
+  "about": "alpha open on this Mac (main and feat), beta stored and closed, gamma open on macmini. git lists places, worktrees and counts as records; the test turns them into the model's keyed cache.",
+  "platform": "macos",
+  "machines": [
+    { "name": null, "layout": "ready" },
+    { "name": "macmini", "layout": "ready" }
+  ],
+  "spaces": [
+    {
+      "id": "s1", "index": 1, "name": "alpha", "named": false, "folder": "/r/alpha", "machine": null, "branch": "main", "active": true, "status": "blocked",
+      "tabs": [
+        { "id": "tb1", "index": 1, "name": "1", "named": false, "active": true, "status": "working", "panes": 1, "zoomed": false, "settled": false, "settled_at": null, "changed_at": 1000, "working_since": 900 },
+        { "id": "tb2", "index": 2, "name": "fix login", "named": true, "active": false, "status": "blocked", "panes": 1, "zoomed": false, "settled": false, "settled_at": null, "changed_at": 2000, "working_since": null },
+        { "id": "tb7", "index": 3, "name": "3", "named": false, "active": false, "status": null, "panes": 1, "zoomed": false, "settled": false, "settled_at": null, "changed_at": null, "working_since": null }
+      ]
+    },
+    {
+      "id": "s2", "index": 2, "name": "feat", "named": false, "folder": "/r/alpha-wt/feat", "machine": null, "branch": "feat", "active": false, "status": "working",
+      "tabs": [
+        { "id": "tb3", "index": 1, "name": "1", "named": false, "active": true, "status": "idle", "panes": 1, "zoomed": false, "settled": false, "settled_at": null, "changed_at": 3000, "working_since": null }
+      ]
+    },
+    {
+      "id": "macmini/s3", "index": 3, "name": "gamma", "named": false, "folder": "/home/u/gamma", "machine": "macmini", "branch": "main", "active": false, "status": "done",
+      "tabs": [
+        { "id": "macmini/tb5", "index": 1, "name": "1", "named": false, "active": true, "status": "done", "panes": 1, "zoomed": false, "settled": false, "settled_at": null, "changed_at": 5000, "working_since": null }
+      ]
+    }
+  ],
+  "panes": [
+    { "pane": "p1", "terminal": "t1", "tab": "tb1", "title": "claude", "cwd": "/r/alpha", "branch": "main", "status": "working", "app": "claude-code", "program": { "key": "claude", "name": "Claude Code", "icon": "icons/claude.svg", "tint": true, "tile": null, "color": null, "shell": false, "agent": true }, "focused": true, "zoomed": false, "movable": false },
+    { "pane": "p2", "terminal": "t2", "tab": "tb2", "title": "codex", "cwd": "/r/alpha/src", "branch": "main", "status": "blocked", "app": "codex", "program": { "key": "codex", "name": "Codex", "icon": "icons/codex.svg", "tint": true, "tile": null, "color": null, "shell": false, "agent": true }, "focused": false, "zoomed": false, "movable": false },
+    { "pane": "p7", "terminal": "t7", "tab": "tb7", "title": "zsh", "cwd": "/r/alpha", "branch": "main", "status": null, "app": null, "program": { "key": "shell", "name": "zsh", "icon": "icons/shell.svg", "tint": true, "tile": null, "color": null, "shell": true, "agent": false }, "focused": false, "zoomed": false, "movable": false },
+    { "pane": "p3", "terminal": "t3", "tab": "tb3", "title": "claude", "cwd": "/r/alpha-wt/feat", "branch": "feat", "status": "idle", "app": "claude-code", "program": { "key": "claude", "name": "Claude Code", "icon": "icons/claude.svg", "tint": true, "tile": null, "color": null, "shell": false, "agent": true }, "focused": false, "zoomed": false, "movable": false },
+    { "pane": "macmini/p5", "terminal": "macmini/t5", "tab": "macmini/tb5", "title": "codex", "cwd": "/home/u/gamma", "branch": "main", "status": "done", "app": "codex", "program": { "key": "codex", "name": "Codex", "icon": "icons/codex.svg", "tint": true, "tile": null, "color": null, "shell": false, "agent": true }, "focused": false, "zoomed": false, "movable": false }
+  ],
+  "agents": [
+    { "address": "t1", "pane": "p1", "space": "s1", "space_name": "alpha", "tab": "tb1", "tab_index": 1, "tab_name": "1", "status": "working", "app": "claude-code", "program": { "key": "claude", "name": "Claude Code", "icon": "icons/claude.svg", "tint": true, "tile": null, "color": null, "shell": false, "agent": true }, "title": "refactor the parser", "seq": 5, "pinned": false, "focused": true },
+    { "address": "t2", "pane": "p2", "space": "s1", "space_name": "alpha", "tab": "tb2", "tab_index": 2, "tab_name": "fix login", "status": "blocked", "app": "codex", "program": { "key": "codex", "name": "Codex", "icon": "icons/codex.svg", "tint": true, "tile": null, "color": null, "shell": false, "agent": true }, "title": "codex", "seq": 4, "pinned": false, "focused": false },
+    { "address": "t3", "pane": "p3", "space": "s2", "space_name": "feat", "tab": "tb3", "tab_index": 1, "tab_name": "1", "status": "idle", "app": "claude-code", "program": { "key": "claude", "name": "Claude Code", "icon": "icons/claude.svg", "tint": true, "tile": null, "color": null, "shell": false, "agent": true }, "title": "feat work", "seq": 3, "pinned": false, "focused": false },
+    { "address": "t4", "pane": "p4", "space": "s2", "space_name": "feat", "tab": "tb3", "tab_index": 1, "tab_name": "1", "status": "working", "app": "claude-code", "program": { "key": "claude", "name": "Claude Code", "icon": "icons/claude.svg", "tint": true, "tile": null, "color": null, "shell": false, "agent": true }, "title": "sub task", "seq": 2, "pinned": false, "focused": false },
+    { "address": "macmini/t5", "pane": "macmini/p5", "space": "macmini/s3", "space_name": "gamma", "tab": "macmini/tb5", "tab_index": 1, "tab_name": "1", "status": "done", "app": "codex", "program": { "key": "codex", "name": "Codex", "icon": "icons/codex.svg", "tint": true, "tile": null, "color": null, "shell": false, "agent": true }, "title": "gamma tests", "seq": 1, "pinned": false, "focused": false }
+  ],
+  "terminals": [
+    { "address": "t1", "state": "live", "status": "working" },
+    { "address": "t2", "state": "live", "status": "blocked" },
+    { "address": "t3", "state": "live", "status": "idle" },
+    { "address": "t4", "state": "live", "status": "working", "parent": "t3" },
+    { "address": "macmini/t5", "state": "live", "status": "done" },
+    { "address": "macmini/t6", "state": "live", "status": "working", "parent": "t5" },
+    { "address": "macmini/t8", "state": "exited", "status": "idle", "parent": "t5" },
+    { "address": "t7", "state": "live", "status": null }
+  ],
+  "stored": [
+    { "machine": null, "commonDir": "/r/beta/.git", "name": "beta", "main": "/r/beta" }
+  ],
+  "git": {
+    "places": [
+      { "machine": null, "folder": "/r/alpha", "commonDir": "/r/alpha/.git", "top": "/r/alpha" },
+      { "machine": null, "folder": "/r/alpha-wt/feat", "commonDir": "/r/alpha/.git", "top": "/r/alpha-wt/feat" },
+      { "machine": "macmini", "folder": "/home/u/gamma", "commonDir": "/home/u/gamma/.git", "top": "/home/u/gamma" }
+    ],
+    "worktrees": [
+      { "machine": null, "commonDir": "/r/alpha/.git", "stale": false, "list": [
+        { "path": "/r/alpha", "head": "a1", "branch": "main", "detached": false, "bare": false, "locked": false, "prunable": false },
+        { "path": "/r/alpha-wt/feat", "head": "a2", "branch": "feat", "detached": false, "bare": false, "locked": false, "prunable": false },
+        { "path": "/r/alpha-wt/detached", "head": "a1", "branch": null, "detached": true, "bare": false, "locked": false, "prunable": false },
+        { "path": "/r/alpha/.worktrees/nested", "head": "a1", "branch": "nested", "detached": false, "bare": false, "locked": false, "prunable": false }
+      ] },
+      { "machine": null, "commonDir": "/r/beta/.git", "stale": false, "list": [
+        { "path": "/r/beta", "head": "b1", "branch": "main", "detached": false, "bare": false, "locked": false, "prunable": false }
+      ] },
+      { "machine": "macmini", "commonDir": "/home/u/gamma/.git", "stale": false, "list": [
+        { "path": "/home/u/gamma", "head": "g1", "branch": "main", "detached": false, "bare": false, "locked": false, "prunable": false }
+      ] }
+    ],
+    "counts": [
+      { "machine": null, "path": "/r/alpha-wt/feat", "branch": "feat", "detached": false, "upstream": true, "ahead": 1, "behind": 0, "files": 1, "added": 3, "removed": 1, "stale": false },
+      { "machine": "macmini", "path": "/home/u/gamma", "branch": "main", "detached": false, "upstream": true, "ahead": 0, "behind": 2, "files": 2, "added": 5, "removed": 0, "stale": false }
+    ],
+    "unreachable": []
+  }
+}
