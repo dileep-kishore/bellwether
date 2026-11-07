@@ -1,0 +1,17 @@
+{
+  "agent": "claude",
+  "version": "2.1.319",
+  "session": "a9baa480-8207-4b0a-b31c-1a2d7b062db3",
+  "file": "a9baa480-8207-4b0a-b31c-1a2d7b062db3.jsonl",
+  "user_messages": 1,
+  "assistant_messages": 1,
+  "tool_calls": 3,
+  "pictures": 0,
+  "children": [
+    {"id": "af5540ee6b3545d64", "type": "counter", "depth": 1, "parent": "a9baa480-8207-4b0a-b31c-1a2d7b062db3", "tool_use_id": "toolu_01VjwTZKHKTf4EMDCv1zNiUE", "background": false, "file": "a9baa480-8207-4b0a-b31c-1a2d7b062db3/subagents/agent-af5540ee6b3545d64.jsonl", "user_messages": 1, "assistant_messages": 1, "tool_calls": 1},
+    {"id": "af4a6ac6955ed1eb6", "type": "counter", "depth": 1, "parent": "a9baa480-8207-4b0a-b31c-1a2d7b062db3", "tool_use_id": "toolu_01RfQ4DGwt2VZuY7S3znfXgH", "background": true, "file": "a9baa480-8207-4b0a-b31c-1a2d7b062db3/subagents/agent-af4a6ac6955ed1eb6.jsonl", "user_messages": 1, "assistant_messages": 1, "tool_calls": 1},
+    {"id": "ad16657758350f019", "type": "nester", "depth": 1, "parent": "a9baa480-8207-4b0a-b31c-1a2d7b062db3", "tool_use_id": "toolu_011m3nyNpfY3JCyS5Euhp26e", "background": false, "file": "a9baa480-8207-4b0a-b31c-1a2d7b062db3/subagents/agent-ad16657758350f019.jsonl", "user_messages": 1, "assistant_messages": 1, "tool_calls": 1},
+    {"id": "a640ed49983e1482a", "type": "counter", "depth": 2, "parent": "ad16657758350f019", "tool_use_id": "toolu_01AQJWGWmmgfPj8of5YxhVbf", "background": false, "file": "a9baa480-8207-4b0a-b31c-1a2d7b062db3/subagents/agent-a640ed49983e1482a.jsonl", "user_messages": 1, "assistant_messages": 1, "tool_calls": 1}
+  ],
+  "requests": []
+}

@@ -1,0 +1,45 @@
+#!/usr/bin/env bun
+// scrub-fixture [--check] <dir|file>...
+//   Without --check: rewrites private values in place, then runs the check.
+//   --check: exits 1 and prints file:line: <pattern> for every residue.
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { checkText, defaultContext, scrubFile } from "./scrub.js";
+
+const args = process.argv.slice(2);
+const checkOnly = args[0] === "--check";
+const targets = checkOnly ? args.slice(1) : args;
+if (targets.length === 0 || targets.some((t) => t.startsWith("-"))) {
+  console.error("usage: scrub-fixture [--check] <dir|file>...");
+  process.exit(2);
+}
+
+function* files(path) {
+  if (statSync(path).isDirectory()) {
+    for (const name of readdirSync(path).sort()) yield* files(join(path, name));
+  } else yield path;
+}
+
+const ctx = defaultContext();
+let residue = 0;
+for (const target of targets) {
+  for (const file of files(target)) {
+    const buf = readFileSync(file);
+    // Pictures stay as files only when a test needs one; they hold no text to scrub.
+    if (buf.includes(0)) continue;
+    let text = buf.toString("utf8");
+    if (!checkOnly) {
+      const out = scrubFile(text, ctx);
+      if (out !== text) {
+        writeFileSync(file, out);
+        console.log(`scrubbed ${file}`);
+        text = out;
+      }
+    }
+    for (const hit of checkText(text, ctx)) {
+      console.log(`${file}:${hit.line}: ${hit.patterns.join(", ")}`);
+      residue++;
+    }
+  }
+}
+process.exit(residue ? 1 : 0);

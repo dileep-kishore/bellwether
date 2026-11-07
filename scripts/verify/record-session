@@ -1,0 +1,216 @@
+#!/bin/sh
+# record-session <scenario> [--keep]
+# Runs the real agent for one scenario in a fresh scratch git repository, copies its session
+# logs into tests/fixtures/sessions/<scenario>/ and scrubs them. Uses the logged-in Claude and
+# Codex subscriptions, so it spends tokens; scripts/test.sh never runs it.
+#   claude-subagents  claude -p: three direct sub-agents (one in the background), one nested
+#   claude-picture    claude -p: reads a PNG, so the log carries an image block
+#   claude-approval   interactive claude --permission-mode default: touch approved.txt
+#   codex-subagent    codex exec: spawn_agent with one sub-agent
+#   codex-question    interactive codex: request_user_input, then request_user_input_async
+#   codex-approval    interactive codex -a on-request -s read-only: touch approved.txt
+# --keep leaves the scratch repository in place.
+set -eu
+repo=$(cd "$(dirname "$0")/../.." && pwd)
+root=${BW_REC_ROOT:-/private/tmp/claude-501/bw-rec}
+scenario=${1:-}
+keep=0
+[ "${2:-}" = --keep ] && keep=1
+dir=$root/$scenario
+dest=$repo/tests/fixtures/sessions/$scenario
+# Logs stay outside the repository until scrub-fixture passes, so a failed run leaves nothing to commit.
+out=$root/$scenario.out
+term=bw-rec-$scenario
+
+die() { echo "record-session: $*" >&2; exit 1; }
+
+# Agents started from inside another Claude session inherit CLAUDE_CODE_CHILD_SESSION, which
+# turns transcript saving off, and its entrypoint; a bare environment records what a user gets.
+clean() {
+  env -i HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" LANG=en_US.UTF-8 TERM=xterm-256color \
+    PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" "$@"
+}
+
+# The user's own hc core cannot read the login keychain (Claude starts logged out there), so
+# interactive scenarios run in a core of their own, started from this shell.
+hcr() { HC_SESSION=bw-rec hc "$@"; }
+hc_up() {
+  clean HC_SESSION=bw-rec hc server status >/dev/null
+  trap 'hcr kill "$term" >/dev/null 2>&1 || true; hcr server stop >/dev/null 2>&1 || true' EXIT
+}
+
+# wait_for <regex> [tries]: polls the terminal's screen every 2 s.
+wait_for() {
+  n=${2:-30}
+  while [ "$n" -gt 0 ]; do
+    hcr read "$term" --lines 60 2>/dev/null | grep -Eq "$1" && return 0
+    sleep 2
+    n=$((n - 1))
+  done
+  hcr read "$term" --lines 60 >&2 || true
+  die "timed out waiting for /$1/ in $term"
+}
+
+# hc refuses to type into a terminal whose output has not settled yet; retry for up to 30 s.
+type_in() {
+  n=15
+  until hcr "$@" >/dev/null 2>&1; do
+    n=$((n - 1))
+    [ "$n" -gt 0 ] || die "hc $* kept failing"
+    sleep 2
+  done
+}
+
+scratch() {
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  cd "$dir"
+  git init -q
+  printf 'alpha\n' >a.txt
+  printf 'beta\n' >b.txt
+  git add .
+  git -c user.name='Test User' -c user.email=user@example.com commit -qm init
+  mark=$root/$scenario.mark
+  touch "$mark"
+}
+
+claude_files() {
+  proj=$HOME/.claude/projects/$(printf %s "$dir" | sed 's/[^A-Za-z0-9]/-/g')
+  [ -f "$proj/$sid.jsonl" ] || die "no Claude log at $proj/$sid.jsonl"
+  cp "$proj/$sid.jsonl" "$out/"
+  if [ -d "$proj/$sid/subagents" ]; then
+    mkdir -p "$out/$sid"
+    cp -R "$proj/$sid/subagents" "$out/$sid/"
+  fi
+}
+
+codex_files() {
+  found=0
+  for f in $(find "$HOME/.codex/sessions" -name 'rollout-*.jsonl' -newer "$mark"); do
+    [ "$(head -1 "$f" | jq -r .payload.cwd)" = "$dir" ] || continue
+    cp "$f" "$out/"
+    found=$((found + 1))
+  done
+  [ "$found" -gt 0 ] || die "no Codex rollout with cwd $dir"
+}
+
+claude_start() {
+  sid=$(uuidgen | tr 'A-Z' 'a-z')
+  hc_up
+  hcr run --bg --no-parent --name "$term" --cwd "$dir" -- \
+    claude --session-id "$sid" --setting-sources project --strict-mcp-config "$@" >/dev/null
+  wait_for 'trust this folder|Try "|❯' 20
+  if hcr read "$term" | grep -q 'trust this folder'; then type_in keys "$term" down enter; fi
+  wait_for 'Try "|for shortcuts' 20
+}
+
+codex_start() {
+  hc_up
+  hcr run --bg --no-parent --name "$term" --cwd "$dir" -- codex -c model_reasoning_effort=low "$@" >/dev/null
+  wait_for 'Trust this folder|Ask Codex' 20
+  if hcr read "$term" | grep -q 'Trust this folder'; then type_in keys "$term" enter; fi
+  wait_for 'Ask Codex' 20
+}
+
+AGENTS='{"counter":{"description":"Counts files in the current folder","prompt":"Run `ls | wc -l` with Bash and reply with the number only.","tools":["Bash"],"model":"haiku"},"nester":{"description":"Delegates a count to the counter agent","prompt":"Use the Agent tool exactly once with subagent_type counter to count the files, then reply with its answer only.","tools":["Agent"],"model":"haiku"}}'
+DOT_PNG=iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAGElEQVR4nGO4IydHEmIY1TAaSnLDNmkAAJozGBASWxyzAAAAAElFTkSuQmCC
+
+case "$scenario" in
+  claude-subagents | claude-picture | claude-approval | codex-subagent | codex-question | codex-approval) ;;
+  *) die "usage: record-session <claude-subagents|claude-picture|claude-approval|codex-subagent|codex-question|codex-approval> [--keep]" ;;
+esac
+
+scratch
+rm -rf "$out"
+mkdir -p "$out"
+
+case "$scenario" in
+  claude-subagents)
+    sid=$(uuidgen | tr 'A-Z' 'a-z')
+    clean claude -p --session-id "$sid" --setting-sources project --strict-mcp-config \
+      --dangerously-skip-permissions --model sonnet --agents "$AGENTS" \
+      "Use the Agent tool three times, in this order, then stop: (1) subagent_type counter, foreground; (2) subagent_type counter with run_in_background true; (3) subagent_type nester, foreground. Wait for the background one to finish, then reply with the three answers on one line."
+    claude_files
+    cat "$out/$sid/subagents/"*.meta.json | grep -q '"spawnDepth":2' || die "no nested sub-agent"
+    cat "$out/$sid/subagents/"*.meta.json | grep -q '"requestShape":"background"' || die "no background sub-agent"
+    ;;
+  claude-picture)
+    printf %s "$DOT_PNG" | base64 -d >dot.png
+    git add dot.png
+    git -c user.name='Test User' -c user.email=user@example.com commit -qm picture
+    sid=$(uuidgen | tr 'A-Z' 'a-z')
+    clean claude -p --session-id "$sid" --setting-sources project --strict-mcp-config \
+      --dangerously-skip-permissions --model haiku "Read dot.png with the Read tool and name its colour in one word."
+    claude_files
+    grep -q '"type":"image"' "$out/$sid.jsonl" || die "no image block in the log"
+    ;;
+  claude-approval)
+    claude_start --permission-mode default --model haiku
+    type_in send "$term" 'Run exactly this Bash command and nothing else: touch approved.txt'
+    wait_for 'Do you want to proceed' 30
+    hcr read "$term" >"$out/screen-approval.txt"
+    [ ! -e approved.txt ] || die "approved.txt exists before the approval"
+    type_in keys "$term" enter
+    n=30
+    while [ ! -e approved.txt ] && [ "$n" -gt 0 ]; do sleep 2; n=$((n - 1)); done
+    [ -e approved.txt ] || die "approved.txt missing after the approval"
+    hcr wait "$term" --timeout 90 >/dev/null || true
+    claude_files
+    ;;
+  codex-subagent)
+    clean codex exec -c model_reasoning_effort=low -s workspace-write \
+      "Spawn exactly one sub-agent with spawn_agent and ask it to run 'ls | wc -l' and report the number. Wait for it, then reply with its number only."
+    codex_files
+    grep -lq '"parent_thread_id":"0' "$out"/rollout-*.jsonl || die "no Codex child rollout"
+    ;;
+  codex-question)
+    codex_start --enable default_mode_request_user_input
+    type_in send "$term" 'Call request_user_input once to ask me one question: "Which colour?" with options red and blue. After I answer, write the colour I chose to colour.txt and stop.'
+    wait_for 'enter to submit answer' 40
+    hcr read "$term" >"$out/screen-question.txt"
+    type_in keys "$term" down enter
+    n=30
+    while [ ! -e colour.txt ] && [ "$n" -gt 0 ]; do sleep 2; n=$((n - 1)); done
+    [ "$(cat colour.txt 2>/dev/null)" = blue ] || die "colour.txt does not say blue"
+    hcr wait "$term" --timeout 90 >/dev/null || true
+    type_in send "$term" 'Now call request_user_input_async once to ask me "Which size?" with options small and large, then end your turn. When my answer arrives, write it to size.txt.'
+    wait_for '\? Which size' 40
+    hcr wait "$term" --timeout 90 >/dev/null || true
+    hcr read "$term" --lines 40 >"$out/screen-async.txt"
+    type_in send "$term" 'large'
+    n=30
+    while [ ! -e size.txt ] && [ "$n" -gt 0 ]; do sleep 2; n=$((n - 1)); done
+    [ "$(cat size.txt 2>/dev/null)" = large ] || die "size.txt does not say large"
+    hcr wait "$term" --timeout 90 >/dev/null || true
+    codex_files
+    ;;
+  codex-approval)
+    codex_start -a on-request -s read-only
+    type_in send "$term" 'Run exactly this shell command and nothing else: touch approved.txt'
+    wait_for 'Would you like to run the following command' 40
+    hcr read "$term" >"$out/screen-approval.txt"
+    [ ! -e approved.txt ] || die "approved.txt exists before the approval"
+    type_in keys "$term" enter
+    n=30
+    while [ ! -e approved.txt ] && [ "$n" -gt 0 ]; do sleep 2; n=$((n - 1)); done
+    [ -e approved.txt ] || die "approved.txt missing after the approval"
+    hcr wait "$term" --timeout 90 >/dev/null || true
+    codex_files
+    ;;
+esac
+
+cd "$repo"
+bun scripts/verify/scrub-fixture "$out" || die "scrub-fixture failed; unscrubbed logs left in $out"
+find "$out" -type f -size +300k | while read -r big; do echo "record-session: $big is over 300 KB" >&2; done
+case "$scenario" in
+  claude-*) version=$(claude --version | cut -d' ' -f1) ;;
+  *) version=$(codex --version | awk '{print $2}') ;;
+esac
+cat >"$out/expect.json" <<EOF
+{"agent":"${scenario%%-*}","version":"$version","user_messages":null,"assistant_messages":null,"tool_calls":null,"pictures":null,"children":[]}
+EOF
+rm -rf "$dest"
+mkdir -p "$(dirname "$dest")"
+mv "$out" "$dest"
+[ "$keep" = 1 ] || rm -rf "$dir" "$root/$scenario.mark"
+echo "recorded $scenario into $dest; fill expect.json by reading the logs"

@@ -1,0 +1,14 @@
+{
+  "agent": "codex",
+  "version": "0.167.0",
+  "session": "01a1b4a1-cd88-7852-b34b-2cf0f36c8fbc",
+  "file": "rollout-2026-11-06T22-11-05-01a1b4a1-cd88-7852-b34b-2cf0f36c8fbc.jsonl",
+  "user_messages": 1,
+  "assistant_messages": 2,
+  "tool_calls": 2,
+  "pictures": 0,
+  "children": [
+    {"id": "01a1b4a1-dfcb-77e0-8029-0fbb3b65e5ba", "type": "sub-agent", "depth": 1, "parent": "01a1b4a1-cd88-7852-b34b-2cf0f36c8fbc", "agent_path": "/root/count_entries", "nickname": "Hypatia", "spawn_call_id": "call_31c8b8f502474f4ba3f765151b688cbe", "file": "rollout-2026-11-06T22-11-09-01a1b4a1-dfcb-77e0-8029-0fbb3b65e5ba.jsonl", "history_start_ordinal": 17, "user_messages": 0, "agent_messages": 1, "assistant_messages": 1, "tool_calls": 1}
+  ],
+  "requests": []
+}

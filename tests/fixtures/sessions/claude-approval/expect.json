@@ -1,0 +1,14 @@
+{
+  "agent": "claude",
+  "version": "2.1.319",
+  "session": "e186f156-fd30-4aab-a0b6-d3922b281731",
+  "file": "e186f156-fd30-4aab-a0b6-d3922b281731.jsonl",
+  "user_messages": 1,
+  "assistant_messages": 1,
+  "tool_calls": 1,
+  "pictures": 0,
+  "children": [],
+  "requests": [
+    {"kind": "approval", "tool": "Bash", "command": "touch approved.txt", "tool_use_id": "toolu_01SGHovZaso4tVTRPTHPkAEF", "screen": "screen-approval.txt", "answer": "1. Yes"}
+  ]
+}

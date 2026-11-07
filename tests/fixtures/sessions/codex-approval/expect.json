@@ -1,0 +1,14 @@
+{
+  "agent": "codex",
+  "version": "0.167.0",
+  "session": "01a1b4a2-fa97-7930-bfcd-16b306dac48e",
+  "file": "rollout-2026-11-06T22-12-22-01a1b4a2-fa97-7930-bfcd-16b306dac48e.jsonl",
+  "user_messages": 1,
+  "assistant_messages": 1,
+  "tool_calls": 1,
+  "pictures": 0,
+  "children": [],
+  "requests": [
+    {"kind": "approval", "tool": "exec", "command": "touch approved.txt", "call_id": "call_46bbea063d654fa28d8e66020fc0709d", "screen": "screen-approval.txt", "answer": "1. Yes, proceed (y)"}
+  ]
+}
