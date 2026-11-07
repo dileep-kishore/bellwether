@@ -159,7 +159,7 @@ slug() { printf %s "$1" | sed 's/[^A-Za-z0-9]/-/g'; }
 before=$(sums)
 chromes_before=$(user_chromes)
 R= H= local_saved=0 cport= sport= fport= started=false core_pid= forward_up=0 remote_terms= terms_before=
-remote_before= helper_before= local_before=
+remote_before= helper_before= local_before= dirs_made=
 
 cleanup() {
   status=$1
@@ -211,6 +211,7 @@ cleanup() {
   fi
   if [ "$local_saved" = 1 ]; then
     out=$(sh -c "$home_files" sh restore "$HOME" "$L/saved-local" $local_paths 2>&1) || fail "cleanup" "could not put back $local_paths here: $out"
+    for d in $dirs_made; do rmdir "$HOME/$d" 2> /dev/null || [ ! -d "$HOME/$d" ] || echo "NOTE kept $HOME/$d: not empty"; done
     [ "$(sh -c "$home_files" sh sums "$HOME" $local_paths)" = "$local_before" ] &&
       pass "cleanup-local-files" "this run's window ($W) files and its forward's state here hold what they held before the run" ||
       fail "cleanup-local-files" "this run's window ($W) files or its forward's state here differ from before the run"
@@ -264,6 +265,9 @@ terms_before=$("$hc" ls --all --json 2> /dev/null)
 
 pass "settings-before" "$(sums | awk '{print $1}' | cut -c1-12 | tr '\n' ' ')for $real; user Chrome pids $(printf %s "$chromes_before" | awk '{print $1}' | tr '\n' ' ')"
 local_before=$(sh -c "$home_files" sh sums "$HOME" $local_paths)
+# The files' folders this run creates, deepest first; cleanup removes them only while empty.
+local_dirs="$f .local/share/bellwether/browser/forwards .local/share/bellwether/browser $a/ports $a"
+dirs_made=$(for d in $local_dirs; do [ -d "$HOME/$d" ] || printf '%s ' "$d"; done)
 out=$(sh -c "$home_files" sh save "$HOME" "$L/saved-local" $local_paths 2>&1) || { echo "FAIL setup: could not save $local_paths: $out"; exit 1; }
 # Set only once saved: a restore without a save would delete the folders' files.
 local_saved=1
