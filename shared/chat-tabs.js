@@ -119,6 +119,14 @@ export function addPending(value, p, now) {
 /** @param {any[]} panes @param {string} tabId */
 const terminalPaneIn = (panes, tabId) => panes.find((p) => p.tab === tabId && !p.mod && isStr(p.terminal)) ?? null;
 
+/** The agent a terminal pane runs, from Herdr's program table or the agent's own report. @param {any} pane
+ * @returns {ChatKind | null} */
+function kindOf(pane) {
+  const key = pane.program?.key;
+  if (isKind(key)) return key;
+  return pane.app === "codex" ? "codex" : pane.app === "claude-code" ? "claude" : null;
+}
+
 /** @param {unknown} f */
 const trimSlash = (f) => String(f ?? "").replace(/\/+$/, "");
 
@@ -199,6 +207,23 @@ export function adopt(value, spaces, panes, now) {
     }
   }
   s.pending = waiting;
+
+  // Each app home keeps its own entries, but the panes live in the space's core: a chat tab made in
+  // another window, or before this app home existed, is registered here so ⌘J works on it too.
+  for (const space of spaces) {
+    for (const t of space.tabs) {
+      if (s.tabs[t.id]) continue;
+      const terms = panes.filter((p) => p.tab === t.id && !p.mod && isStr(p.terminal));
+      const chats = panes.filter((p) => p.tab === t.id && p.mod === "bw-chat");
+      const kind = terms.length === 1 ? kindOf(terms[0]) : null;
+      if (!kind || chats.length !== 1) continue;
+      s.tabs[t.id] = {
+        tab: t.id, space: space.id, machine: space.machine ?? null, kind, terminal: terms[0].terminal, terminalPane: terms[0].pane,
+        chatPane: chats[0].pane, split: null, zoomed: true, failed: false, created: now,
+      };
+      changed = true;
+    }
+  }
 
   for (const e of Object.values(s.tabs)) {
     if (e.chatPane === null) {

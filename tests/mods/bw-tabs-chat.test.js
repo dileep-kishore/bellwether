@@ -187,6 +187,19 @@ describe("bw-tabs ⌘J", () => {
     expect(m.view.flip).toBe(false);
   });
 
+  test("⌘J flips an existing chat tab in an app home that never recorded it", async () => {
+    const c = commands();
+    const data = live("chat-tab");
+    data.shared = {};
+    const m = await mount("bw-tabs", { live: { ...data, nextCommand: c.next } });
+    expect(Object.keys(m.log.shared.at(-1)[1].tabs).sort()).toEqual(["macmini/tb5", "tb8"]);
+    expect(m.log.run).toEqual([]);
+    c.send("chat-flip");
+    await m.cx.flush();
+    m.render();
+    expect(m.log.run).toEqual([["pane.zoom", { pane: "p9" }], ["pane.zoom", { pane: "p8" }], ["pane.focus", { pane: "p8" }]]);
+  });
+
   test("terminal gone: flip does nothing", async () => {
     const c = commands();
     const data = live("chat-tab");

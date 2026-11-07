@@ -132,6 +132,32 @@ describe("adopt", () => {
     expect(r.notices).toEqual([]);
   });
 
+  test("an existing chat tab this app home never recorded is registered, with no split or zoom", () => {
+    const f = chatTab();
+    const r = adopt(null, f.spaces, f.panes, 7);
+    expect(r.actions).toEqual([]);
+    expect(r.notices).toEqual([]);
+    expect(r.next?.tabs.tb8).toEqual({ ...f.shared["bw.chat-tabs"].tabs.tb8, split: null, created: 7 });
+    expect(r.next?.tabs["macmini/tb5"]).toEqual({ ...f.shared["bw.chat-tabs"].tabs["macmini/tb5"], split: null, created: 7 });
+    expect(flipActions(r.next, "tb8", f.panes)).toEqual([["pane.zoom", { pane: "p9" }], ["pane.zoom", { pane: "p8" }], ["pane.focus", { pane: "p8" }]]);
+    expect(adopt(r.next, f.spaces, f.panes, 8).next).toBe(null);
+    expect(adopt({}, f.spaces, f.panes, 7).next?.tabs.tb8?.chatPane).toBe("p9");
+  });
+
+  test("a tab is registered only with one Claude or Codex terminal and one chat pane", () => {
+    const spaces = [space("s1", [tab("t1"), tab("t2"), tab("t3"), tab("t4")])];
+    const claude = { program: { key: "claude" } };
+    const panes = [
+      term("a1", "x1", "t1", claude), term("a2", "x2", "t1", claude), chat("c1", "t1"),
+      term("b1", "y1", "t2", claude), chat("c2", "t2"), chat("c3", "t2"),
+      term("d1", "z1", "t3", { program: { key: "shell" } }), chat("c4", "t3"),
+      term("e1", "w1", "t4", { program: { key: "codex" } }), chat("c5", "t4"),
+    ];
+    const r = adopt(null, spaces, panes, 0);
+    expect(Object.keys(r.next?.tabs ?? {})).toEqual(["t4"]);
+    expect(r.next?.tabs.t4).toMatchObject({ kind: "codex", terminal: "w1", terminalPane: "e1", chatPane: "c5", machine: null, space: "s1" });
+  });
+
   test("the live fixture is settled: nothing to do", () => {
     const f = chatTab();
     expect(adopt(f.shared["bw.chat-tabs"], f.spaces, f.panes, 0)).toEqual({ next: null, actions: [], notices: [] });
