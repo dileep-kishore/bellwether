@@ -22,7 +22,7 @@ echo_answers() {
 
 case "${1:-}" in
   --offline)
-    for f in "$server" "$src/tests/mcp-echo.test.js" "$src/scripts/verify/stage.sh" "$src/docs/research/2026-11-06-phase0-spike.md"; do
+    for f in "$server" "$src/tests/mcp-echo.test.js" "$src/scripts/verify/stage.sh" "$src/scripts/verify/codex-config.js" "$src/docs/research/2026-11-06-phase0-spike.md"; do
       [ -f "$f" ] && pass "exists ${f#"$src"/}" || bad "missing ${f#"$src"/}"
     done
     echo_answers && pass "echo server answers bw_echo" || bad "echo server did not answer bw_echo"
@@ -124,12 +124,14 @@ case $r in *"$ECHO"*"$INSTR"*) pass "codex exec loads the server and the instruc
 [ "$(codex mcp list 2>&1)" = "$codex_before" ] && pass "codex mcp list unchanged afterwards" || bad "codex mcp list changed"
 
 # A scratch CODEX_HOME whose config sets a top-level value of its own, to show that -c replaces it.
+# The planted value takes the place of any the user's config sets, since TOML refuses the key twice.
 (umask 077; mkdir -p "$CH")
-if awk '/^\[/{exit} /^developer_instructions[ =]/{f=1} END{exit !f}' "$HOME/.codex/config.toml"; then
-  bad "the user's config sets developer_instructions at the top level; the planted one would clash (skipped)"
+if ! bun "$src/scripts/verify/codex-config.js" "$HOME/.codex/config.toml" "User note: the top-level session word is $TOP." > "$CH/config.toml"; then
+  # The interactive Codex check below runs only when this file exists.
+  rm -f "$CH/config.toml"
+  bad "could not plant developer_instructions in a copy of the user's config (skipped)"
 else
-  { printf 'developer_instructions = "User note: the top-level session word is %s."\n' "$TOP"; cat "$HOME/.codex/config.toml"
-    printf '\n[projects."%s"]\ntrust_level = "trusted"\n' "$W/codex-i"; } > "$CH/config.toml"
+  printf '\n[projects."%s"]\ntrust_level = "trusted"\n' "$W/codex-i" >> "$CH/config.toml"
   CODEX_HOME=$CH codex login status >/dev/null 2>&1 || (umask 077; cp "$HOME/.codex/auth.json" "$CH/auth.json")
   codex_exec replace "$CH" -c "$m1" -c "$m2" -c "$m3" -c "developer_instructions=\"$ours\""
   case $r in *"$TOP"*) bad "codex -c developer_instructions kept the configured value" ;; *"$INSTR"*) pass "codex -c developer_instructions replaces the configured value" ;; *) bad "codex replace run lacks our sentinel" ;; esac
