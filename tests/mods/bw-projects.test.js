@@ -201,6 +201,42 @@ describe("bw-projects", () => {
     for (const [name, p] of m.log.live) if (["agents", "spaces", "panes", "terminals", "focused"].includes(name)) expect(p).toBe("render");
   });
 
+  test("counts loop per machine every 10 s, with local addresses", async () => {
+    const m = await mounted();
+    const counted = () => calls.filter((c) => c.args.includes("counts"));
+    const shape = (cs) => cs.map((c) => [c.on, c.args.slice(3)]).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+    expect(shape(counted())).toEqual([
+      ["macmini", ["counts", "--terminals", "t5"]],
+      [null, ["counts", "--terminals", "t1,t2,t3"]],
+    ]);
+    // In-process sub-agents add to the terminal sub-agent count; a waiting request shows as a badge.
+    expect(textOf(byId(m.el, "agent-t1"))).toContain("+2");
+    expect(textOf(byId(m.el, "agent-t2"))).toContain("fix login 1 ");
+    expect(textOf(byId(m.el, "agent-t3"))).toContain("+1");
+    expect(textOf(byId(m.el, "agent-macmini/t5"))).toContain("Port the script +1");
+
+    const loops = () => m.cx.sleeps.filter((s) => s.ms > 9900 && s.ms <= 10000);
+    expect(loops()).toHaveLength(2);
+    for (const s of loops()) s.wake();
+    await settle(m);
+    expect(shape(counted().slice(2))).toEqual(shape(counted().slice(0, 2)));
+  });
+
+  test("status change pokes the counts loop", async () => {
+    const m = await mounted();
+    const counted = () => calls.filter((c) => c.args.includes("counts"));
+    const before = counted().length;
+    await settle(m);
+    expect(counted()).toHaveLength(before);
+    fake.agents.find((a) => a.address === "t1").status = "blocked";
+    await settle(m);
+    expect(counted().slice(before).map((c) => c.on)).toEqual([null]);
+    // An agent on macmini pokes only macmini's loop.
+    fake.agents.find((a) => a.address === "macmini/t5").status = "working";
+    await settle(m);
+    expect(counted().slice(before + 1).map((c) => c.on)).toEqual(["macmini"]);
+  });
+
   test("helper state shows setting up Bellwether on macmini", async () => {
     /** @type {(v: unknown) => void} */
     let finish = () => {};

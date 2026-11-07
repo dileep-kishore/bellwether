@@ -54,6 +54,19 @@ import { worst } from "./status.js";
  * @property {Stored[]} stored
  * @property {"macos" | "linux" | "windows"} platform
  * @property {GitCache} git
+ * @property {Record<string, AgentCount>} [counts] `bw counts` per agent address, in this window's namespace
+ */
+
+/**
+ * @typedef {object} AgentCount One `bw counts` line: running in-process sub-agents and waiting requests.
+ * @property {number} subagents
+ * @property {number} requests
+ */
+
+/**
+ * @typedef {object} CountTarget The agent lines on one machine that `bw counts` runs for there.
+ * @property {string | null} machine
+ * @property {{ address: string, local: string }[]} terminals
  */
 
 /**
@@ -232,15 +245,25 @@ export function forgetProject(value, key) {
 }
 
 /**
+ * @param {Record<string, AgentCount>} counts @param {string} address @param {"subagents" | "requests"} key
+ * @returns {number} the count, or 0 when it is missing or not a whole number at least 0
+ */
+function countOf(counts, address, key) {
+  const v = counts[address]?.[key];
+  return Number.isInteger(v) && v >= 0 ? v : 0;
+}
+
+/**
  * Agent lines in agents() order. A sub-agent (its terminal has a `parent`) is counted on its nearest
  * ancestor that has a line, and gets a line itself only when no ancestor has one.
  *
  * @param {any[]} spaces
  * @param {any[]} agents
  * @param {any[]} terminals
+ * @param {Record<string, AgentCount>} counts
  * @returns {AgentLine[]}
  */
-function agentLines(spaces, agents, terminals) {
+function agentLines(spaces, agents, terminals, counts) {
   const terms = new Map(terminals.map((t) => [t.address, t]));
   // A bare parent names a terminal on the child's machine.
   const parentOf = (/** @type {string} */ address) => {
@@ -280,8 +303,8 @@ function agentLines(spaces, agents, terminals) {
         title: tab?.named ? a.tab_name : a.title,
         status: a.status,
         program: a.program,
-        subagents: subagents.get(a.address) ?? 0,
-        requests: 0,
+        subagents: (subagents.get(a.address) ?? 0) + countOf(counts, a.address, "subagents"),
+        requests: countOf(counts, a.address, "requests"),
         changedAt: tab?.changed_at ?? null,
       };
     });
@@ -319,7 +342,7 @@ export function buildProjects(input) {
   for (const s of spaces) addMachine(s.machine ?? null, "loading");
   for (const name of [...new Set(stored.map((p) => p.machine))].sort((a, b) => cmp(a ?? "", b ?? ""))) addMachine(name, "not_connected");
 
-  const lines = agentLines(spaces, input.agents ?? [], input.terminals ?? []);
+  const lines = agentLines(spaces, input.agents ?? [], input.terminals ?? [], input.counts ?? {});
 
   /** @type {Map<string, { machine: string | null, commonDir: string, stored: Stored | null, attach: { space: any, top: string }[] }>} */
   const found = new Map();
@@ -439,6 +462,33 @@ export function buildProjects(input) {
     ...m.plain.flatMap((s) => s.agents.map((a) => a.address)),
   ]);
   return { machines: out, agentOrder, remember };
+}
+
+/**
+ * Where `bw counts` runs: each ready machine with agent lines, and those lines' addresses on that machine
+ * (`macmini/t5` is `t5` there). None for a machine that is loading, offline or not connected.
+ *
+ * @param {ProjectTree} tree
+ * @returns {CountTarget[]}
+ */
+export function countTargets(tree) {
+  /** @type {CountTarget[]} */
+  const out = [];
+  for (const m of tree.machines) {
+    if (m.state !== "ready") continue;
+    const lines = [
+      ...m.projects.flatMap((p) => p.worktrees.flatMap((w) => w.agents)),
+      ...m.plain.flatMap((s) => s.agents),
+    ];
+    const prefix = m.name === null ? "" : `${m.name}/`;
+    const terminals = [];
+    for (const { address } of lines) {
+      const local = address.startsWith(prefix) ? address.slice(prefix.length) : address;
+      if (local && !local.includes("/") && !terminals.some((t) => t.address === address)) terminals.push({ address, local });
+    }
+    if (terminals.length) out.push({ machine: m.name, terminals });
+  }
+  return out;
 }
 
 /**

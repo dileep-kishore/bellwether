@@ -4,6 +4,8 @@
 //! hashes of the rows it printed for that cursor in the cache file. When the log grew, it parses the same range
 //! again, compares, and prints only the rows from the first one that changed: `splice {at}` and the rows after it.
 //!
+//! `--session <child>` feeds a sub-agent's own log, parsed with its scope, its state kept apart from the root's.
+//!
 //! Adapted from Flockbook's xplat/flockbook-modfeed/src/feed.rs (MIT, Copyright (c) 2026 Min-Chen Lee).
 
 use std::path::{Path, PathBuf};
@@ -11,12 +13,14 @@ use std::process::ExitCode;
 
 use chrono::{Local, TimeZone, Utc};
 use herdr_core::util::Date;
+use herdr_core::FileScope;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::args::{self, Args};
 use super::protocol::{fnv1a, JsonLines};
-use super::{cache, locate, rows, tail};
+use super::{cache, locate, rows, tail, tree};
+use crate::requests::cards;
 
 /// The range parsed again on each growth stops growing here; then `bw` starts a new 2 MB tail (splice 0).
 pub const MAX_SPAN: u64 = 8 * 1024 * 1024;
@@ -50,7 +54,11 @@ pub struct Source<'a> {
     pub path: &'a Path,
     pub agent: &'a str,
     pub terminal: Option<&'a str>,
+    /// The root session, also when the log is a sub-agent's.
     pub session: &'a str,
+    /// The sub-agent whose own log this is.
+    pub child: Option<&'a str>,
+    pub scope: FileScope,
 }
 
 /// Prints the `log` line and the rows (or `unchanged`) for `src`, and returns the state to keep.
@@ -70,7 +78,7 @@ pub fn feed<Tz: TimeZone>(
         p.path == path_s && p.pictures == pictures && cursor == Some(p.cursor().as_str())
     });
     let log_line = |start: u64, size: u64, cursor: String| {
-        json!({
+        let mut v = json!({
             "type": "log",
             "agent": src.agent,
             "terminal": src.terminal,
@@ -79,7 +87,11 @@ pub fn feed<Tz: TimeZone>(
             "start": start,
             "size": size,
             "cursor": cursor,
-        })
+        });
+        if let Some(c) = src.child {
+            v["child"] = json!(c);
+        }
+        v
     };
     if let Some(p) = prev.filter(|p| p.size == size) {
         out.emit_value(log_line(p.start, p.size, p.cursor()));
@@ -89,7 +101,7 @@ pub fn feed<Tz: TimeZone>(
     // A log that shrank was replaced: read it afresh. One that only grew keeps its range while it is not too big.
     let keep = prev.and_then(|p| (size >= p.size && size - p.start <= MAX_SPAN).then_some(p.start));
     let range = tail::read(src.path, keep, tail::BYTES)?;
-    let rs = rows::rows(&parsed(&range, pictures), now, tz);
+    let rs = rows::rows(&parsed(&range, pictures, src.scope), now, tz);
     let mut enc = JsonLines::new();
     for r in &rs {
         enc.emit(r);
@@ -123,6 +135,7 @@ pub fn feed<Tz: TimeZone>(
 /// `feed --before <start>`: the rows of the 2 MB before `start`. Keeps no state.
 pub fn older<Tz: TimeZone>(
     path: &Path,
+    scope: FileScope,
     before: u64,
     pictures: bool,
     out: &mut JsonLines,
@@ -130,7 +143,7 @@ pub fn older<Tz: TimeZone>(
     tz: &Tz,
 ) -> std::io::Result<()> {
     let range = tail::read_before(path, before, tail::BYTES)?;
-    let rs = rows::rows(&parsed(&range, pictures), now, tz);
+    let rs = rows::rows(&parsed(&range, pictures, scope), now, tz);
     out.emit_value(json!({
         "type": "older",
         "path": path.to_string_lossy(),
@@ -143,11 +156,15 @@ pub fn older<Tz: TimeZone>(
     Ok(())
 }
 
-fn parsed(range: &tail::Range, pictures: bool) -> Vec<herdr_core::ConversationItem> {
+fn parsed(
+    range: &tail::Range,
+    pictures: bool,
+    scope: FileScope,
+) -> Vec<herdr_core::ConversationItem> {
     if pictures {
-        tail::items_at(range)
+        tail::items_at(range, scope)
     } else {
-        tail::items(&range.lines)
+        tail::items(&range.lines, scope)
     }
 }
 
@@ -168,7 +185,7 @@ pub fn session_of(path: &Path, agent: &str) -> String {
 }
 
 /// `BW_NOW_MS` when set, for tests; else the clock.
-fn now() -> Date {
+pub fn now() -> Date {
     std::env::var("BW_NOW_MS")
         .ok()
         .and_then(|v| v.parse::<i64>().ok())
@@ -176,14 +193,17 @@ fn now() -> Date {
         .unwrap_or_else(Utc::now)
 }
 
-const USAGE: &str = "usage: bw feed (--terminal <t> | --log <path> --agent claude|codex) \
-    [--cursor <c> | --before <start>] [--pictures]";
+const USAGE: &str = "usage: bw feed (--terminal <t> [--session <child>] \
+    | --log <path> --agent claude|codex [--scope root|claude-subagent|codex-child:<ordinal>]) \
+    [--cursor <c> | --before <start>] [--pictures] [--tree] [--cards]";
 
 pub fn run(argv: &[String]) -> ExitCode {
     let a = match args::parse(
         argv,
-        &["pictures"],
-        &["terminal", "log", "agent", "cursor", "before"],
+        &["pictures", "tree", "cards"],
+        &[
+            "terminal", "log", "agent", "cursor", "before", "session", "scope",
+        ],
     ) {
         Ok(a) => a,
         Err(m) => return crate::usage(&format!("{m}; {USAGE}")),
@@ -196,6 +216,29 @@ pub fn run(argv: &[String]) -> ExitCode {
     }
 }
 
+/// `--scope` for a file of `agent`: `root`, Claude's `claude-subagent`, Codex's `codex-child:<ordinal>`.
+fn scope_arg(value: Option<&str>, agent: &str) -> Option<FileScope> {
+    match (value, agent) {
+        (None | Some("root"), _) => Some(FileScope::Root),
+        (Some("claude-subagent"), "claude") => Some(FileScope::ClaudeSubagent),
+        (Some(v), "codex") => v
+            .strip_prefix("codex-child:")?
+            .parse()
+            .ok()
+            .map(|from_ordinal| FileScope::CodexChild { from_ordinal }),
+        _ => None,
+    }
+}
+
+/// What one call reads besides the range: `--pictures`, `--tree`, `--cards`, and a range before `--before`.
+struct Ask<'a> {
+    cursor: Option<&'a str>,
+    before: Option<u64>,
+    pictures: bool,
+    tree: bool,
+    cards: bool,
+}
+
 fn run_in<Tz: TimeZone>(a: &Args, now: &Date, tz: &Tz) -> ExitCode {
     let before = match a.get("before").map(str::parse::<u64>) {
         None => None,
@@ -205,22 +248,35 @@ fn run_in<Tz: TimeZone>(a: &Args, now: &Date, tz: &Tz) -> ExitCode {
     if before.is_some() && a.get("cursor").is_some() {
         return crate::usage(&format!("--before takes no --cursor; {USAGE}"));
     }
-    let pictures = a.has("pictures");
+    if before.is_some() && (a.has("tree") || a.has("cards")) {
+        return crate::usage(&format!("--before takes no --tree or --cards; {USAGE}"));
+    }
+    let ask = Ask {
+        cursor: a.get("cursor"),
+        before,
+        pictures: a.has("pictures"),
+        tree: a.has("tree"),
+        cards: a.has("cards"),
+    };
     let mut out = JsonLines::new();
     let result = match (a.get("terminal"), a.get("log"), a.get("agent")) {
-        (Some(t), None, None) => {
-            by_terminal(t, a.get("cursor"), before, pictures, &mut out, now, tz)
+        (Some(t), None, None) if a.get("scope").is_none() => {
+            by_terminal(t, a.get("session"), &ask, &mut out, now, tz)
         }
-        (None, Some(log), Some(agent @ ("claude" | "codex"))) => by_log(
-            Path::new(log),
-            agent,
-            a.get("cursor"),
-            before,
-            pictures,
-            &mut out,
-            now,
-            tz,
-        ),
+        (None, Some(log), Some(agent @ ("claude" | "codex")))
+            if a.get("session").is_none() && !ask.cards =>
+        {
+            let Some(scope) = scope_arg(a.get("scope"), agent) else {
+                return crate::usage(&format!(
+                    "--scope {:?} is not one of {agent}'s; {USAGE}",
+                    a.get("scope").unwrap_or_default()
+                ));
+            };
+            if ask.tree && scope != FileScope::Root {
+                return crate::usage(&format!("--tree reads a root log; {USAGE}"));
+            }
+            by_log(Path::new(log), agent, scope, &ask, &mut out, now, tz)
+        }
         _ => return crate::usage(USAGE),
     };
     match result {
@@ -235,13 +291,11 @@ fn run_in<Tz: TimeZone>(a: &Args, now: &Date, tz: &Tz) -> ExitCode {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn by_log<Tz: TimeZone>(
     path: &Path,
     agent: &str,
-    cursor: Option<&str>,
-    before: Option<u64>,
-    pictures: bool,
+    scope: FileScope,
+    ask: &Ask,
     out: &mut JsonLines,
     now: &Date,
     tz: &Tz,
@@ -252,8 +306,11 @@ fn by_log<Tz: TimeZone>(
             path.to_string_lossy().to_string(),
         ));
     }
-    if let Some(b) = before {
-        return older(path, b, pictures, out, now, tz);
+    if let Some(b) = ask.before {
+        return older(path, scope, b, ask.pictures, out, now, tz);
+    }
+    if ask.tree {
+        out.emit_value(tree::tree_of_log(path, agent).line());
     }
     let session = session_of(path, agent);
     let src = Source {
@@ -261,21 +318,59 @@ fn by_log<Tz: TimeZone>(
         agent,
         terminal: None,
         session: &session,
+        child: None,
+        scope,
     };
-    with_state(&cache::log_file(path), &src, cursor, pictures, out, now, tz)
+    let file = match scope {
+        FileScope::Root => cache::log_file(path),
+        FileScope::ClaudeSubagent => cache::scoped_log_file(path, "claude-subagent"),
+        FileScope::CodexChild { from_ordinal } => {
+            cache::scoped_log_file(path, &format!("codex-child:{from_ordinal}"))
+        }
+    };
+    with_state(&file, &src, ask.cursor, ask.pictures, out, now, tz)
 }
 
-#[allow(clippy::too_many_arguments)]
+/// The terminal's rows, then with `--cards` its requests, from one `hc get`, so a chat poll is one call.
 fn by_terminal<Tz: TimeZone>(
     terminal: &str,
-    cursor: Option<&str>,
-    before: Option<u64>,
-    pictures: bool,
+    child: Option<&str>,
+    ask: &Ask,
     out: &mut JsonLines,
     now: &Date,
     tz: &Tz,
 ) -> std::io::Result<()> {
-    let located = match locate::locate(terminal, now.timestamp_millis()) {
+    let (record, found) = locate::locate_with_record(terminal, now.timestamp_millis(), false);
+    let mut tree = None;
+    let fed = rows_of(terminal, child, &found, ask, &mut tree, out, now, tz);
+    if ask.cards && fed.is_ok() {
+        cards::emit(
+            terminal,
+            record.as_ref(),
+            &found,
+            tree,
+            now.timestamp_millis(),
+            out,
+        );
+    }
+    fed
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "by_terminal's parts, kept apart so the cards follow every outcome"
+)]
+fn rows_of<Tz: TimeZone>(
+    terminal: &str,
+    child: Option<&str>,
+    found: &Result<locate::Located, locate::LocateFailure>,
+    ask: &Ask,
+    tree_out: &mut Option<tree::Tree>,
+    out: &mut JsonLines,
+    now: &Date,
+    tz: &Tz,
+) -> std::io::Result<()> {
+    let located = match found {
         Ok(l) => l,
         Err(f) => {
             out.emit_value(f.state_line());
@@ -292,24 +387,37 @@ fn by_terminal<Tz: TimeZone>(
         out.emit_value(gone.state_line());
         return Ok(());
     }
-    if let Some(b) = before {
-        return older(&path, b, pictures, out, now, tz);
+    let tree = (ask.tree || child.is_some() || ask.cards).then(|| tree::tree_of(located));
+    if let Some(t) = tree.as_ref().filter(|_| ask.tree) {
+        out.emit_value(t.line());
+    }
+    tree_out.clone_from(&tree);
+    let (path, scope, cache_file) = match (child, &tree) {
+        (Some(id), Some(t)) => {
+            let Some(c) = t.child(id).filter(|c| c.path.is_file()) else {
+                let mut v = json!({"type": "state", "state": "no_child", "child": id});
+                if t.child(id).is_some() {
+                    v["message"] = json!("no log for this sub-agent yet");
+                }
+                out.emit_value(v);
+                return Ok(());
+            };
+            (c.path.clone(), c.scope, cache::child_file(terminal, id))
+        }
+        _ => (path, FileScope::Root, cache::terminal_file(terminal)),
+    };
+    if let Some(b) = ask.before {
+        return older(&path, scope, b, ask.pictures, out, now, tz);
     }
     let src = Source {
         path: &path,
         agent: &located.agent,
         terminal: Some(terminal),
         session: &located.session,
+        child,
+        scope,
     };
-    with_state(
-        &cache::terminal_file(terminal),
-        &src,
-        cursor,
-        pictures,
-        out,
-        now,
-        tz,
-    )
+    with_state(&cache_file, &src, ask.cursor, ask.pictures, out, now, tz)
 }
 
 /// Feeds `src` with the state kept in `file`, then keeps the new state there beside what else the file holds.

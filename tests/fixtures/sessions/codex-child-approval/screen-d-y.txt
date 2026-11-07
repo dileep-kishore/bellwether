@@ -1,0 +1,120 @@
+
+  >_ OpenAI Codex (v0.167.0)
+     /scratch/codex-child-approval
+
+
+› Run exactly this shell command with escalated sandbox permissions (ask me for approval first) and nothing else: touch d-y.txt
+
+
+• I need approval before running the requested command because the workspace is read-only. I’ll request escalation for exactly touch d-y.txt.
+
+• Running touch d-y.txt
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  Would you like to run the following command?
+
+  Environment: local
+
+  Reason: May I run exactly `touch d-y.txt` with escalated permissions, as requested?
+
+  $ touch d-y.txt
+
+
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with `touch d-y.txt` (p)
+  3. No, and tell Codex what to do differently (esc)
+
+  Press enter to confirm or esc to cancel

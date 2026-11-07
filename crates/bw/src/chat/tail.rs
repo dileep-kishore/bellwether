@@ -2,8 +2,7 @@
 //!
 //! Adapted from Flockbook's xplat/flockbook-modfeed/src/tail.rs (MIT, Copyright (c) 2026 Min-Chen Lee).
 
-use herdr_core::ConversationItem;
-use herdr_core::ConversationParser;
+use herdr_core::{ConversationItem, ConversationParser, FileScope};
 use serde_json::Value;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -185,8 +184,9 @@ fn line_start_within(path: &Path, at: u64, limit: u64) -> std::io::Result<Option
     Ok((floor == 0).then_some(0))
 }
 
-pub fn items(lines: &[String]) -> Vec<ConversationItem> {
-    let mut p = ConversationParser::new();
+/// The items of `lines` from a file of `scope`: a sub-agent's file parses as a session of its own.
+pub fn items(lines: &[String], scope: FileScope) -> Vec<ConversationItem> {
+    let mut p = ConversationParser::with_scope(scope);
     for l in lines {
         p.feed(l);
     }
@@ -195,8 +195,8 @@ pub fn items(lines: &[String]) -> Vec<ConversationItem> {
 
 /// `items`, with each line's file offset: picture refs point into the log. Codex items then get ids from their
 /// offsets, so rows differ from `items`' (`bw-chat` always reads this way).
-pub fn items_at(range: &Range) -> Vec<ConversationItem> {
-    let mut p = ConversationParser::new();
+pub fn items_at(range: &Range, scope: FileScope) -> Vec<ConversationItem> {
+    let mut p = ConversationParser::with_scope(scope);
     for (l, at) in range.lines.iter().zip(&range.offsets) {
         p.feed_at(l, Some(*at));
     }

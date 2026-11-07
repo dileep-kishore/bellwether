@@ -29,11 +29,29 @@ pub use crate::util::{cut, MAX_DETAIL};
 
 /// Parses all lines in one go.
 pub fn parse_lines<S: AsRef<str>>(lines: &[S]) -> Vec<ConversationItem> {
-    let mut p = ConversationParser::new();
+    parse_lines_in(FileScope::Root, lines)
+}
+
+/// `parse_lines` for a file of the given scope.
+pub fn parse_lines_in<S: AsRef<str>>(scope: FileScope, lines: &[S]) -> Vec<ConversationItem> {
+    let mut p = ConversationParser::with_scope(scope);
     for l in lines {
         p.feed(l.as_ref());
     }
     p.items()
+}
+
+/// What a session file is, so a sub-agent's own file parses as a session of its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum FileScope {
+    /// A root session: Claude's sidechain lines are skipped, as upstream does.
+    #[default]
+    Root,
+    /// A Claude `subagents/agent-<id>.jsonl`, every line of which is a sidechain line.
+    ClaudeSubagent,
+    /// A Codex child rollout, which first repeats the parent's history; lines whose `ordinal` is below
+    /// `from_ordinal` (its `session_meta.subagent_history_start_ordinal`) are skipped, lines without one are kept.
+    CodexChild { from_ordinal: u64 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -119,11 +137,16 @@ pub struct ConversationParser {
     grok: GrokState, // Grok Build chunk merging (see grok.rs)
     queue: ClaudeQueueLog,
     codex_seq: u64,
+    scope: FileScope,
 }
 
 impl ConversationParser {
     pub fn new() -> ConversationParser {
         ConversationParser::default()
+    }
+
+    pub fn with_scope(scope: FileScope) -> ConversationParser {
+        ConversationParser { scope, ..ConversationParser::default() }
     }
 
     /// The session the last line fed says the conversation went on in (Claude Code's `continued-in`), else nil.
@@ -200,6 +223,11 @@ impl ConversationParser {
     /// when earlier lines are prepended.
     pub fn feed_at(&mut self, line: &str, offset: Option<u64>) {
         let Some(o) = json::parse_obj(line) else { return };
+        if let FileScope::CodexChild { from_ordinal } = self.scope {
+            if o.get("ordinal").and_then(Value::as_u64).is_some_and(|n| n < from_ordinal) {
+                return;
+            }
+        }
         self.line_ts = json::str_(o.get("timestamp")).and_then(parse_time);
         self.line_offset = offset;
         if let Some((update, meta)) = grok::grok_update(&o) {
@@ -229,7 +257,7 @@ impl ConversationParser {
         let ty = json::str_(o.get("type"));
         self.continued_in =
             if ty == Some("continued-in") { json::str_(o.get("continuedInSessionId")).map(str::to_string) } else { None };
-        if json::bool_(o.get("isSidechain")) == Some(true) {
+        if json::bool_(o.get("isSidechain")) == Some(true) && self.scope != FileScope::ClaudeSubagent {
             return;
         }
         if ty == Some("attachment") {

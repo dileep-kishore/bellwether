@@ -1,0 +1,29 @@
+{
+  "codex": "0.167.0",
+  "recorded": "2026-11-07, scripts/verify/requests-probe.sh case f",
+  "key": "[hooks.state.\"<absolute hooks.json path>:<snake_case event>:<group index>:<hook index>\"] in $CODEX_HOME/config.toml; these groups were index 1 of each event",
+  "identity": "sha256 of the compact JSON, keys sorted, of {event_name: <snake_case event>, matcher (only when the group has one), hooks: [<the hook object> + {async: (its async, default false), timeout: (its timeout, default 600)}]}, written as sha256:<hex>",
+  "hooks": [
+    {
+      "event": "PermissionRequest",
+      "matcher": null,
+      "command": ": bellwether-hook=1; sh \"$HOME/.local/share/bellwether/hooks/bw-event\" codex",
+      "timeout": 5,
+      "trusted_hash": "sha256:9987bcd34b4fbf4e82fac93a742e56e017e74893c4dc60a072776024656f2d1d"
+    },
+    {
+      "event": "SubagentStart",
+      "matcher": null,
+      "command": ": bellwether-hook=1; sh \"$HOME/.local/share/bellwether/hooks/bw-event\" codex",
+      "timeout": 5,
+      "trusted_hash": "sha256:314338344c2b559c902a84ce4dde42e1892f16b2fb35c722547399c70fb8213b"
+    },
+    {
+      "event": "SubagentStop",
+      "matcher": null,
+      "command": ": bellwether-hook=1; sh \"$HOME/.local/share/bellwether/hooks/bw-event\" codex",
+      "timeout": 5,
+      "trusted_hash": "sha256:487402a76c5cb03cce7b01206b672037a22108b9a4d68558d70e3db997ed94fe"
+    }
+  ]
+}

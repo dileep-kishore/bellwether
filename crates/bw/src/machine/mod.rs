@@ -1,4 +1,4 @@
-//! `bw machine status|install <machine>`: the helper on another machine, reached through hc.
+//! `bw machine status|install|setup <machine>`: the helper on another machine, reached through hc.
 //!
 //! Adapted from Flockbook's xplat/flockbook-modfeed/src/remote.rs (MIT, Copyright (c) 2026 Min-Chen Lee).
 //! No value reaches a shell there: commands are `argv`, and the few fixed `sh -c` scripts take values only as
@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 use crate::hc::{hc_exec, HcError};
 use crate::version::PROTOCOL;
 
+pub mod hooks;
 mod install;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -22,11 +23,15 @@ const DIST_DIR: &str = ".local/share/bellwether/dist";
 pub(crate) const RUN_HELPER: &str =
     r#"exec "$HOME"/.local/share/bellwether/helper/current/bw "$@""#;
 
-const USAGE: &str = "usage: bw machine status <machine> | bw machine install <machine> [--force]";
+const USAGE: &str = "usage: bw machine status <machine> | bw machine install <machine> [--force] \
+    | bw machine setup <machine|local> --check|--diff|--apply|--remove";
 
 pub fn run(args: &[String]) -> ExitCode {
     let sub = args.first().map(String::as_str);
     let rest = args.get(1..).unwrap_or_default();
+    if sub == Some("setup") {
+        return hooks::setup(rest);
+    }
     let force = rest.iter().any(|a| a == "--force");
     let mut names = rest.iter().filter(|a| *a != "--force");
     let (Some(machine), None) = (names.next(), names.next()) else {

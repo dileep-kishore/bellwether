@@ -1,4 +1,4 @@
-//! `bw feed|locate|send|picture|picture-read`: a chat tab's reads and writes.
+//! `bw feed|locate|send|picture|picture-read|tree`: a chat tab's reads and writes.
 
 use std::process::ExitCode;
 
@@ -9,13 +9,14 @@ pub mod cache;
 pub mod dirs;
 pub mod protocol;
 
-mod feed;
+pub mod feed;
 pub mod locate;
 mod picture;
-mod rows;
-mod send;
+pub mod rows;
+pub(crate) mod send;
 mod sentence;
-mod tail;
+pub mod tail;
+pub mod tree;
 
 pub fn run(cmd: &str, args: &[String]) -> ExitCode {
     match cmd {
@@ -24,6 +25,7 @@ pub fn run(cmd: &str, args: &[String]) -> ExitCode {
         "send" => send::run(args),
         "picture" => picture::run(args),
         "picture-read" => picture::run_read(args),
+        "tree" => tree::run(args),
         other => crate::usage(&format!("unknown chat command {other:?}")),
     }
 }

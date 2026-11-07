@@ -62,7 +62,7 @@ pub fn core_name() -> String {
 }
 
 /// Characters outside `[A-Za-z0-9_-]` become `_`, so a name never leaves its folder.
-fn safe(name: &str) -> String {
+pub fn safe(name: &str) -> String {
     name.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
@@ -85,11 +85,28 @@ pub fn terminal_file(terminal: &str) -> PathBuf {
         .join(format!("{}.json", safe(terminal)))
 }
 
+/// `feeds/<core>/<terminal>.<fnv1a(child)>.json`: a sub-agent's feed state, apart from its terminal's root.
+/// It holds no `root`, so `roots_except` never reads it as another terminal's claim.
+pub fn child_file(terminal: &str, child: &str) -> PathBuf {
+    feeds_dir()
+        .join(safe(&core_name()))
+        .join(format!("{}.{}.json", safe(terminal), fnv1a(child)))
+}
+
 /// `feeds/log/<fnv1a(path)>.json`, for a feed read by log path rather than by terminal.
 pub fn log_file(path: &Path) -> PathBuf {
     feeds_dir()
         .join("log")
         .join(format!("{}.json", fnv1a(&path.to_string_lossy())))
+}
+
+/// `log_file` for a file read with another scope (`--scope`), whose rows differ from a root read's.
+pub fn scoped_log_file(path: &Path, scope: &str) -> PathBuf {
+    feeds_dir().join("log").join(format!(
+        "{}.{}.json",
+        fnv1a(&path.to_string_lossy()),
+        fnv1a(scope)
+    ))
 }
 
 /// A missing, unreadable or other-version file reads as an empty cache.
@@ -141,7 +158,8 @@ pub fn write(file: &Path, c: &TerminalCache) -> std::io::Result<()> {
 }
 
 /// Deletes files under `dir`, at any depth, last changed more than `max_age` ago.
-/// Folders stay, since a concurrent writer may be about to rename a file into one.
+/// Folders stay, since a concurrent writer may be about to rename a file into one. So do `*.lock` files: a
+/// lock removed while one process holds it lets the next lock a new file beside it.
 pub fn prune(dir: &Path, max_age: Duration) {
     let Some(cutoff) = SystemTime::now().checked_sub(max_age) else {
         return;
@@ -155,6 +173,8 @@ pub fn prune(dir: &Path, max_age: Duration) {
         };
         if meta.is_dir() {
             prune(&entry.path(), max_age);
+        } else if entry.file_name().to_string_lossy().ends_with(".lock") {
+            continue;
         } else if meta.modified().is_ok_and(|m| m < cutoff) {
             let _ = fs::remove_file(entry.path());
         }
@@ -242,12 +262,13 @@ mod tests {
         let old = tmp.path().join("default/t1.json");
         let new = tmp.path().join("default/t2.json");
         let old_log = tmp.path().join("log/abc.json");
-        for f in [&old, &new, &old_log] {
+        let old_lock = tmp.path().join("default/t1.json.lock");
+        for f in [&old, &new, &old_log, &old_lock] {
             fs::create_dir_all(f.parent().unwrap()).unwrap();
             fs::write(f, "{}").unwrap();
         }
         let eight_days = SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60);
-        for f in [&old, &old_log] {
+        for f in [&old, &old_log, &old_lock] {
             fs::File::options()
                 .write(true)
                 .open(f)
@@ -259,6 +280,7 @@ mod tests {
         assert!(!old.exists());
         assert!(!old_log.exists());
         assert!(new.exists());
+        assert!(old_lock.exists());
         assert!(tmp.path().join("default").is_dir());
     }
 
@@ -268,6 +290,14 @@ mod tests {
         assert_eq!(terminal_file("macmini/t5"), core.join("macmini_t5.json"));
         assert_eq!(terminal_file("../x"), core.join("___x.json"));
         assert_eq!(terminal_file("t12"), core.join("t12.json"));
+        assert_eq!(
+            child_file("macmini/t5", "a640ed49983e1482a"),
+            core.join(format!("macmini_t5.{}.json", fnv1a("a640ed49983e1482a")))
+        );
+        assert_ne!(
+            scoped_log_file(Path::new("/a/b.jsonl"), "claude-subagent"),
+            log_file(Path::new("/a/b.jsonl"))
+        );
         assert_eq!(
             log_file(Path::new("/a/b.jsonl")),
             feeds_dir()

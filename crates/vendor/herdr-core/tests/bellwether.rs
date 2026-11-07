@@ -2,7 +2,7 @@
 //! tests/fixtures/sessions.
 
 use chrono::{DateTime, Duration, Local, Utc};
-use herdr_core::conversation::ConversationParser;
+use herdr_core::conversation::{parse_lines, parse_lines_in, ConversationParser, FileScope};
 use herdr_core::resolver::{
     codex_candidates, codex_matches, codex_meta_full, log_path, log_path_in, without_codex_subagents, LogRoots, Need,
     Proc, SessionResolver,
@@ -305,4 +305,104 @@ fn hc_wrapper_keeps_the_senders_text() {
     let mut p = ConversationParser::new();
     p.feed(&claude.to_string());
     assert_eq!(users(&p.items()), vec!["hi".to_string()], "claude");
+}
+
+const CLAUDE_SUBAGENTS: &str = "claude-subagents/";
+
+fn assistants(items: &[ConversationItem]) -> Vec<String> {
+    items
+        .iter()
+        .filter_map(|i| match &i.kind {
+            ItemKind::AssistantText(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn lines_of(rel: &str) -> Vec<String> {
+    String::from_utf8(fixture(rel)).unwrap().lines().map(str::to_string).collect()
+}
+
+/// Each child's `file` and the counts `expect.json` gives it.
+fn claude_children() -> Vec<(String, usize, usize, usize)> {
+    let expect: serde_json::Value =
+        serde_json::from_slice(&fixture(&format!("{CLAUDE_SUBAGENTS}expect.json"))).expect("expect.json");
+    let n = |c: &serde_json::Value, k: &str| c[k].as_u64().unwrap_or_else(|| panic!("{k}")) as usize;
+    expect["children"]
+        .as_array()
+        .expect("children")
+        .iter()
+        .map(|c| {
+            let file = format!("{CLAUDE_SUBAGENTS}{}", c["file"].as_str().expect("file"));
+            (file, n(c, "user_messages"), n(c, "assistant_messages"), n(c, "tool_calls"))
+        })
+        .collect()
+}
+
+#[test]
+fn claude_subagent_file_parses_on_its_own() {
+    let children = claude_children();
+    assert_eq!(children.len(), 4);
+    for (file, user, assistant, tools) in children {
+        let items = parse_lines_in(FileScope::ClaudeSubagent, &lines_of(&file));
+        assert_eq!(users(&items).len(), user, "{file}: user texts");
+        assert_eq!(assistants(&items).len(), assistant, "{file}: assistant texts");
+        assert_eq!(calls(&items).len(), tools, "{file}: tool calls");
+    }
+}
+
+#[test]
+fn root_scope_still_skips_sidechain_lines() {
+    for (file, ..) in claude_children() {
+        let lines = lines_of(&file);
+        assert!(parse_lines_in(FileScope::Root, &lines).is_empty(), "{file}: Root scope");
+        assert!(parse_lines(&lines).is_empty(), "{file}: parse_lines is Root");
+        assert_eq!(FileScope::default(), FileScope::Root);
+    }
+}
+
+fn parse_scoped(rel: &str, scope: FileScope) -> Vec<ConversationItem> {
+    let mut p = ConversationParser::with_scope(scope);
+    let mut offset = 0u64;
+    for line in String::from_utf8(fixture(rel)).unwrap().split_inclusive('\n') {
+        p.feed_at(line.trim_end_matches('\n'), Some(offset));
+        offset += line.len() as u64;
+    }
+    p.items()
+}
+
+#[test]
+fn codex_child_starts_at_its_history_ordinal() {
+    let items = parse_scoped(CHILD, FileScope::CodexChild { from_ordinal: 17 });
+    assert_eq!(users(&items).len(), 0, "user texts");
+    assert_eq!(assistants(&items).len(), 1, "assistant texts");
+    let c = calls(&items);
+    assert_eq!(c.len(), 1, "tool calls");
+    assert_eq!(c[0].summary, "ls | wc -l");
+    assert_eq!(statuses(&items), vec!["Sent a task to count_entries"]);
+    assert_eq!(parse_lines_in(FileScope::CodexChild { from_ordinal: 17 }, &lines_of(CHILD)).len(), items.len());
+
+    // Lines without an ordinal are kept; a line at the ordinal is kept, one below it is not.
+    let msg = |ord: Option<u64>, t: &str| {
+        let mut v = serde_json::json!({"type": "response_item", "payload": {"type": "message", "role": "assistant",
+            "content": [{"type": "output_text", "text": t}]}});
+        if let Some(o) = ord {
+            v["ordinal"] = o.into();
+        }
+        v.to_string()
+    };
+    let lines = [msg(Some(4), "before"), msg(Some(5), "at"), msg(None, "unnumbered"), msg(Some(9), "after")];
+    let got = assistants(&parse_lines_in(FileScope::CodexChild { from_ordinal: 5 }, &lines));
+    assert_eq!(got, vec!["at", "unnumbered", "after"]);
+}
+
+#[test]
+fn codex_child_without_scope_repeats_the_parent() {
+    let typed = |items: &[ConversationItem]| -> Vec<String> {
+        users(items).into_iter().filter(|u| u.starts_with("Spawn exactly one sub-agent")).collect()
+    };
+    let parent = typed(&parse_rel(PARENT));
+    assert_eq!(parent.len(), 1, "the parent's typed message");
+    assert_eq!(typed(&parse_scoped(CHILD, FileScope::Root)), parent, "repeated in the child's file");
+    assert!(typed(&parse_scoped(CHILD, FileScope::CodexChild { from_ordinal: 17 })).is_empty());
 }

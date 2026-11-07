@@ -76,3 +76,18 @@ Changes:
   JavaScript patch, its closing quote, so the path ran on into the
   escaped patch text). Test: tests/bellwether.rs
   `codex_patch_paths_come_from_the_whole_input`.
+- 2026-11-07, src/conversation/mod.rs and src/lib.rs: a sub-agent's
+  own file parses as a session of its own. `FileScope` (new: `Root`,
+  the default and upstream's behaviour; `ClaudeSubagent`;
+  `CodexChild { from_ordinal }`), `ConversationParser::with_scope` and
+  `parse_lines_in` (new; `parse_lines` is `parse_lines_in` with
+  `Root`). `ClaudeSubagent` keeps the `isSidechain` lines that every
+  line of `subagents/agent-<id>.jsonl` carries and `feed_at` dropped.
+  `CodexChild` skips lines whose top-level `ordinal` is below
+  `from_ordinal` (the child's `subagent_history_start_ordinal`), where
+  the child rollout repeats the parent's history; lines without an
+  `ordinal` are kept. Tests: tests/bellwether.rs
+  `claude_subagent_file_parses_on_its_own`,
+  `root_scope_still_skips_sidechain_lines`,
+  `codex_child_starts_at_its_history_ordinal`,
+  `codex_child_without_scope_repeats_the_parent`.

@@ -6,9 +6,10 @@ view of each agent built from its session log, a Git diff viewer against
 `origin/main` or a chosen ref, and Linear issues that can be attached to the
 current chat. Rust helpers do the heavy work; the mods draw the window.
 
-Status: phases 1 (window and project sidebar) and 2 (chat tabs) are built and
-their headless checks pass; their checks in a Herdr window are still owed.
-Sub-agents, the browser, diffs and Linear come in later phases.
+Status: phases 1 (window and project sidebar), 2 (chat tabs) and 3
+(sub-agents and requests) are built and their headless checks pass; their
+checks in a Herdr window are still owed. The browser, diffs and Linear come in
+later phases.
 
 ## What phase 1 delivers
 
@@ -44,7 +45,8 @@ flips the zoom and focus between the chat and the terminal; the chat header's
 window flips too. `keys/bellwether.json` binds `cmd-j` in
 `layout:bellwether`, so merge it with `scripts/keys-merge.js` as below; the
 script reports a terminal binding of `cmd-j` as shadowed, since that one wins
-while a terminal has focus.
+while a terminal has focus. In a terminal sub-agent's view `⌘J` flips to the
+parent agent's terminal, not the sub-agent's.
 
 The chat reads the agent's session log through `bw feed` every 2 s while
 shown and every 10 s while hidden. A chat behind its terminal's zoom counts as
@@ -74,11 +76,109 @@ passes `--force`, so a terminal waiting on a prompt refuses the text. Claude
 and Codex write no log until their first message, so a fresh chat sends it
 with `--expect-session none --expect-path none`, which passes only while that
 kind of agent runs in the terminal in a session that has no log yet. After
-`/clear` or `/new` the feed names the new session, the chat drops the old
-rows, and its first message goes with `--expect-session <id> --expect-path
-none`. When Codex holds several conversations open, as it does for 60 s after
+`/clear` or `/new` the feed names the new session and the chat drops the old
+rows. Codex's new session has no log until its first message, so that message
+goes with `--expect-session <id> --expect-path none`; Claude 2.1.319 writes
+the new conversation's log at `/clear`, so its next message goes with the new
+session and that log. When Codex holds several conversations open, as it does for 60 s after
 `/resume`, the chat says so, shows no new rows and sends nothing until one
 remains. The text stays in the composer after a refusal.
+
+## What phase 3 delivers
+
+A chat shows its session's sub-agents and takes the approvals and questions of
+the agent and its sub-agents, for a space on this Mac or on another machine.
+Each poll is one `bw feed --tree --cards` call, which carries the session
+tree and the requests with the rows.
+
+- The threads card floats at the top right of the timeline: the parent row,
+  then each sub-agent nested by depth, with a state icon (running, done, or
+  asking), its type, its description, its age and a request badge. A
+  sub-agent that runs in its own Herdr terminal under the chat's terminal is
+  listed too. The card is open while a sub-agent runs or asks and folds to a
+  pill such as "2 sub-agents · 1 asks" otherwise. The header's threads
+  button, which shows the count, opens or folds it, and that choice holds
+  until the set of running sub-agents changes.
+- Clicking a sub-agent shows its own transcript (`bw feed --session
+  <child>`). A 44 px bar replaces the composer, for example "Explore ·
+  sub-agent of Claude · running · Back to Claude". A terminal sub-agent opens
+  as a chat of its own terminal, with a composer that sends to it. When the
+  root conversation changes (`/clear`, `/new`) the chat returns to the parent
+  and says "This conversation ended; showing the new one".
+- The request dock sits above the composer in every view, one card per
+  request, newest last. An approval card says who asks, shows the command and
+  offers Approve, Always allow (when the prompt has that option), Deny and
+  Answer in terminal (which flips to the terminal). A question card has step
+  tabs when it asks several questions, options with 1 to 9 key hints (a digit
+  selects, it never submits), checkboxes for a multi-select question, an
+  Other field and Submit. A Codex async question is answered as one message.
+  Codex's `/new` folder prompt, "Where should the new conversation run?",
+  gets a card with one button per option, so a `/new` sent from the composer
+  finishes in the chat.
+- A card's state comes from `bw cards`: `pending`; `answered` or `declined`
+  when Bellwether's key or message went out; `answered_terminal` or
+  `declined_terminal` when the box left and the call's result in the log says
+  how it was answered; `settling` for up to 5 s while the box has left and the
+  call has no result in the log yet; `stale` when no result came; `uncertain`
+  when keys went out and the screen did not show the box leave. The chat adds
+  `sending` while its `bw answer` runs. Only a `pending` card offers its
+  buttons, and a resolved card stays 10 s. A card shows only "Answer in
+  terminal" when Bellwether cannot read the prompt, its command is cut off at
+  the top of the screen, or the root lookup names no single conversation.
+- Answer buttons stay disabled while the chat's terminal has focus and for
+  3 s after it loses focus, for example after `⌘J`; a freshly opened chat
+  counts as focused. `bw answer` presses keys only after a fresh screen read
+  shows the same prompt the card showed, with `bw send`'s conversation
+  checks.
+- `bw-projects` adds `+N` (running sub-agents) and a request badge to each
+  agent line, from `bw counts` on each machine every 10 s and at once when an
+  agent's status changes.
+
+### Hooks
+
+The hooks tell the chat which sub-agent asked and which call a prompt
+belongs to. Without them the dock still shows each prompt on screen, and names
+a sub-agent only when that sub-agent's log shows the call. The hook,
+`hooks/bw-event`, runs only in a Herdr terminal (`$HC_TERMINAL_ID`), hands
+the payload to `bw event`, prints nothing and exits 0, so it never answers
+for you. `bw event` writes one file per event under
+`~/.cache/bellwether/events/<terminal>/` (24 h, at most 2,000 files).
+
+When a machine lacks them, the dock says "Bellwether hooks are not set up on
+<machine>; requests show without who asked" (or that they are out of date)
+with Review changes and Not now.
+Review changes runs `bw machine setup <machine> --diff` and shows the diff of
+both files; Apply runs `--apply` with the SHA-256 of each file the diff read,
+so a file that changed since is refused untouched. Not now hides the notice
+for that machine. The same steps from a shell:
+
+```sh
+bw machine setup <machine|local> --check    # {"type":"hooks","claude":…,"codex":…}
+bw machine setup <machine|local> --diff     # one hooks-diff line per file, with its sha256
+bw machine setup <machine|local> --apply [--expect-sha <claude sha>,<codex sha>]
+bw machine setup <machine|local> --remove
+```
+
+`--apply` copies `hooks/bw-event` to `~/.local/share/bellwether/hooks/` on
+that machine and appends one group per event (`PermissionRequest`,
+`PreToolUse`, `SubagentStart`, `SubagentStop`) after every existing group in
+`$CLAUDE_CONFIG_DIR/settings.json` (else `~/.claude/settings.json`) and
+`$CODEX_HOME/hooks.json` (else `~/.codex/hooks.json`). Each command starts with
+`: bellwether-hook=1;`, and only groups marked that way are ever changed:
+applying twice changes nothing, and `--remove` takes out only Bellwether's
+groups. A file that is not valid JSON is refused untouched. Before a write,
+the old file is copied to `~/.local/share/bellwether/backups/<name>.<ms>`,
+and `~/.local/share/bellwether/hooks/installed.json` records the version,
+the path and both SHA-256 values. `bw hooks check|diff|apply|remove` does the
+same on the machine it runs on, and takes `--claude-settings <file>` and
+`--codex-hooks <file>` for other files.
+
+Codex runs a new hook only after you trust it. Until then `check` says
+`untrusted` and the dock says "Codex hook not trusted on <machine>" with the
+step: start Codex there and choose "Trust all and continue" (2, then Enter),
+or type `/hooks` and press `t`. `check` compares the `trusted_hash` Codex
+records in `config.toml` with the one it computes for each of Bellwether's
+groups, and never writes `config.toml`.
 
 ## Layout of this repository
 
@@ -100,6 +200,7 @@ scripts/verify/           checks against real machines and agents
 crates/                   Rust helpers; crates/bw is the bw binary the mods run
 crates/vendor/            code copied from other projects, in its own Cargo workspace
 tests/                    Bun tests, and the headless harness that stubs herdr and gpui-kit
+hooks/bw-event            the hook bw machine setup installs; it hands each event to bw event
 docs/brief/               the requests this work answers, verbatim
 docs/research/            what the reference projects do, with evidence
 ```
@@ -157,13 +258,21 @@ scripts/verify/projects.sh --offline          # no other machine; what scripts/t
 
 ## Checking chats against real agents
 
-`scripts/verify/sessions.sh` compares `bw feed` on the six recorded sessions
-in `tests/fixtures/sessions/` with their goldens and hand counts. Without
-`--offline` it also runs Claude haiku and Codex in a private `hc` core
-(`HC_SESSION=bw-sessions`) in scratch Git repositories, then feeds, sends and
-refuses through `bw`: each chat's first message, a text starting with `--`,
-a picture, a send refused after `/clear` and while Claude waits on a prompt,
-and a Codex root found beside its sub-agent. It spends tokens. It prints
+`scripts/verify/sessions.sh` compares `bw feed` on the recorded sessions in
+`tests/fixtures/sessions/` with their goldens and hand counts, including each
+sub-agent's own rows (`child-rows`) and `bw tree`'s nesting
+(`tree-nested-subagent`). Without `--offline` it also runs Claude haiku and
+Codex in a private `hc` core (`HC_SESSION=bw-sessions`) in scratch Git
+repositories, then feeds, sends and refuses through `bw`: each chat's first
+message, a text starting with `--`, a picture, a send refused after `/clear`
+and while Claude waits on a prompt, a Codex root found beside its sub-agent,
+the live sub-agent trees (`claude-children-live`, `codex-child-tree`), and
+the chat's next message after a real `/clear` or `/new`
+(`claude-clear-next-message`, `codex-new-next-message`, with Codex's folder
+prompt answered through its card). Claude 2.1.319 writes the new
+conversation's log at `/clear`, so that message goes with the new session and
+its log; after Codex's `/new` the new session has no log, so it goes with
+`--expect-session <id> --expect-path none`. It spends tokens. It prints
 `PASS`, `FAIL` or `PENDING` per check, exits 1 on any `FAIL`, and deletes its
 scratch folders and the Claude project folders it wrote on exit.
 
@@ -176,7 +285,30 @@ scripts/verify/sessions.sh --machine <name>   # also Codex on <name> through its
 With `--machine`, the script moves `<name>`'s helper link aside to see it
 named `missing`, lets the helper install it again, and runs Codex there under
 `$BW_SESSIONS_REMOTE_ROOT` (default `$HOME/bw-verify/sessions` on that
-machine). Claude on another machine is still owed to a window run.
+machine), including its sub-agent tree and `/new`. Claude on another machine
+is still owed to a window run.
+
+`scripts/verify/requests.sh` checks the request dock's commands. Offline it
+compares `bw cards` on each `tests/fixtures/cards` case with its golden, runs
+`bw hooks` on copies of `tests/fixtures/hooks` in a scratch HOME, and runs the
+chat's focus guard tests. Live it runs Claude haiku
+(`--permission-mode default`) and Codex in a private core
+(`HC_SESSION=bw-requests`): root, foreground and background sub-agent
+approvals answered with `bw answer` (the file absent before, present after),
+a prompt answered in the terminal first (the old card gives `stale` and the
+screen does not change), Deny, Codex root and sub-agent approvals, and a Codex
+async question answered as one message. With `--machine <name>` it also runs
+`bw machine setup <name>` there and Codex approvals, a stale card and an async
+question through the helper there, then removes the hooks and puts that
+machine's files back. It records the SHA-256 of `~/.claude/settings.json`,
+`~/.codex/hooks.json` and `~/.codex/config.toml` here and fails if any
+changed.
+
+```sh
+scripts/verify/requests.sh --offline          # goldens, hooks and the focus guard; what scripts/test.sh runs
+scripts/verify/requests.sh                    # also real agents here
+scripts/verify/requests.sh --machine <name>   # also Codex on <name>; <name> must be a temporary hc machine (bwloop)
+```
 
 `scripts/verify/feed-cost.sh [runs]` times `bw feed --log … --pictures` on
 the largest Claude and Codex logs on this Mac: a first read, an unchanged
@@ -189,7 +321,7 @@ the macmini results: at most 14 ms per read.
 
 Mods call `~/.local/share/bellwether/helper/current/bw` on the machine a space
 lives on. `current` links to a version folder, so an update swaps one link.
-`shared/helper.js` needs `bw version` to report version 0.2.0 and protocol 2.
+`shared/helper.js` needs `bw version` to report version 0.3.0 and protocol 3.
 When another machine's helper is missing or outdated, a mod runs this Mac's
 `bw machine install <machine>` and checks again; this Mac's own helper comes
 from `scripts/install-helper.sh`.
@@ -208,18 +340,27 @@ that `scripts/build-dist.sh` made, which needs `cargo zigbuild`. Other
 platforms get `no_build` and nothing is written there. The copy goes in parts under 6 MB, its
 SHA-256 is checked there, and a failed copy leaves `current` as it was.
 
-A chat tab uses five more commands, each printing JSON lines:
+A chat tab and the project sidebar use more commands, each printing JSON
+lines:
 
 ```sh
-bw feed (--terminal <t> | --log <path> --agent claude|codex) [--cursor <c> | --before <start>] [--pictures]
+bw feed (--terminal <t> [--session <child>] | --log <path> --agent claude|codex [--scope root|claude-subagent|codex-child:<ordinal>]) [--cursor <c> | --before <start>] [--pictures] [--tree] [--cards]
 bw locate --terminal <t> [--fresh]
 bw send --terminal <t> --expect-kind <claude|codex> --expect-session <id|none> --expect-path <log|none> --text <message>
 bw picture --terminal <[machine/]t> --offset <n> --index <i> --digest <16 hex>
 bw picture-read --terminal <t> --offset <n> --index <i> --digest <16 hex>
+bw tree (--terminal <t> | --log <path> --agent claude|codex)
+bw cards --terminal <t>
+bw answer --terminal <t> --request <id> --expect-kind <claude|codex> --expect-session <id|none> --expect-path <log|none> (--action approve|always|deny|option-<n> | --answers <json>)
+bw counts --terminals <t1,t2,…>
+bw hooks check|diff|apply|remove
+bw event --agent claude|codex
 ```
 
-`bw feed`, `bw locate`, `bw send` and `bw picture-read` run on the space's
-machine with the terminal's local address. `bw locate` names the agent, the
+`bw feed`, `bw locate`, `bw send`, `bw picture-read`, `bw tree`, `bw cards`,
+`bw answer`, `bw counts`, `bw hooks` and `bw event` run on the space's machine
+with the terminal's local address. `bw answer` runs there for the same reason
+`bw send` does: its last screen read and its key are one local step. `bw locate` names the agent, the
 session and the log a terminal writes. It keeps them per terminal in
 `~/.cache/bellwether/feeds/` (`BW_CACHE_DIR` replaces `~/.cache/bellwether`)
 and trusts them for 30 s without a process scan; `--fresh` scans anyway.
@@ -233,6 +374,22 @@ whose result is `sent`, `refused-conversation`, `refused-prompt` or
 `unconfirmed`. `bw picture` runs on the window machine, reads the picture
 through `bw picture-read` on the space's machine (in process when the space
 is local), and copies it into Herdr's app home.
+
+`bw tree` lists a session's sub-agents from Claude's
+`subagents/*.meta.json` files and Codex's sub-agent records, with each one's
+parent, depth, type, description and state. `bw feed --session <child>` feeds that child's
+log, `--tree` adds one `tree` line before the rows, and `--cards` adds the
+`cards` and `request` lines after them. `bw cards` reads the screen only while
+`hc get` says `blocked` (and, for Codex's folder prompt, whenever Codex is not
+working), binds each prompt to its hook events and log call, and keeps each
+prompt's state in `~/.cache/bellwether/requests/` (24 h). `bw answer` prints
+one `answer` line whose result is `answered`, `declined`, `stale`,
+`uncertain`, `refused-conversation`, `refused-agent`, `refused-prompt`,
+`already-answered`, `busy`, `not-answerable` or `failed`; it gives up at 25 s.
+`bw counts` prints one `count` line per terminal (at most 64) with its running
+sub-agents and waiting requests, and reads no screen. `bw machine setup` runs
+on the window machine and reaches the other machine with `hc exec`; `local`
+runs it in process.
 
 ## Machines
 

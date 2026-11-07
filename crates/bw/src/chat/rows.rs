@@ -568,7 +568,11 @@ mod tests {
             result("r5", 10, "c5", false),
             say("a6", 11, "Done."),
         ];
-        let rs = rows(&super::super::tail::items(&lines), &Utc::now(), &Utc);
+        let rs = rows(
+            &super::super::tail::items(&lines, herdr_core::FileScope::Root),
+            &Utc::now(),
+            &Utc,
+        );
         let ks: Vec<&str> = rs.iter().map(|r| r.k.as_str()).collect();
         assert_eq!(ks, ["user", "tools", "assistant", "changed", "footer"]);
         let changed = &rs[3];
@@ -595,7 +599,11 @@ mod tests {
             call("a1", 1, "c1", "Edit", "/w/a.rs"),
             result("r1", 2, "c1", false),
         ];
-        let rs = rows(&super::super::tail::items(&lines), &Utc::now(), &Utc);
+        let rs = rows(
+            &super::super::tail::items(&lines, herdr_core::FileScope::Root),
+            &Utc::now(),
+            &Utc,
+        );
         assert!(rs.iter().all(|r| r.k != "changed" && r.k != "footer"));
     }
 }

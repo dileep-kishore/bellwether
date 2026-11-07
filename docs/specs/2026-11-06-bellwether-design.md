@@ -144,7 +144,7 @@ reached from other machines through ssh -R. Keychain: Linear key, read by bw.
 | `shared/` | Chat target, helper calls, machine routing, status ranking, project model. | New. |
 | `crates/bw` | The Rust helper. | Chat modules and the remote installer adapted from `flockbook-modfeed` (MIT); Git, Linear, browser new. |
 | `crates/vendor/herdr-core` | Flockbook's core crate. | Vendored whole at `c0420c7`, changed in reviewed steps. |
-| `hooks/bw-event` | Records approval and sub-agent events; decides nothing. | New; Herdr-terminal gate after Shepherdr's `ask-hook.sh:19`. |
+| `hooks/bw-event` | A `sh` gate that runs the installed `bw event`, which records approval and sub-agent events in `~/.cache/bellwether/events/<terminal>/`, since parsing JSON in `sh` needs `jq`, which a machine may lack; decides nothing. | New; Herdr-terminal gate after Shepherdr's `ask-hook.sh:19`. |
 | `agent/` | The per-session browser instructions and MCP config Bellwether passes to agents it starts. | New; modelled on T3 Code's `orchestrationInstructions.ts:32-37`. |
 
 ## Seamless machines
@@ -165,8 +165,10 @@ holds the space runs the agents, the logs, Git and the hooks.
   Darwin arm64), and `x86_64` and `aarch64-unknown-linux-musl` through
   `cargo zigbuild` for tsuki, whose architecture is checked when it is back
   online.
-- The record-only hooks install the same way on each machine (`bw machine
-  setup`), appended after Orca's and the user's own; Codex asks the user to
+- The record-only hooks install on each machine when the user applies the
+  diff the chat shows (`bw machine setup <machine> --diff`, then
+  `--apply`), appended after Orca's and the user's own, with a backup and
+  an install record; `--remove` takes them out. Codex asks the user to
   trust them once per machine.
 - The "+" menu lists the agents installed on the space's machine
   (`knownAgents({ on })`) and starts them there with `tab.new` in that space.
@@ -199,7 +201,9 @@ holds the space runs the agents, the logs, Git and the hooks.
   header (13 px semibold, letter tile, hover "+" for a new chat in the main
   checkout); worktree row (13 px branch name, `↑↓` and `+N −M` on the right);
   agent line (24 px, 11 px text) with its state icon, agent icon, the tab's
-  title, `+N` sub-agents, a request badge and the time since its last change.
+  title, `+N` running sub-agents, a request badge and the time since its
+  last change. The counts come from `bw counts` on the space's machine
+  every 10 s per machine and when an agent's status changes.
 - State icons use Herdr's theme colours with Orca's and T3's shapes: working
   is a spinning ring (`.spin`), blocked a question mark in `blocked`, done a
   check in `done`, idle a hollow ring. A worktree or project that is folded
@@ -286,19 +290,25 @@ sends.
   click; a "Changed N files · Open in Changes" line at the end of a turn that
   edited files; inline pictures.
 - Threads card: a floating card at the chat's top right (312 px, after
-  Orca's crew card and T3's lineage list), shown when the session has
-  sub-agents and folded to a pill ("2 sub-agents · 1 asks") otherwise. Rows:
+  Orca's crew card and T3's lineage list), open while a sub-agent runs or
+  asks and folded to a pill ("2 sub-agents · 1 asks") otherwise; the
+  header's threads button toggles it. Rows:
   the parent, then each sub-agent with state icon, type, description, time
   and request badge, nested by depth. Clicking a sub-agent opens its own
   transcript in the timeline; its composer is replaced by a bar ("Explore ·
   sub-agent of Claude · running · Back to Claude"), since in-process
   sub-agents take no messages. A terminal sub-agent (its own Herdr terminal)
   keeps a composer that sends to it.
-- Request dock above the composer: one card per waiting request, newest
-  last, titled "Approval needed from <who>" or "<who> asks", with the tool
-  and command in monospace, and buttons Approve (primary), Always allow,
-  Deny, and "Answer in terminal". Questions show step tabs when there are
-  several, options with 1 to 9 keys, and an "Other" text field.
+- Request dock above the composer, in every view, since the parent's
+  terminal shows one prompt at a time: one card per waiting request of the
+  session, newest last, titled "Approval needed from <who>" or "<who>
+  asks", with the tool and command in monospace, and buttons Approve
+  (primary), Always allow, Deny, and "Answer in terminal". Questions show
+  step tabs when there are several, options with 1 to 9 keys, and an
+  "Other" text field. Each chat
+  poll carries the tree and the requests with the rows (`bw feed --tree
+  --cards`), one `exec` per poll, so a request shows within done check 3's
+  3 s.
 - Composer: a rounded box with chips (attached Linear issues), the text
   field ("Message Claude…"), and send. Slash commands pass through to the
   agent. Results show by name: sent, refused (agent waiting on a prompt),
@@ -331,18 +341,21 @@ sends.
 
 - `bw send` and `bw answer` carry `--expect-kind`, `--expect-session` and
   `--expect-path` and refuse when the terminal's conversation changed
-  (Flockbook's guard, `flockbook-modfeed/src/cards.rs:310-325`). `bw send`
-  runs on the space's machine with the terminal's local address and never
+  (Flockbook's guard, `flockbook-modfeed/src/cards.rs:310-325`). Both run
+  on the space's machine with the terminal's local address, so `bw
+  answer`'s last screen read and its key are one local step, and neither
   uses `--force`. A chat that has never shown a conversation sends its
   first message with `--expect-session none --expect-path none`, which
   passes only while that kind's agent runs there in a positively fresh
   session: the agent names a session that has no log yet.
-- After Claude's `/clear` or Codex's `/new` the agent writes no log until
-  its first message, so the feed's `no_log` line names the new session.
-  The chat then drops the old rows and sends that session's first message
-  with `--expect-session <id> --expect-path none`, which passes only when a
-  fresh lookup names that session, with no log, for a live agent of that
-  kind.
+- After Codex's `/new` the agent writes no log until its first message, so
+  the feed's `no_log` line names the new session. The chat then drops the
+  old rows and sends that session's first message with `--expect-session
+  <id> --expect-path none`, which passes only when a fresh lookup names that
+  session, with no log, for a live agent of that kind. Claude 2.1.319
+  writes the new conversation's log at `/clear`, so the feed names the new
+  session with its log, the chat drops the old rows, and its next message
+  goes with the new session and that log.
 - A lookup that settles on no single conversation prints the `ambiguous`
   state, which `bw send` refuses for every expectation. This covers no
   candidate, several, or one another terminal claims, and a Codex terminal
@@ -357,7 +370,9 @@ sends.
 - A request's identity is `{terminal, root session, child, tool use or event
   id}`; claims are scoped to it.
 - Screen-bound requests (approvals, Claude `AskUserQuestion`, Codex
-  `request_user_input`) are answerable only when the same prompt is on the
+  `request_user_input`, and Codex 0.167's `/new` folder prompt "Where
+  should the new conversation run?", where a `/new` sent from the chat
+  stops) are answerable only when the same prompt is on the
   controlling terminal's screen (Flockbook's matchers, plus a Codex 0.167
   approval matcher built in phase 3). Message-bound Codex
   `request_user_input_async` questions are answered as one user message
@@ -365,7 +380,11 @@ sends.
 - Answer buttons stay disabled while the terminal has had keyboard focus in
   this window within 3 s; after keys land the helper reads the screen again
   and marks the card "uncertain" if it changed. States: pending, sending,
-  answered, answered in the terminal, declined, stale, uncertain.
+  answered, declined, answered in the terminal, declined in the terminal,
+  settling, stale, uncertain. Answered and declined mean Bellwether's key or
+  message went out; settling means the prompt left the screen and its call
+  has no result in the log yet, for at most 5 s and never answerable; a
+  resolved card stays 10 s.
 
 ## Right sidebar (`bw-right`)
 
@@ -584,8 +603,9 @@ repository.
    focus guard covers this window, and typing from another Herdr client can
    still move a held key, shown as "uncertain". A conditional key request is
    filed with Herdr.
-3. Codex sub-agent approvals are unverified; their cards are show-only until
-   the phase 3 experiment and matcher pass.
+3. Codex sub-agent approvals depend on reading Codex 0.167's child approval
+   box; the phase 3 experiment and matcher made them answerable, and a
+   box the matcher cannot read falls back to "Answer in terminal".
 4. The user's Claude settings use auto mode, so few actions prompt.
 5. The browser's debugging port has no authentication, here and through the
    forward; the Bellwether profile holds only logins the user makes there,
@@ -603,16 +623,16 @@ repository.
 
 - Crates in `crates/`; `herdr-core` vendored whole.
 - Claude Code and Codex only.
-- The helper and hooks install themselves on each machine; Codex trust is a
-  user step per machine.
+- The helper installs itself on each machine; the hooks install when the
+  user applies the chat's diff, and Codex trust is a user step per machine.
 - Watcher only past 100 ms CPU per poll; hidden chat tabs poll every 10 s.
 - Right sidebar 360 px; threads card 312 px; chat column 736 px.
 - Changes never stages, commits or pushes; Fetch only on click.
 - Linear: open issues only, 50 per page, personal API key, no writes; link
   stored per `origin` URL.
 - Browser: port 9222, Chrome DevTools MCP 1.12.0 pinned, separate profile.
-- The composer never retries or forces; Codex approval cards show-only until
-  matched.
+- The composer never retries or forces; a prompt the matchers cannot read
+  is answered in the terminal.
 - Cache under `~/.cache/bellwether/` with per-folder pruning (feeds 7 days,
   events 24 h and 2,000 files, requests 24 h, git pages 200 MB, Linear 30
   days); pictures under the app home's `data/bellwether/pictures/` 7 days.

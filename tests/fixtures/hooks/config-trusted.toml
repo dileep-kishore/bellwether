@@ -1,0 +1,21 @@
+# Bellwether's four Codex hook groups as Codex 0.167 records their trust once the user trusts them
+# (scripts/verify/requests-probe.sh case f). @HOOKS@ stands for the absolute hooks.json path; the group
+# indices are those `bw hooks apply` gives codex-hooks-before.json.
+model = "gpt-6-luna"
+
+[hooks.state]
+
+[hooks.state."@HOOKS@:pre_tool_use:0:0"]
+trusted_hash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+[hooks.state."@HOOKS@:pre_tool_use:2:0"]
+trusted_hash = "sha256:89fe857cd28a5ca4d1c1f9a827a7f5b839253a973fc58ab13a9a27895561b4a8"
+
+[hooks.state."@HOOKS@:permission_request:0:0"]
+trusted_hash = "sha256:9987bcd34b4fbf4e82fac93a742e56e017e74893c4dc60a072776024656f2d1d"
+
+[hooks.state."@HOOKS@:subagent_start:1:0"]
+trusted_hash = "sha256:314338344c2b559c902a84ce4dde42e1892f16b2fb35c722547399c70fb8213b"
+
+[hooks.state."@HOOKS@:subagent_stop:0:0"]
+trusted_hash = "sha256:487402a76c5cb03cce7b01206b672037a22108b9a4d68558d70e3db997ed94fe"
