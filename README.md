@@ -320,7 +320,10 @@ bw machine setup <machine|local> --agent
 machine, where the window machine's `bw` runs them with `hc exec`. The
 forward's terminal runs `bw browser forward keep`, the supervisor, so you
 never call it by hand. Most `bw browser …` commands print JSON lines and exit
-0 for every state; only a usage error exits 2.
+0 for every state; only a usage error exits 2. `tabs`, `focus`, `close` and
+`new` first run `up`'s listener check and send nothing when the port holds
+anything but the Bellwether Chrome: the action line says `ok:false` with the
+state in its message, and `tabs` prints a `chrome_unreachable` error.
 
 `bw machine setup <m> --agent` is a fifth operation beside `--check`,
 `--diff`, `--apply` and `--remove`, and setup takes exactly one of them. It

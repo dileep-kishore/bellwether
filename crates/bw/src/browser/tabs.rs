@@ -63,6 +63,24 @@ pub fn run(cmd: &str, argv: &[String]) -> ExitCode {
         Ok(a) => a,
         Err(message) => return crate::usage(&format!("{message}; {USAGE}")),
     };
+    let id = a.get("id").unwrap_or("");
+    if matches!(cmd, "focus" | "close") {
+        if id.is_empty() {
+            return crate::usage(&format!("--id is required; {USAGE}"));
+        }
+        if !is_target_id(id) {
+            return crate::usage(&format!("{id:?} is not a target id"));
+        }
+    }
+    // The same check status and Arrange run, so no command reaches another program or Chrome on the port.
+    let checked = chrome::probe(port, &chrome::profile_dir());
+    if checked.state != "running" {
+        let message = format!("{} ({})", checked.message, checked.state);
+        return match cmd {
+            "tabs" => crate::chat::error("chrome_unreachable", &message),
+            _ => action(cmd, id, false, &message),
+        };
+    }
     match cmd {
         "tabs" => match list(port, &app_home(), FETCH_BUDGET) {
             Ok(tabs) => {
@@ -74,12 +92,6 @@ pub fn run(cmd: &str, argv: &[String]) -> ExitCode {
             Err(message) => crate::chat::error("chrome_unreachable", &message),
         },
         "focus" | "close" => {
-            let Some(id) = a.get("id") else {
-                return crate::usage(&format!("--id is required; {USAGE}"));
-            };
-            if !is_target_id(id) {
-                return crate::usage(&format!("{id:?} is not a target id"));
-            }
             let (ok, message) = if cmd == "focus" {
                 focus(port, id)
             } else {
