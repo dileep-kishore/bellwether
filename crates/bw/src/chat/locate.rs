@@ -2,8 +2,8 @@
 //!
 //! One `hc get` names the terminal's processes. A root remembered less than 30 s ago for the same processes is used
 //! as it is; otherwise `bw` lists processes once and asks `herdr-core`'s resolver about that one terminal, with the
-//! logs other live terminals remember as taken. A Codex process that holds thread locks shows its newest root
-//! thread, which after `/new` may have no log yet.
+//! logs other live terminals remember as taken. A Codex process that holds one root thread lock shows that
+//! thread, which after `/new` may have no log yet; one that holds several shows none until the others unload.
 //!
 //! `fresh`, `latest`, `absolute` and the cache write are adapted from Flockbook's
 //! xplat/flockbook-modfeed/src/locate.rs (MIT, Copyright (c) 2026 Min-Chen Lee).
@@ -45,12 +45,20 @@ pub enum LocateFailure {
     NoCore(String),
     NoTerminal(String),
     NotAgent(String),
+    /// The agent runs and named a conversation that has no log yet: the only state a first message may pass.
+    /// `session` is that conversation's id when the agent named one (a Claude pid file, a Codex thread lock).
     NoLog {
         agent: String,
+        session: Option<String>,
     },
     /// hc names the agent's program but none of its processes runs it: starting, or already gone.
     NoProcess {
         agent: String,
+    },
+    /// The agent runs, but nothing shows which conversation it shows, or that it has none yet.
+    Ambiguous {
+        agent: String,
+        message: String,
     },
 }
 
@@ -64,17 +72,29 @@ impl LocateFailure {
             LocateFailure::NotAgent(m) => {
                 json!({"type": "state", "state": "not_agent", "message": m})
             }
-            LocateFailure::NoLog { agent } => json!({
-                "type": "state",
-                "state": "no_log",
-                "agent": agent,
-                "message": format!("no {agent} session log yet"),
-            }),
+            LocateFailure::NoLog { agent, session } => {
+                let mut v = json!({
+                    "type": "state",
+                    "state": "no_log",
+                    "agent": agent,
+                    "message": format!("no {agent} session log yet"),
+                });
+                if let Some(s) = session {
+                    v["session"] = json!(s);
+                }
+                v
+            }
             LocateFailure::NoProcess { agent } => json!({
                 "type": "state",
                 "state": "no_log",
                 "agent": agent,
                 "message": format!("no {agent} process in this terminal yet"),
+            }),
+            LocateFailure::Ambiguous { agent, message } => json!({
+                "type": "state",
+                "state": "ambiguous",
+                "agent": agent,
+                "message": message,
             }),
         }
     }
@@ -297,16 +317,20 @@ fn codex_meta_of(path: &Path) -> Option<resolver::CodexMeta> {
     resolver::codex_meta_full(&head)
 }
 
-/// The thread a Codex process shows: the newest thread lock it holds whose rollout is not a sub-agent's.
-/// Codex 0.167 keeps every loaded thread's lock and rollout open, so after `/new` the old rollout stays open
-/// while the new thread has a lock and no rollout until its first message. None when it holds no lock.
+/// The thread a Codex process shows, from the root thread locks it holds (a sub-agent's rollout says so).
+/// Codex 0.167 keeps a thread it leaves (`/new`, `/resume`) loaded, lock and rollout open, for 60 s or while it
+/// runs, and a new thread has a lock and no rollout until its first message. Nothing it holds tells which thread
+/// the terminal displays, and thread age does not (`/resume` shows an older one), so several root locks name
+/// none. None when it holds no root lock.
 fn codex_thread(open: &[String]) -> Option<Answer> {
     let mut locks: Vec<(&str, &Path)> = open
         .iter()
         .map(Path::new)
         .filter_map(|p| Some((thread_id(p)?, p)))
         .collect();
-    locks.sort_by(|a, b| b.0.cmp(a.0));
+    locks.sort_by(|a, b| a.0.cmp(b.0));
+    locks.dedup_by(|a, b| a.0 == b.0);
+    let mut roots: Vec<(&str, Option<PathBuf>)> = vec![];
     for (id, lock) in locks {
         let suffix = format!("-{id}.jsonl");
         let rollout = open
@@ -317,20 +341,28 @@ fn codex_thread(open: &[String]) -> Option<Answer> {
                 let home = lock.parent()?.parent()?;
                 session_log::locate_codex(id, home.join("sessions"))
             });
-        let Some(path) = rollout else {
-            return Some(Answer::NoFile);
-        };
-        match codex_meta_of(&path) {
-            Some(m) if m.subagent => continue,
-            _ => {
-                return Some(Answer::Log {
-                    session: id.to_string(),
-                    path: path.to_string_lossy().to_string(),
-                })
-            }
+        // A lock without a rollout may be a sub-agent's that has not written one yet: it counts, which only
+        // names nothing until that rollout appears.
+        if rollout
+            .as_deref()
+            .and_then(codex_meta_of)
+            .is_some_and(|m| m.subagent)
+        {
+            continue;
         }
+        roots.push((id, rollout));
     }
-    None
+    match roots.as_slice() {
+        [] => None,
+        [(id, Some(path))] => Some(Answer::Log {
+            session: id.to_string(),
+            path: path.to_string_lossy().to_string(),
+        }),
+        [(id, None)] => Some(Answer::NoFile {
+            session: Some(id.to_string()),
+        }),
+        _ => Some(Answer::Ambiguous),
+    }
 }
 
 /// What the resolver said about one terminal.
@@ -340,9 +372,23 @@ enum Answer {
         path: String,
     },
     /// It named a log or session id whose file is not there (yet): a new conversation, not the remembered one.
-    NoFile,
+    NoFile {
+        session: Option<String>,
+    },
     /// No single answer: no candidate, several, or the one it found is taken.
     Unsure,
+    /// Codex holds several root threads: any of them may be the one shown, the remembered one included.
+    Ambiguous,
+}
+
+/// The session id in what the resolver named: hc Claude's session id, or the id in a Codex rollout's name.
+fn named_session(v: &str, kind: &str) -> Option<String> {
+    let id = if v.starts_with('/') {
+        super::feed::session_of(Path::new(v), kind)
+    } else {
+        v.to_string()
+    };
+    (!id.is_empty()).then_some(id)
 }
 
 /// Asks the resolver about this one terminal, with its agent's own folders.
@@ -380,7 +426,9 @@ fn resolve(need: Need, agent: &Proc, procs: &[Proc], inputs: &Inputs) -> Answer 
             session: session_of(&path, &need.kind),
             path: path.to_string_lossy().to_string(),
         },
-        None => Answer::NoFile,
+        None => Answer::NoFile {
+            session: named_session(v, &need.kind),
+        },
     }
 }
 
@@ -434,6 +482,19 @@ pub fn locate_with(
         resolve(need, a, &procs, inputs)
     });
     let before = kept.root.clone();
+    let ambiguous = match found {
+        Some(Answer::Unsure) => Some(format!(
+            "cannot tell which {kind} conversation this terminal shows"
+        )),
+        Some(Answer::Ambiguous) => {
+            Some("Codex has several conversations open; showing none until it settles".to_string())
+        }
+        _ => None,
+    };
+    let fresh_session = match &found {
+        Some(Answer::NoFile { session }) => session.clone(),
+        _ => None,
+    };
     kept.root = match (agent, found) {
         (Some(a), Some(Answer::Log { session, path })) => Some(Root {
             kind: kind.clone(),
@@ -459,10 +520,18 @@ pub fn locate_with(
     if kept.root != before {
         let _ = cache::write(cache_file, &kept);
     }
-    kept.root.as_ref().map(located).ok_or(if running {
-        LocateFailure::NoLog { agent: kind }
-    } else {
+    kept.root.as_ref().map(located).ok_or(if !running {
         LocateFailure::NoProcess { agent: kind }
+    } else if let Some(message) = ambiguous {
+        LocateFailure::Ambiguous {
+            agent: kind,
+            message,
+        }
+    } else {
+        LocateFailure::NoLog {
+            agent: kind,
+            session: fresh_session,
+        }
     })
 }
 
@@ -799,12 +868,11 @@ mod tests {
             &file,
             root("codex", vec![801, 800], 799, &open[0], "kept", now - 60_000),
         );
-        assert_eq!(
+        // Not a fresh conversation either: nothing shows that this agent has no log.
+        assert!(matches!(
             locate_with(&t, &file, &fixed.inputs(), now),
-            Err(LocateFailure::NoLog {
-                agent: "codex".into()
-            })
-        );
+            Err(LocateFailure::Ambiguous { agent, .. }) if agent == "codex"
+        ));
         assert_eq!(cache::read(&file).root, None);
     }
 
@@ -867,9 +935,11 @@ mod tests {
                 now - 60_000,
             ),
         );
-        pid_file(&config, 700, start, "0b5e1c1e-0000-4000-8000-000000000002");
+        let new_sid = "0b5e1c1e-0000-4000-8000-000000000002";
+        pid_file(&config, 700, start, new_sid);
         let line = format!("claude CLAUDE_CONFIG_DIR={}", config.display());
         let fixed = Fixed::new(vec![proc_(700, 699, start, &line)], vec![]);
+        // The new session is named, so the chat can send its first message to exactly that one.
         assert_eq!(
             locate_with(
                 &term("t1", "claude", 700, "/scratch"),
@@ -878,7 +948,8 @@ mod tests {
                 now
             ),
             Err(LocateFailure::NoLog {
-                agent: "claude".into()
+                agent: "claude".into(),
+                session: Some(new_sid.into()),
             })
         );
         assert_eq!(cache::read(&file).root, None);
@@ -947,15 +1018,16 @@ mod tests {
             (PathBuf::from(&b), b_id.to_string())
         );
 
-        // t1 sees a and b; with t2 closed nothing is taken and two candidates name none.
+        // t1 sees a and b; with t2 closed nothing is taken and two candidates name none. That is not a fresh
+        // conversation, so a send with no session must not pass.
         fixed.claimed = claimed_by_others(&core, "t1", &["t1".into()]);
         assert!(fixed.claimed.is_empty());
-        assert_eq!(
-            locate_with(&t1, &f1, &fixed.inputs(), now),
-            Err(LocateFailure::NoLog {
-                agent: "codex".into()
-            })
+        let unsure = locate_with(&t1, &f1, &fixed.inputs(), now);
+        assert!(
+            matches!(&unsure, Err(LocateFailure::Ambiguous { agent, .. }) if agent == "codex"),
+            "{unsure:?}"
         );
+        assert_eq!(unsure.unwrap_err().state_line()["state"], "ambiguous");
 
         // With t2 live, its remembered b is taken and t1 gets a.
         fixed.claimed = claimed_by_others(&core, "t1", &["t1".into(), "t2".into()]);
@@ -1024,7 +1096,8 @@ mod tests {
 
     #[test]
     fn codex_new_thread_without_its_log_is_no_log() {
-        // Codex 0.167 after `/new`: the old rollout stays open, and the new thread has a lock but no rollout yet.
+        // Codex 0.167 after `/new`: the old rollout stays open until the old thread unloads, and the new thread has
+        // a lock but no rollout yet.
         let tmp = tempfile::tempdir().unwrap();
         let now = now_ms();
         let home = tmp.path().join("codex-home");
@@ -1041,24 +1114,33 @@ mod tests {
                 now - 60_000,
             ),
         );
-        let open = vec![parent.clone(), lock(&home, PARENT_ID), lock(&home, NEW_ID)];
-        let fixed = Fixed::new(
-            vec![proc_(801, 800, at(now - 90_000), &codex_line(&home))],
-            open,
-        );
+        let procs = vec![proc_(801, 800, at(now - 90_000), &codex_line(&home))];
         let t = term("t2", "codex", 801, "/scratch/codex-subagent");
+        let both = Fixed::new(
+            procs.clone(),
+            vec![parent.clone(), lock(&home, PARENT_ID), lock(&home, NEW_ID)],
+        );
+        assert!(matches!(
+            locate_with(&t, &file, &both.inputs(), now),
+            Err(LocateFailure::Ambiguous { agent, .. }) if agent == "codex"
+        ));
+        assert_eq!(cache::read(&file).root, None, "the old root is forgotten");
+        // Once the old thread unloads, the new one is all Codex holds.
+        let unloaded = Fixed::new(procs, vec![lock(&home, NEW_ID)]);
         assert_eq!(
-            locate_with(&t, &file, &fixed.inputs(), now),
+            locate_with(&t, &file, &unloaded.inputs(), now),
             Err(LocateFailure::NoLog {
-                agent: "codex".into()
+                agent: "codex".into(),
+                session: Some(NEW_ID.into()),
             })
         );
-        assert_eq!(cache::read(&file).root, None, "the old root is forgotten");
     }
 
     #[test]
-    fn codex_newest_thread_is_the_root() {
-        // After the new thread's first message both rollouts are open, which alone leaves the resolver unsure.
+    fn codex_several_root_threads_name_none() {
+        // Review Focus 1. Both rollouts and locks are open after `/new` and the new thread's first message, and
+        // equally after `/resume` back to the older thread while the newer one stays loaded. Nothing tells which
+        // one the terminal shows, so neither is the root, even the one remembered.
         let tmp = tempfile::tempdir().unwrap();
         let now = now_ms();
         let home = tmp.path().join("codex-home");
@@ -1090,7 +1172,37 @@ mod tests {
                 lock(&home, NEW_ID),
             ],
         );
-        let got = locate_with(&t, &file, &both.inputs(), now).unwrap();
+        for remembered in [(&parent, PARENT_ID), (&new, NEW_ID)] {
+            remember(
+                &file,
+                root(
+                    "codex",
+                    vec![801, 800],
+                    801,
+                    remembered.0,
+                    remembered.1,
+                    now - 60_000,
+                ),
+            );
+            let got = locate_with(&t, &file, &both.inputs(), now);
+            assert!(
+                matches!(&got, Err(LocateFailure::Ambiguous { agent, .. }) if agent == "codex"),
+                "{got:?}"
+            );
+            assert_eq!(got.unwrap_err().state_line()["state"], "ambiguous");
+            assert_eq!(cache::read(&file).root, None);
+        }
+        // The same lock seen twice (two processes of the tree) is one thread.
+        let twice = Fixed::new(
+            procs.clone(),
+            vec![
+                new.clone(),
+                lock(&home, NEW_ID),
+                new.clone(),
+                lock(&home, NEW_ID),
+            ],
+        );
+        let got = locate_with(&t, &file, &twice.inputs(), now).unwrap();
         assert_eq!(
             (got.session.as_str(), got.path),
             (NEW_ID, PathBuf::from(&new))
@@ -1191,10 +1303,20 @@ mod tests {
         );
         assert_eq!(
             LocateFailure::NoLog {
-                agent: "codex".into()
+                agent: "codex".into(),
+                session: None,
             }
             .state_line(),
             json!({"type": "state", "state": "no_log", "agent": "codex", "message": "no codex session log yet"})
+        );
+        assert_eq!(
+            LocateFailure::NoLog {
+                agent: "claude".into(),
+                session: Some("s1".into()),
+            }
+            .state_line(),
+            json!({"type": "state", "state": "no_log", "agent": "claude", "session": "s1",
+                   "message": "no claude session log yet"})
         );
     }
 }

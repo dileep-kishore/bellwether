@@ -8,7 +8,9 @@
 //!
 //! Claude and Codex write no log until their first message, so a chat that has never shown a conversation
 //! sends with `--expect-session none --expect-path none`: that passes only while the terminal's agent of the
-//! expected kind is running and has no log at all.
+//! expected kind is running and has named a conversation with no log yet. After `/new` or `/clear` the chat
+//! names the replacement with `--expect-session <id> --expect-path none`, which passes only while that agent
+//! names exactly that conversation and it still has no log.
 //!
 //! The guard is adapted from Flockbook's xplat/flockbook-modfeed/src/cards.rs `send` (MIT, Copyright (c) 2026
 //! Min-Chen Lee).
@@ -25,7 +27,7 @@ use crate::hc::{self, HcError};
 const USAGE: &str = "usage: bw send --terminal <t> --expect-kind <claude|codex> \
                      --expect-session <id|none> --expect-path <log|none> --text <message>";
 
-/// The expectation of a chat that has never shown a conversation: the agent has written no log yet.
+/// No conversation (`--expect-session`) or no log (`--expect-path`) known to the chat.
 const NO_LOG: &str = "none";
 
 /// `hc send` waits up to 3 s for the program to stop typing, and `exec` stops the mod's call at 30 s.
@@ -42,11 +44,13 @@ struct Shown {
 /// Why nothing reached the terminal before `hc send`.
 #[derive(Debug, PartialEq)]
 enum NotShown {
-    /// The expected kind's agent runs here and has written no log yet.
+    /// The expected kind's agent runs here and has written no log yet for `session`, when it named one.
     NoLog {
         agent: String,
+        session: Option<String>,
     },
-    /// No agent conversation to compare: an agent not running, or no agent at all.
+    /// No agent conversation to compare: an agent not running, no agent at all, or one whose conversation
+    /// bw cannot name.
     Unconfirmed(String),
     Error {
         code: &'static str,
@@ -65,10 +69,11 @@ fn failure(f: LocateFailure) -> NotShown {
             message: m,
         },
         LocateFailure::NotAgent(m) => NotShown::Unconfirmed(m),
-        LocateFailure::NoLog { agent } => NotShown::NoLog { agent },
+        LocateFailure::NoLog { agent, session } => NotShown::NoLog { agent, session },
         LocateFailure::NoProcess { agent } => {
             NotShown::Unconfirmed(format!("no {agent} process runs in it"))
         }
+        LocateFailure::Ambiguous { message, .. } => NotShown::Unconfirmed(message),
     }
 }
 
@@ -93,6 +98,14 @@ fn mismatch(shown: &Shown, kind: &str, session: &str, path: &str) -> Option<Stri
     None
 }
 
+/// What the chat read: no conversation at all, a named one with no log yet, or one with its log.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Expect<'a> {
+    Fresh,
+    NoLog(&'a str),
+    Log(&'a str, &'a str),
+}
+
 /// What the guard decided before any text is typed.
 #[derive(Debug, PartialEq)]
 enum Check {
@@ -101,17 +114,23 @@ enum Check {
     Error(&'static str, String),
 }
 
-/// `expected` is the chat's session and path, or None when it has never shown a conversation.
-fn check(shown: Result<Shown, NotShown>, kind: &str, expected: Option<(&str, &str)>) -> Check {
+fn check(shown: Result<Shown, NotShown>, kind: &str, expected: Expect) -> Check {
     match (shown, expected) {
-        (Ok(s), Some((session, path))) => match mismatch(&s, kind, session, path) {
+        (Ok(s), Expect::Log(session, path)) => match mismatch(&s, kind, session, path) {
             Some(why) => Check::Refuse(why),
             None => Check::Pass,
         },
-        (Ok(s), None) => Check::Refuse(format!("it shows session {} now", s.session)),
-        (Err(NotShown::NoLog { agent }), None) if agent == kind => Check::Pass,
-        (Err(NotShown::NoLog { agent }), None) => Check::Refuse(format!("it runs {agent} now")),
-        (Err(NotShown::NoLog { agent }), Some(_)) => Check::Refuse(format!(
+        (Ok(s), _) => Check::Refuse(format!("it shows session {} now", s.session)),
+        (Err(NotShown::NoLog { agent, .. }), _) if agent != kind => {
+            Check::Refuse(format!("it runs {agent} now"))
+        }
+        (Err(NotShown::NoLog { .. }), Expect::Fresh) => Check::Pass,
+        (Err(NotShown::NoLog { session, .. }), Expect::NoLog(want)) => match session {
+            Some(s) if s == want => Check::Pass,
+            Some(s) => Check::Refuse(format!("it shows session {s} now, with no log yet")),
+            None => Check::Refuse(format!("it names no {kind} session to compare")),
+        },
+        (Err(NotShown::NoLog { agent, .. }), Expect::Log(..)) => Check::Refuse(format!(
             "no {agent} session log for the conversation shown now"
         )),
         (Err(NotShown::Unconfirmed(why)), _) => Check::Refuse(why),
@@ -160,11 +179,12 @@ pub fn run(argv: &[String]) -> ExitCode {
         return crate::usage(USAGE);
     };
     let expected = match (session == NO_LOG, path == NO_LOG) {
-        (false, false) => Some((session, path)),
-        (true, true) => None,
-        _ => {
+        (false, false) => Expect::Log(session, path),
+        (false, true) => Expect::NoLog(session),
+        (true, true) => Expect::Fresh,
+        (true, false) => {
             return crate::usage(&format!(
-                "--expect-session none and --expect-path none go together; {USAGE}"
+                "--expect-session none needs --expect-path none; {USAGE}"
             ))
         }
     };
@@ -234,32 +254,43 @@ mod tests {
         assert!(mismatch(&s, "codex", "a", "/l/b.jsonl").is_some());
     }
 
+    fn no_log(agent: &str, session: Option<&str>) -> Result<Shown, NotShown> {
+        Err(NotShown::NoLog {
+            agent: agent.into(),
+            session: session.map(String::from),
+        })
+    }
+
     #[test]
     fn none_passes_only_a_running_agent_without_a_log() {
-        let no_log = |agent: &str| {
-            Err(NotShown::NoLog {
-                agent: agent.into(),
-            })
-        };
-        assert_eq!(check(no_log("codex"), "codex", None), Check::Pass);
-        assert!(matches!(
-            check(no_log("claude"), "codex", None),
-            Check::Refuse(_)
-        ));
+        for session in [None, Some("b")] {
+            assert_eq!(
+                check(no_log("codex", session), "codex", Expect::Fresh),
+                Check::Pass
+            );
+            assert!(matches!(
+                check(no_log("claude", session), "codex", Expect::Fresh),
+                Check::Refuse(_)
+            ));
+        }
         // After Claude `/clear` the new session has no log yet, while the chat still shows the old one.
         assert!(matches!(
-            check(no_log("claude"), "claude", Some(("a", "/l/a.jsonl"))),
+            check(
+                no_log("claude", Some("b")),
+                "claude",
+                Expect::Log("a", "/l/a.jsonl")
+            ),
             Check::Refuse(_)
         ));
         assert!(matches!(
-            check(Ok(shown("codex", "b", "/l/b.jsonl")), "codex", None),
+            check(Ok(shown("codex", "b", "/l/b.jsonl")), "codex", Expect::Fresh),
             Check::Refuse(m) if m.contains(" b ")
         ));
         assert!(matches!(
             check(
                 Err(NotShown::Unconfirmed("no codex process".into())),
                 "codex",
-                None
+                Expect::Fresh
             ),
             Check::Refuse(_)
         ));
@@ -267,9 +298,46 @@ mod tests {
             check(
                 Ok(shown("codex", "a", "/l/a.jsonl")),
                 "codex",
-                Some(("a", "/l/a.jsonl"))
+                Expect::Log("a", "/l/a.jsonl")
             ),
             Check::Pass
         );
+    }
+
+    #[test]
+    fn a_replacement_conversation_passes_only_by_its_own_id() {
+        // After `/new` or `/clear` the chat names the session locate reported with no log yet.
+        let b = Expect::NoLog("b");
+        assert_eq!(check(no_log("codex", Some("b")), "codex", b), Check::Pass);
+        for (shown_now, kind) in [
+            (no_log("codex", Some("c")), "codex"),
+            (no_log("codex", None), "codex"),
+            (no_log("claude", Some("b")), "codex"),
+            (Ok(shown("codex", "b", "/l/b.jsonl")), "codex"),
+            (Err(NotShown::Unconfirmed("cannot tell".into())), "codex"),
+        ] {
+            assert!(
+                matches!(check(shown_now, kind, Expect::NoLog("b")), Check::Refuse(_)),
+                "{kind}"
+            );
+        }
+    }
+
+    #[test]
+    fn none_is_refused_when_discovery_is_unsure() {
+        // Review Focus 1: no candidate, several, or a claimed one says nothing about whether a log exists.
+        let unsure = LocateFailure::Ambiguous {
+            agent: "codex".into(),
+            message: "cannot tell".into(),
+        };
+        assert!(matches!(failure(unsure.clone()), NotShown::Unconfirmed(_)));
+        assert!(matches!(
+            check(Err(failure(unsure.clone())), "codex", Expect::Fresh),
+            Check::Refuse(_)
+        ));
+        assert!(matches!(
+            check(Err(failure(unsure)), "codex", Expect::NoLog("a")),
+            Check::Refuse(_)
+        ));
     }
 }

@@ -512,7 +512,8 @@ impl ConversationParser {
                 }
                 let raw = json::str_(payload.get("arguments")).or(json::str_(payload.get("input"))).unwrap_or("");
                 let cmd = codex_command(payload);
-                let call = ToolCall::new(&id, &name, &cmd, &cut(raw));
+                let mut call = ToolCall::new(&id, &name, &cmd, &cut(raw));
+                call.edited = codex_patch_files(&name, raw);
                 self.open_call(&id, &name, codex_call_label(&name, raw), Some(cmd), call);
             }
             Some("agent_message") => {

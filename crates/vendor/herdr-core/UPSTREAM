@@ -67,3 +67,12 @@ Changes:
   `user_visible` judges the inner text as it would typed text. Other
   tagged text is still hidden. Test: tests/bellwether.rs
   `hc_wrapper_keeps_the_senders_text`.
+- 2026-11-07, src/model.rs and src/conversation/mod.rs: `ToolCall`
+  gains `edited`, the files a Codex `apply_patch` call, or the
+  `tools.apply_patch` calls in an `exec` / `js` input, add, update or
+  delete, read with `codex_patch_files` from the whole input when the
+  call is parsed. `input` is still cut at 4 KB for display, and a
+  patch read from it lost the paths past the cut (and, for a quoted
+  JavaScript patch, its closing quote, so the path ran on into the
+  escaped patch text). Test: tests/bellwether.rs
+  `codex_patch_paths_come_from_the_whole_input`.

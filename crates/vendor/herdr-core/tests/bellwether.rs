@@ -233,6 +233,35 @@ fn other_exec_code_is_a_script() {
     assert_eq!(calls(&both.items())[0].summary, "echo \"hi\" (+2 more)", "first command, unescaped, and the rest counted");
 }
 
+/// A patch over the 4 KB detail cut that adds /w/a.txt and then updates /w/b.txt, past the cut.
+fn big_patch() -> String {
+    let filler: String = (0..120).map(|i| format!("+line {i:04} of filler text for the added file\n")).collect();
+    let patch = format!("*** Begin Patch\n*** Add File: /w/a.txt\n{filler}*** Update File: /w/b.txt\n@@\n-x\n+y\n*** End Patch");
+    assert!(patch.len() > 4096 + 1024);
+    patch
+}
+
+#[test]
+fn codex_patch_paths_come_from_the_whole_input() {
+    let patch = big_patch();
+    let direct = serde_json::json!({"type": "response_item", "payload": {"type": "custom_tool_call",
+        "name": "apply_patch", "call_id": "p1", "input": patch}})
+    .to_string();
+    let js = format!("text(await tools.apply_patch({}));\n", serde_json::to_string(&patch).unwrap());
+    for (id, line) in [("p1", direct), ("p2", exec_line("p2", &js))] {
+        let mut p = ConversationParser::new();
+        p.feed(&line);
+        p.feed(&format!(
+            r#"{{"type":"response_item","payload":{{"type":"custom_tool_call_output","call_id":"{id}","output":"ok"}}}}"#
+        ));
+        let c = calls(&p.items());
+        assert_eq!(c.len(), 1, "{id}");
+        assert!(c[0].input.ends_with('…'), "{id}: the shown input is still cut");
+        assert_eq!(c[0].edited, vec!["/w/a.txt", "/w/b.txt"], "{id}");
+        assert_eq!(c[0].summary, "/w/a.txt, /w/b.txt", "{id}");
+    }
+}
+
 /// What `hc send` from another core puts in the log (probe against bwloop, 2026-11-07): the text unescaped, so a
 /// `</hc>` inside it stays as typed.
 const HC_FROM: &str = "<hc from=\"495a7fa4c01bdb33213c3868c28d6caa/ppid:53078\">";
