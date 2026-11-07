@@ -19,6 +19,9 @@ Copyright (c) 2026 Min-Chen Lee.
 | `crates/bw/src/machine/install.rs` (parts under 6 MB, join and hash there, `SHA256SUMS` parsing, clean up on failure) | `xplat/flockbook-modfeed/src/remote.rs` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
 | `tests/harness/herdr-stub.js` (the `fake` and `log` objects, the recording `run`, `exec`, `setShared`, `openOverlay`, `closeOverlay`, `notify`, `setAgentOrder` stubs, the `#name` theme Proxy) | `herdr-app/test/stub/herdr.mjs` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
 | `tests/harness/kit-stub.js` (the element Proxy that keeps children, attributes and handlers, `when`, the right-button `on_mouse_down` key, `byId`, `textOf`, the `InputState` and `Input` stubs) | `herdr-app/test/stub/ui.mjs` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
+| `mods/bw-chat/feedstate.js` (rows, older rows on top, splice; a `state` line names the wait and keeps rows, a helper failure keeps rows, a new path or session empties them) | `herdr-app/mods/flockbook/feedstate.js` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
+| `mods/bw-chat/estimate.js` (`READ_W` 736, an 80 % bubble, heights for `tools`, `changed` and picture rows) | `herdr-app/mods/flockbook/estimate.js` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
+| `mods/bw-chat/mdblocks.js` | `herdr-app/mods/flockbook/mdblocks.js` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | copied unchanged |
 
 ## herdr-t3
 
