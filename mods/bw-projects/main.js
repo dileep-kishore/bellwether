@@ -264,6 +264,7 @@ export default class Projects extends View {
 
   render() {
     const t = themeColors();
+    // Null under herdr-app check, which renders without a window.
     const win = window();
     const stored = shared(STORE);
     const all = spaces();
@@ -274,7 +275,7 @@ export default class Projects extends View {
       agents: agents(),
       terminals: terminals(),
       stored: readStored(stored),
-      platform: win.platform,
+      platform: win?.platform ?? "linux",
       git: this.git,
       counts: this.counts,
     };
@@ -312,7 +313,7 @@ export default class Projects extends View {
 
     const narrow = this.width !== null && this.width < RAIL_BELOW;
     // Leave the macOS window buttons room when the layout hides the title bar.
-    const lights = win.platform === "macos" && win.titlebar === "none" && !win.fullscreen;
+    const lights = win?.platform === "macos" && win.titlebar === "none" && !win.fullscreen;
     const root = v_flex()
       .id("root")
       .size_full()
