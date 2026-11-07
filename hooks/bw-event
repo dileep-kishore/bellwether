@@ -1,0 +1,15 @@
+#!/bin/sh
+# Claude's and Codex's hook for Bellwether (`bw machine setup` installs it): hands the payload on stdin to
+# `bw event`, which records it for the chat. It decides nothing, prints nothing and exits 0 in every case, so
+# neither agent can read its output or exit code as an answer.
+# The $HC_TERMINAL_ID gate is adapted from Shepherdr's mods/chat/ask-hook.sh (MIT, Copyright (c) 2026 Elias Stravik).
+t="${HC_TERMINAL_ID:-}"
+[ -n "$t" ] || exit 0
+case "$t" in */*|*..*) exit 0 ;; esac
+bw="$HOME/.local/share/bellwether/helper/current/bw"
+if [ -x "$bw" ]; then
+  "$bw" event --agent "${1:-}" >/dev/null 2>&1
+else
+  cat >/dev/null 2>&1
+fi
+exit 0
