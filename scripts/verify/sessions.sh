@@ -1,6 +1,7 @@
 #!/bin/sh
 # Done check 2 without a window: bw feed on the six recordings, then real Claude and Codex fed,
-# sent to and refused through bw, here and on another machine.
+# sent to and refused through bw, here and on another machine. Each chat's first message goes
+# through `bw send --expect-session none`, as a fresh chat tab sends it.
 #   scripts/verify/sessions.sh [--offline] [--machine <name>]
 # --offline runs only the recordings' checks (scripts/test.sh runs it). Without --machine the
 # other machine's half prints PENDING. Spends tokens: Claude haiku and Codex gpt-6-luna, low effort.
@@ -24,7 +25,7 @@ while [ $# -gt 0 ]; do
   case $1 in
     --offline) offline=1; shift ;;
     --machine) machine=${2:?--machine needs a name}; shift 2 ;;
-    *) sed -n 3p "$0" >&2; exit 2 ;;
+    *) sed -n 5p "$0" >&2; exit 2 ;;
   esac
 done
 [ "$offline" = 1 ] && [ -n "$machine" ] && { echo "--offline and --machine exclude each other" >&2; exit 2; }

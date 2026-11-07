@@ -201,7 +201,7 @@ class Term {
   async waitScreen(re, limit = 40000) {
     return until(async () => re.test(await this.screen(60)), limit, 2000);
   }
-  /** The first message, typed as in the terminal itself: no log confirms a conversation before it. @param {string} text */
+  /** Types `text` with hc send itself, for a check that is not about bw send. @param {string} text */
   async type(text) {
     return until(async () => (await this.hcCall(["send", "--json", "--", this.address, text])).code === 0, 30000, 2000);
   }
@@ -321,6 +321,54 @@ async function oldRefused(name, t, old, logsWith) {
   pass(name, `now ${now.type === "located" ? `session ${now.session}` : now.state}; old session ${old.session} refused, screen and logs unchanged`);
 }
 
+/**
+ * The first message as a fresh chat sends it, with no session: sent while bw locate says no_log, it is the
+ * feed's first user row, and once the log exists another send with no session is refused.
+ * @param {string} name @param {Term} t @param {"claude" | "codex"} agent @param {string} text
+ * @param {() => Promise<unknown>} settle waits for the agent to finish its turn
+ * @returns {Promise<any>} the conversation's `located` line, or null
+ */
+async function firstMessage(name, t, agent, text, settle = () => t.wait()) {
+  const none = { agent, session: "none", path: "none" };
+  const first = `${name}-first-message`;
+  const fresh = await until(async () => {
+    const l = await t.locate();
+    return l?.type === "state" && l.state === "no_log" && l.agent === agent ? l : null;
+  }, 20000);
+  if (!fresh) {
+    fail(first, `bw locate before the first message gave ${short(await t.locate())}`);
+    return null;
+  }
+  const r = await t.send(none, text);
+  if (r?.result !== "sent") {
+    fail(first, `bw send --expect-session none gave ${short(r)}`);
+    return null;
+  }
+  await settle();
+  const c = await located(t);
+  if (!c) {
+    fail(first, "bw locate found no log after the first message");
+    return null;
+  }
+  const got = await rowsWhen(t, (rows) => rows.find((row) => row.k === "user")?.text === text);
+  got.ok ? pass(first, `sent with --expect-session none while bw locate said no_log; the feed's first user row is the message`)
+    : fail(first, `feed starts ${short(got.rows.slice(0, 3).map((row) => ({ k: row.k, text: String(row.text ?? "").slice(0, 60) })))}`);
+  await check(`${name}-none-refused-after-log`, async () => {
+    const again = marker("NONE");
+    await t.steady();
+    const r2 = await t.send(none, again);
+    await sleep(4000);
+    // Claude redraws its mode line on its own after a turn, so look for the text rather than an unchanged screen.
+    const after = await t.screen(60);
+    const rows = await t.rows();
+    if (r2?.result !== "refused-conversation") return fail(`${name}-none-refused-after-log`, `bw send gave ${short(r2)}`);
+    if (after.includes(again)) return fail(`${name}-none-refused-after-log`, "the refused text is on the screen");
+    if (rows.some((row) => String(row.text ?? "").includes(again))) return fail(`${name}-none-refused-after-log`, "the feed holds the refused text");
+    pass(`${name}-none-refused-after-log`, `refused-conversation once session ${c.session} has a log; the text is on neither the screen nor the feed`);
+  });
+  return c;
+}
+
 /** Lines of `after` that `before` does not have. @param {string} before @param {string} after */
 function changed(before, after) {
   const was = new Set(before.split("\n"));
@@ -348,10 +396,8 @@ async function claudeChecks() {
   const t = await startHere("bw-sessions-claude", dir, CLAUDE);
   try {
     await claudeReady(t);
-    await t.type("Read dot.png with the Read tool and name its colour in one word.");
-    await t.wait();
-    const first = await located(t);
-    if (!first) return fail("claude-feed-shows-turn", "bw locate found no log after the first message");
+    const first = await firstMessage("claude", t, "claude", "Read dot.png with the Read tool and name its colour in one word.");
+    if (!first) return fail("claude-feed-shows-turn", "no conversation after the first message");
 
     await check("claude-feed-shows-turn", async () => {
       const ask = "Reply with the word PINEAPPLE only.";
@@ -460,7 +506,7 @@ async function codexChecks() {
   const t = await startHere("bw-sessions-codex", dir, ["/usr/bin/env", `CODEX_HOME=${home}`, "codex", ...CODEX_FLAGS]);
   try {
     await codexReady(t);
-    await t.type("Spawn exactly one sub-agent with spawn_agent and ask it to run 'ls | wc -l' and report the number. Wait for it, then reply with its number only.");
+    await firstMessage("codex", t, "codex", "Spawn exactly one sub-agent with spawn_agent and ask it to run 'ls | wc -l' and report the number. Wait for it, then reply with its number only.", () => t.wait(180));
     await check("codex-root-beside-child", async () => {
       const child = await until(async () => rollouts(home).find((r) => r.child), 120000, 2000);
       await t.wait(180);
@@ -536,10 +582,8 @@ async function remoteChecks() {
       const l = await t.locate();
       l?.agent === "codex" ? pass(`${M}-codex-kind`, `bw locate there names codex behind the env wrapper (${l.type === "state" ? l.state : l.session})`) : fail(`${M}-codex-kind`, `bw locate there gave ${short(l)}: the env wrapper hides Codex`);
     });
-    await t.type("Reply with the word MANGO only.");
-    await t.wait();
-    const first = await located(t);
-    if (!first) return fail(`${M}-codex-feed`, "bw locate there found no log after the first message");
+    const first = await firstMessage(`${M}-codex`, t, "codex", "Reply with the word MANGO only.");
+    if (!first) return fail(`${M}-codex-feed`, "no conversation there after the first message");
     await check(`${M}-codex-feed`, async () => {
       const got = await rowsWhen(t, (rows) => userRow(rows, "Reply with the word MANGO only.") && replyHas(rows, "MANGO"));
       got.ok ? pass(`${M}-codex-feed`, "bw feed through the helper there shows the turn") : fail(`${M}-codex-feed`, `feed ends ${tail(got.rows)}`);

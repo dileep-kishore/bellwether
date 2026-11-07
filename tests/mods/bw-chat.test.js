@@ -302,19 +302,53 @@ describe("bw-chat", () => {
     expect(textarea(n).attrs.disabled).toBe(true);
   });
 
-  test("a feed state line names the wait and disables the composer until a log line", async () => {
-    let answer = out([{ type: "state", state: "no_log", agent: "codex", message: "no rollout yet" }]);
+  test("a fresh chat sends its first message with no session; the composer turns on with no log", async () => {
+    let answer = out([{ type: "state", state: "no_log", agent: "codex", message: "no codex session log yet" }]);
     const data = live("chat-remote");
-    data.exec = bw({ feed: () => answer });
+    data.exec = bw({ feed: () => answer, send: () => out([{ type: "send", result: "sent", message: "" }]) });
     const m = await mount("bw-chat", { props: CODEX_REMOTE, live: data });
-    expect(textOf(byId(m.el, "chat-state"))).toContain("Waiting for Codex's session log");
-    expect(textarea(m).attrs.disabled).toBe(true);
-    await m.click("show-terminal");
-    expect(m.log.run).toEqual([["bw-tabs.chat-flip"]]);
+    expect(textOf(m.el)).toContain("No messages yet. Send the first one below.");
+    expect(textarea(m).attrs.disabled).toBe(false);
+    await typeAndSend(m, "--first");
+    const sends = calls(m, "send");
+    expect(sends).toHaveLength(1);
+    expect(sends[0][2]).toEqual({ on: "macmini" });
+    expect(sends[0][1].slice(4)).toEqual(["--terminal", "t5", "--expect-kind", "codex", "--expect-session", "none", "--expect-path", "none", "--text", "--first"]);
+
     answer = out(golden("codex-question", "t5", CODEX_PATH));
     await nextPoll(m);
     expect(byId(m.el, "chat-state")).toBe(null);
     expect(textarea(m).attrs.disabled).toBe(false);
+    await typeAndSend(m, "next");
+    expect(calls(m, "send").at(-1)[1].slice(8, 12)).toEqual(["--expect-session", CODEX_SESSION, "--expect-path", CODEX_PATH]);
+  });
+
+  test("once a conversation was shown, no log disables the composer and nothing sends with none", async () => {
+    // Claude `/clear` or Codex `/new`: the new conversation has no log yet and the chat still shows the old one.
+    let answer = out(golden("codex-question", "t5", CODEX_PATH));
+    const data = live("chat-remote");
+    data.exec = bw({ feed: () => answer });
+    const m = await mount("bw-chat", { props: CODEX_REMOTE, live: data });
+    answer = out([{ type: "state", state: "no_log", agent: "codex", message: "no codex session log yet" }]);
+    await nextPoll(m);
+    expect(textOf(byId(m.el, "chat-notice"))).toContain("Waiting for Codex's session log");
+    expect(textarea(m).attrs.disabled).toBe(true);
+    await typeAndSend(m, "hi");
+    expect(calls(m, "send")).toHaveLength(0);
+  });
+
+  test("a feed state other than no log names the wait and disables the composer", async () => {
+    for (const [state, agent, shown] of [["not_agent", null, "This terminal runs no Claude or Codex"], ["no_log", "claude", "Waiting for Codex's session log"]]) {
+      const data = live("chat-remote");
+      data.exec = bw({ feed: () => out([{ type: "state", state, agent, message: "" }]) });
+      const m = await mount("bw-chat", { props: CODEX_REMOTE, live: data });
+      expect(textOf(byId(m.el, "chat-state"))).toContain(String(shown));
+      expect(textarea(m).attrs.disabled).toBe(true);
+      await m.click("show-terminal");
+      expect(m.log.run).toEqual([["bw-tabs.chat-flip"]]);
+      await typeAndSend(m, "hi");
+      expect(calls(m, "send")).toHaveLength(0);
+    }
   });
 
   test("helper missing here is named; on macmini it installs and says so", async () => {

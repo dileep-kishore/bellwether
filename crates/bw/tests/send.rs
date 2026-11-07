@@ -396,3 +396,112 @@ fn missing_expectations_are_usage() {
     assert!(x.sends().is_empty());
     assert!(x.log().is_empty(), "no hc call for a bad command line");
 }
+
+/// A fresh Codex terminal `t7` before its first message: a thread lock and no rollout, as Codex 0.167 starts.
+fn fresh_codex(x: &Scratch) -> FakeCodex {
+    let home = x.dir().join("codex-home");
+    std::fs::create_dir_all(home.join("sessions")).unwrap();
+    std::fs::create_dir_all(home.join("thread-writer-locks")).unwrap();
+    let lock = home.join(format!("thread-writer-locks/{OTHER_SID}.lock"));
+    std::fs::write(&lock, "").unwrap();
+    let codex = FakeCodex::start(&x.dir(), &home, &[lock]);
+    let pid = codex.0.id();
+    std::fs::write(
+        x.dir().join("gets/t7.json"),
+        json!({"address": "t7", "argv": ["codex"], "cwd": "/scratch/fresh", "pid": pid,
+               "state": "live", "status": {"state": "idle"},
+               "foreground": {"argv": ["codex"], "name": "codex", "pid": pid}})
+        .to_string(),
+    )
+    .unwrap();
+    let (_, lines) = x.run(&["locate", "--terminal", "t7"]);
+    assert_eq!(lines[0]["state"], "no_log", "{lines:?}");
+    codex
+}
+
+#[test]
+fn first_message_to_a_fresh_conversation_is_sent() {
+    let x = Scratch::new();
+    let _codex = fresh_codex(&x);
+    let (code, line) = x.send("t7", "codex", "none", "none", "--first -x");
+    assert_eq!((code, sent(&line)), (0, "sent"), "{line}");
+    assert_eq!(x.sends(), vec!["send t7 --first -x"]);
+}
+
+#[test]
+fn none_is_refused_once_a_session_is_located() {
+    // Even a brand-new conversation the chat has not shown yet: none only means "no log at all".
+    let x = Scratch::new();
+    let (_codex, _) = local_codex(&x, &[]);
+    let (code, line) = x.send("t7", "codex", "none", "none", "hi");
+    assert_eq!((code, sent(&line)), (0, "refused-conversation"), "{line}");
+    assert!(line["message"].as_str().unwrap().contains(SID), "{line}");
+    assert!(x.sends().is_empty());
+}
+
+#[test]
+fn none_with_another_kind_is_refused() {
+    let x = Scratch::new();
+    let _codex = fresh_codex(&x);
+    let (code, line) = x.send("t7", "claude", "none", "none", "hi");
+    assert_eq!((code, sent(&line)), (0, "refused-conversation"), "{line}");
+    assert!(x.sends().is_empty());
+}
+
+#[test]
+fn none_without_a_running_agent_is_refused() {
+    // The shell came back, or hc still names codex but no codex process is left to read the text.
+    let x = Scratch::new();
+    x.shell("t1");
+    let (_, line) = x.send("t1", "codex", "none", "none", "hi");
+    assert_eq!(sent(&line), "refused-conversation", "{line}");
+    std::fs::write(
+        x.dir().join("gets/t2.json"),
+        json!({"address": "t2", "argv": ["codex"], "cwd": "/scratch", "pid": 999_999,
+               "state": "live", "status": {"state": "idle"},
+               "foreground": {"argv": ["codex"], "name": "codex", "pid": 999_999}})
+        .to_string(),
+    )
+    .unwrap();
+    let (_, line) = x.send("t2", "codex", "none", "none", "hi");
+    assert_eq!(sent(&line), "refused-conversation", "{line}");
+    let (code, line) = x.send("t9", "codex", "none", "none", "hi");
+    assert_eq!(error(code, &line), "no_terminal");
+    assert!(x.sends().is_empty());
+}
+
+#[test]
+fn none_goes_with_none() {
+    let x = Scratch::new();
+    let _codex = fresh_codex(&x);
+    for (session, path) in [("none", "/l/a.jsonl"), (SID, "none")] {
+        let (code, lines) = x.run(&[
+            "send",
+            "--terminal",
+            "t7",
+            "--expect-kind",
+            "codex",
+            "--expect-session",
+            session,
+            "--expect-path",
+            path,
+            "--text",
+            "hi",
+        ]);
+        assert_eq!(code, 2, "{session} {path}: {lines:?}");
+        assert_eq!(lines[0]["code"], "usage");
+    }
+    let (code, _) = x.run(&[
+        "send",
+        "--terminal",
+        "t7",
+        "--expect-session",
+        "none",
+        "--expect-path",
+        "none",
+        "--text",
+        "hi",
+    ]);
+    assert_eq!(code, 2, "--expect-kind is still required");
+    assert!(x.sends().is_empty());
+}

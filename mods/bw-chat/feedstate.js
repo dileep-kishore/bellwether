@@ -32,12 +32,13 @@
  * @property {{ state: string, message: string } | null} error the helper's failure
  * @property {{ state: string, agent: string | null, message: string } | null} waiting the feed's `state` line
  * @property {boolean} loaded
+ * @property {boolean} seen a `log` line has named a session for this terminal, so it never counts as fresh again
  */
 
 /** @param {string} terminal @returns {FeedState} */
 export function emptyFeed(terminal) {
   return { terminal, rows: [], tail: [], older: [], start: null, olderStart: null, first: false,
-    cursor: null, path: null, session: null, agent: null, model: null, error: null, waiting: null, loaded: false };
+    cursor: null, path: null, session: null, agent: null, model: null, error: null, waiting: null, loaded: false, seen: false };
 }
 
 /** @param {FeedState} state */
@@ -105,6 +106,7 @@ export function applyFeed(state, answer) {
       }
       state.start = l.start ?? null;
       state.path = path; state.session = session;
+      if (session) state.seen = true;
       state.agent = l.agent ?? state.agent; state.cursor = l.cursor ?? null;
       if (l.model) state.model = l.model;
     } else if (l.type === "splice") splice = l;
@@ -119,4 +121,15 @@ export function applyFeed(state, answer) {
   }
   join(state);
   return hadError && changedAt === -1 ? 0 : changedAt;
+}
+
+/**
+ * The chat has never shown a conversation and the agent has written no log yet, so the first message
+ * goes with no session; `bw send` checks that again before typing.
+ * @param {FeedState} state @param {string} kind the chat's agent kind
+ * @returns {boolean}
+ */
+export function freshChat(state, kind) {
+  const w = state.waiting;
+  return !state.seen && !state.error && w !== null && w.state === "no_log" && (w.agent === null || w.agent === kind);
 }

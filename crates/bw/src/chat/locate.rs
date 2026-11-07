@@ -45,7 +45,13 @@ pub enum LocateFailure {
     NoCore(String),
     NoTerminal(String),
     NotAgent(String),
-    NoLog { agent: String },
+    NoLog {
+        agent: String,
+    },
+    /// hc names the agent's program but none of its processes runs it: starting, or already gone.
+    NoProcess {
+        agent: String,
+    },
 }
 
 impl LocateFailure {
@@ -63,6 +69,12 @@ impl LocateFailure {
                 "state": "no_log",
                 "agent": agent,
                 "message": format!("no {agent} session log yet"),
+            }),
+            LocateFailure::NoProcess { agent } => json!({
+                "type": "state",
+                "state": "no_log",
+                "agent": agent,
+                "message": format!("no {agent} process in this terminal yet"),
             }),
         }
     }
@@ -416,6 +428,7 @@ pub fn locate_with(
 
     let procs = (inputs.procs)();
     let agent = resolver::hc_agent_process(&pane.process_ids, &kind, &procs);
+    let running = agent.is_some();
     let found = agent.as_ref().map(|a| {
         let need = Need::new(&pane.id, &kind, &pane.cwd, pane.process_ids.clone());
         resolve(need, a, &procs, inputs)
@@ -446,10 +459,11 @@ pub fn locate_with(
     if kept.root != before {
         let _ = cache::write(cache_file, &kept);
     }
-    kept.root
-        .as_ref()
-        .map(located)
-        .ok_or(LocateFailure::NoLog { agent: kind })
+    kept.root.as_ref().map(located).ok_or(if running {
+        LocateFailure::NoLog { agent: kind }
+    } else {
+        LocateFailure::NoProcess { agent: kind }
+    })
 }
 
 pub fn run(argv: &[String]) -> ExitCode {
@@ -972,12 +986,14 @@ mod tests {
         ));
         // No agent process among its pids yet: no log, and nothing scanned twice.
         let t = term("t6", "claude", 31, "/x");
+        let none = locate_with(&t, &file, &fixed.inputs(), 0);
         assert_eq!(
-            locate_with(&t, &file, &fixed.inputs(), 0),
-            Err(LocateFailure::NoLog {
+            none,
+            Err(LocateFailure::NoProcess {
                 agent: "claude".into()
             })
         );
+        assert_eq!(none.unwrap_err().state_line()["state"], "no_log");
         assert_eq!(fixed.scans.get(), 1);
     }
 

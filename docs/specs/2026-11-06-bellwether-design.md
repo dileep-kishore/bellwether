@@ -317,7 +317,9 @@ plus, in a sub-agent view, the child session.
   `--expect-path` and refuse when the terminal's conversation changed
   (Flockbook's guard, `flockbook-modfeed/src/cards.rs:310-325`). `bw send`
   runs on the space's machine with the terminal's local address and never
-  uses `--force`.
+  uses `--force`. A chat that has never shown a conversation sends its
+  first message with `--expect-session none`, which passes only while that
+  kind's agent runs there with no session log yet.
 - The `bw-event` hook (only inside Herdr terminals, `$HC_TERMINAL_ID`)
   records `PermissionRequest`, `SubagentStart` and `SubagentStop` events with
   session, agent id and tool use id, and exits 0 silently.
