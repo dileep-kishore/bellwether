@@ -87,6 +87,11 @@ pub fn locate(terminal: &str, now_ms: i64) -> Result<Located, LocateFailure> {
     locate_as(terminal, now_ms, false)
 }
 
+/// `locate` without trusting a root remembered in the last 30 s, so a new conversation started since is seen.
+pub fn locate_fresh(terminal: &str, now_ms: i64) -> Result<Located, LocateFailure> {
+    locate_as(terminal, now_ms, true)
+}
+
 fn locate_as(terminal: &str, now_ms: i64, recheck: bool) -> Result<Located, LocateFailure> {
     // A remote terminal's pids mean nothing here (`mapper::pane` drops them), so it would only ever read as no log.
     if terminal.contains('/') {
