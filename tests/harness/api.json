@@ -3447,6 +3447,304 @@
     "hover",
     "range_style"
   ],
+  "baseMembers": {
+    "interfaces": {
+      "ComponentType": [
+        "new"
+      ],
+      "PartType": [
+        "new"
+      ],
+      "InlineTokenContext": [
+        "line_height",
+        "selected"
+      ],
+      "InlineTokenClickEvent": [
+        "bounds",
+        "modifiers"
+      ],
+      "InlineTokenHoverEvent": [
+        "bounds",
+        "hovered"
+      ],
+      "TextViewElement": [
+        "on_link_click",
+        "scrollable",
+        "selectable"
+      ],
+      "CalendarStateHandle": [
+        "month",
+        "month_days",
+        "next_month",
+        "on",
+        "prev_month",
+        "release",
+        "set_value",
+        "today",
+        "value",
+        "year"
+      ],
+      "VirtualListScrollHandle": [
+        "release",
+        "scroll_to_bottom",
+        "scroll_to_item"
+      ],
+      "InputEvent": [
+        "secondary",
+        "shift"
+      ],
+      "InputState": [
+        "content",
+        "focus",
+        "on",
+        "release",
+        "replace",
+        "replace_range_with_token",
+        "replace_with_token",
+        "set_loading",
+        "set_masked",
+        "set_max",
+        "set_min",
+        "set_selected_range",
+        "set_step",
+        "set_value",
+        "tokens",
+        "value"
+      ],
+      "TextareaState": [
+        "content",
+        "focus",
+        "on",
+        "release",
+        "replace",
+        "replace_range_with_token",
+        "replace_with_token",
+        "set_auto_grow",
+        "set_rows",
+        "set_selected_range",
+        "set_soft_wrap",
+        "set_value",
+        "tokens",
+        "value"
+      ],
+      "EditorState": [
+        "on",
+        "release",
+        "set_value",
+        "value"
+      ],
+      "SliderState": [
+        "max_value",
+        "min_value",
+        "on",
+        "release",
+        "set_value",
+        "step_value",
+        "value"
+      ],
+      "OtpState": [
+        "focus",
+        "is_masked",
+        "len",
+        "on",
+        "release",
+        "set_masked",
+        "set_value",
+        "value"
+      ],
+      "DockPanel": [
+        "active",
+        "closable",
+        "id",
+        "index",
+        "name",
+        "node",
+        "placement",
+        "visible",
+        "zoomable"
+      ],
+      "DockTab": [
+        "active",
+        "closable",
+        "id",
+        "index",
+        "name",
+        "visible",
+        "zoomable"
+      ],
+      "DockGroup": [
+        "active_index",
+        "closable",
+        "collapsed",
+        "draggable",
+        "droppable",
+        "locked",
+        "node",
+        "tabs",
+        "zoomed"
+      ],
+      "DockRegion": [
+        "collapsible",
+        "open",
+        "placement",
+        "size"
+      ],
+      "DockDrop": [
+        "bounds",
+        "from",
+        "placement",
+        "to"
+      ],
+      "DockPanelOptions": [
+        "closable",
+        "name",
+        "placement",
+        "size",
+        "visible",
+        "zoomable"
+      ],
+      "DockArea": [
+        "add_panel",
+        "dock_size",
+        "dump",
+        "has_dock",
+        "is_dock_open",
+        "is_locked",
+        "is_zoomed",
+        "load",
+        "on",
+        "panels",
+        "release",
+        "remove_dock",
+        "remove_panel",
+        "set_dock_collapsible",
+        "set_dock_size",
+        "set_locked",
+        "toggle_dock",
+        "zoom_out"
+      ],
+      "DockAreaElement": [
+        "dock",
+        "drop_indicator",
+        "empty_group",
+        "tab_bar"
+      ],
+      "SpacingTokens": [
+        "md",
+        "xxs"
+      ],
+      "RadiusTokens": [
+        "lg",
+        "none"
+      ],
+      "TextStyleToken": [
+        "line_height",
+        "size",
+        "weight"
+      ],
+      "TypographyTokens": [
+        "lg",
+        "mono",
+        "mono_md",
+        "sans",
+        "xs"
+      ],
+      "SemanticThemeTokens": [
+        "colors",
+        "radius",
+        "spacing",
+        "typography"
+      ],
+      "Theme": [
+        "appearance",
+        "is_dark"
+      ]
+    },
+    "consts": {
+      "TextView": [
+        "html",
+        "markdown"
+      ],
+      "AvatarImage": [
+        "new"
+      ],
+      "AccordionHeader": [
+        "new"
+      ],
+      "CalendarState": [
+        "new"
+      ],
+      "TableRow": [
+        "new"
+      ],
+      "TableHead": [
+        "new"
+      ],
+      "TableCell": [
+        "new"
+      ],
+      "Popup": [
+        "new"
+      ],
+      "DatePicker": [
+        "new"
+      ],
+      "Scrollbar": [
+        "horizontal",
+        "new",
+        "vertical"
+      ],
+      "VirtualListScrollHandle": [
+        "new"
+      ],
+      "InputState": [
+        "new"
+      ],
+      "Input": [
+        "new"
+      ],
+      "NumberInput": [
+        "new"
+      ],
+      "TextareaState": [
+        "new"
+      ],
+      "Textarea": [
+        "new"
+      ],
+      "EditorState": [
+        "new"
+      ],
+      "Editor": [
+        "new"
+      ],
+      "SliderState": [
+        "new"
+      ],
+      "Slider": [
+        "new"
+      ],
+      "SliderTrack": [
+        "new"
+      ],
+      "SliderIndicator": [
+        "new"
+      ],
+      "SliderThumb": [
+        "new"
+      ],
+      "OtpState": [
+        "new"
+      ],
+      "OtpInput": [
+        "new"
+      ],
+      "DockArea": [
+        "new",
+        "register_panel"
+      ]
+    }
+  },
   "types": {
     "herdr": [
       "AgentInfo",

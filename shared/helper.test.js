@@ -153,7 +153,18 @@ describe("ensure", () => {
   test("old protocol is outdated", async () => {
     const w = fakeWorld(new Map([["tsuki", { state: "current", version: { ...CURRENT, protocol: PROTOCOL - 1 } }]]));
     const r = await w.helper.ensure("tsuki", { install: false });
-    expect(r).toEqual({ ok: false, state: "outdated", message: `bw on tsuki is protocol 0 version ${HELPER_VERSION}; this window needs protocol 1 version ${HELPER_VERSION}` });
+    expect(r).toEqual({ ok: false, state: "outdated", message: `bw on tsuki is protocol ${PROTOCOL - 1} version ${HELPER_VERSION}; this window needs protocol ${PROTOCOL} version ${HELPER_VERSION}` });
+  });
+
+  test("this window needs helper 0.2.0, protocol 2", () => {
+    expect(PROTOCOL).toBe(2);
+    expect(HELPER_VERSION).toBe("0.2.0");
+  });
+
+  test("a phase 1 helper (protocol 1, 0.1.0) is outdated", async () => {
+    const w = fakeWorld(new Map([["tsuki", { state: "current", version: { ...CURRENT, protocol: 1, version: "0.1.0" } }]]));
+    const r = await w.helper.ensure("tsuki", { install: false });
+    expect(r).toEqual({ ok: false, state: "outdated", message: "bw on tsuki is protocol 1 version 0.1.0; this window needs protocol 2 version 0.2.0" });
   });
 
   test("a different version is outdated and installs once", async () => {

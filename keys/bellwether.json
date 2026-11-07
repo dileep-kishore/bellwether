@@ -1,5 +1,6 @@
 {
   "layout:bellwether": {
-    "cmd-alt-b": "layout.toggle:right"
+    "cmd-alt-b": "layout.toggle:right",
+    "cmd-j": "bw-tabs.chat-flip"
   }
 }

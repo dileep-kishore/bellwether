@@ -1,12 +1,17 @@
 #!/bin/sh
-# Stands in for hc in tests: `exec` and `file write` with FAKE_HC_ROOT as that machine's home.
+# Stands in for hc in tests: `exec` and `file write` with FAKE_HC_ROOT as that machine's home, and `get`, `ls`
+# and `send` against canned terminals.
 #   FAKE_HC_UNAME         what `uname -sm` prints there
 #   FAKE_HC_CORRUPT_PART  N: the write of a file ending in .partN lands with its first byte changed
 #   FAKE_HC_OFFLINE       1: every call fails as hc does for a machine it cannot reach
 #   FAKE_HC_LOG           each call is appended here as "<command> <args>"
+#   FAKE_HC_EXEC_OUT      a file: `exec` prints it as the program's stdout instead of running anything
+#   FAKE_HC_GET_DIR       `get <addr>` prints <addr with / as _>.json from here, else fails not_found
+#   FAKE_HC_LS            a file: what `ls` prints, else {"terminals":[]}
+#   FAKE_HC_SEND_SLEEP    seconds `send` waits before answering
+#   FAKE_HC_SEND_FAIL     a kind: `send` fails with it (blocked, finished, not_found, machine_unknown, ...)
 # Argument shapes are the ones bw sends; anything else exits 2 so a changed call shows up in a test.
 set -u
-root=${FAKE_HC_ROOT:?FAKE_HC_ROOT is not set}
 log=${FAKE_HC_LOG:-/dev/null}
 
 fail() {
@@ -14,10 +19,62 @@ fail() {
   exit "$3"
 }
 b64() { base64 < "$1" | tr -d '\n'; }
+offline() {
+  [ "${FAKE_HC_OFFLINE:-}" = 1 ] && fail machine_offline "machine ${1:-here} is not connected" 4
+  return 0
+}
 
 [ $# -gt 0 ] || fail usage "no command" 2
 cmd=$1
 shift
+
+# get, ls and send: --on is optional, and send's text is taken verbatim after `--`.
+case $cmd in
+  get|ls|send)
+    machine= json=0 rest=
+    while [ $# -gt 0 ]; do
+      case $1 in
+        --json) json=1; shift ;;
+        --on=*) machine=${1#--on=}; shift ;;
+        --on) machine=${2:-}; shift 2 ;;
+        --) shift; break ;;
+        --force) fail usage "bw never sends --force" 2 ;;
+        -*) fail usage "unexpected argument $1" 2 ;;
+        *) [ "$cmd" = send ] && fail usage "send needs -- before the address" 2
+           [ -z "$rest" ] || fail usage "unexpected argument $1" 2
+           rest=$1; shift ;;
+      esac
+    done
+    [ "$json" = 1 ] || fail usage "no --json" 2
+    case $cmd in
+      get)
+        [ $# -eq 0 ] && [ -n "$rest" ] || fail usage "get takes one terminal" 2
+        echo "get $rest" >> "$log"
+        offline "$machine"
+        file=${FAKE_HC_GET_DIR:-/nonexistent}/$(printf '%s' "$rest" | tr / _).json
+        [ -f "$file" ] || fail not_found "no terminal $rest" 1
+        cat "$file"
+        ;;
+      ls)
+        [ $# -eq 0 ] && [ -z "$rest" ] || fail usage "ls takes no terminal" 2
+        echo "ls" >> "$log"
+        offline "$machine"
+        if [ -n "${FAKE_HC_LS:-}" ]; then cat "$FAKE_HC_LS"; else echo '{"terminals":[]}'; fi
+        ;;
+      send)
+        [ $# -eq 2 ] || fail usage "send takes -- <terminal> <text>" 2
+        printf 'send %s %s\n' "$1" "$2" >> "$log"
+        offline "$machine"
+        sleep "${FAKE_HC_SEND_SLEEP:-0}"
+        [ -n "${FAKE_HC_SEND_FAIL:-}" ] && fail "$FAKE_HC_SEND_FAIL" "terminal $1 refused: $FAKE_HC_SEND_FAIL" 1
+        echo '{"started":1,"status":"working","turn":1}'
+        ;;
+    esac
+    exit 0
+    ;;
+esac
+
+root=${FAKE_HC_ROOT:?FAKE_HC_ROOT is not set}
 if [ "$cmd" = file ]; then
   cmd="file ${1:-}"
   shift
@@ -35,11 +92,15 @@ done
 [ -n "$machine" ] || fail usage "no --on" 2
 [ $# -gt 0 ] || fail usage "nothing to run or write" 2
 echo "$cmd $*" >> "$log"
-[ "${FAKE_HC_OFFLINE:-}" = 1 ] && fail machine_offline "machine $machine is not connected" 4
+offline "$machine"
 
 case $cmd in
   exec)
-    if [ "$*" = "uname -sm" ] && [ -n "${FAKE_HC_UNAME:-}" ]; then
+    if [ -n "${FAKE_HC_EXEC_OUT:-}" ]; then
+      out=$(mktemp) err=$(mktemp)
+      cat "$FAKE_HC_EXEC_OUT" > "$out"
+      code=0
+    elif [ "$*" = "uname -sm" ] && [ -n "${FAKE_HC_UNAME:-}" ]; then
       out=$(mktemp) err=$(mktemp)
       printf '%s\n' "$FAKE_HC_UNAME" > "$out"
       code=0

@@ -23,4 +23,56 @@ Built outside the bellwether workspace:
   crates/Tests/HerdrKitTests/Fixtures (the hub/ folder is not used).
 
 Changes:
-None.
+- 2026-11-06, src/resolver.rs: Codex sub-agent rollouts are skipped.
+  `codex_meta_full` (new, with `CodexMeta`) reads the session id and
+  whether `session_meta.payload.source` is an object with `subagent`;
+  `codex_meta_data` calls it. `codex_candidates` and `codex_matches`
+  leave sub-agents out, and `SessionResolver::find` drops open
+  rollouts whose first line is a sub-agent's
+  (`without_codex_subagents`). Tests: tests/bellwether.rs
+  `codex_meta_full_reads_id_and_subagent`,
+  `codex_candidates_skip_subagent_rollouts`,
+  `resolver_finds_codex_root_beside_child`.
+- 2026-11-06, src/resolver.rs: open files are matched against the
+  resolver's own folders. `log_path_in` (new, with `LogRoots`) takes
+  the Claude projects, Codex sessions, Cursor projects and pi folders;
+  `log_path` keeps its signature and calls it with
+  `LogRoots::in_home(home)`. `find` passes `codex_dir` and
+  `projects_dir` (set from `CODEX_HOME` / `CLAUDE_CONFIG_DIR` by the
+  caller), then tries the home folders as upstream did. Tests:
+  tests/bellwether.rs `log_path_in_uses_codex_home_and_skips_children`,
+  `resolver_finds_codex_root_beside_child`; upstream
+  `resolver_prefers_open_file_then_codex_cwd_match` still passes.
+- 2026-11-06, src/conversation/mod.rs: Codex 0.167 records. `exec` and
+  `js` calls are labelled by the `tools.exec_command` /
+  `tools.apply_patch` calls in their JavaScript (`codex_call_label`,
+  `codex_inner_calls`): a command with its `cmd` as summary (the first,
+  plus " (+N more)"), else "Edited files" with the patch's paths, else
+  "Ran a script". A plain `apply_patch` call's summary is its paths
+  too (`patch_files`, `codex_patch_files`). `spawn_agent` and
+  `wait_agent` get their own labels. A `response_item` of type
+  `agent_message` becomes a Status item (`codex_agent_status`):
+  "<sender> finished: <payload, 200 characters>" or "Sent a task to
+  <recipient>". Tests: tests/bellwether.rs
+  `codex_exec_command_is_a_command`, `codex_exec_apply_patch_is_an_edit`,
+  `codex_spawn_and_wait_labels`, `codex_agent_message_is_a_status`,
+  `other_exec_code_is_a_script`.
+- 2026-11-06, tests/bellwether.rs (new): the tests above, on the
+  scrubbed recordings in tests/fixtures/sessions.
+- 2026-11-07, src/conversation/mod.rs: `hc send` from another core
+  types `<hc from="<core>/ppid:N">text</hc>`, which `user_visible`
+  dropped as tagged text. `hc_sent_text` (new) matches exactly that
+  wrapper (the whole message, a `from` of `<core>/ppid:<digits>`, the
+  text up to the final `</hc>`, unescaped as hc writes it) and
+  `user_visible` judges the inner text as it would typed text. Other
+  tagged text is still hidden. Test: tests/bellwether.rs
+  `hc_wrapper_keeps_the_senders_text`.
+- 2026-11-07, src/model.rs and src/conversation/mod.rs: `ToolCall`
+  gains `edited`, the files a Codex `apply_patch` call, or the
+  `tools.apply_patch` calls in an `exec` / `js` input, add, update or
+  delete, read with `codex_patch_files` from the whole input when the
+  call is parsed. `input` is still cut at 4 KB for display, and a
+  patch read from it lost the paths past the cut (and, for a quoted
+  JavaScript patch, its closing quote, so the path ran on into the
+  escaped patch text). Test: tests/bellwether.rs
+  `codex_patch_paths_come_from_the_whole_input`.

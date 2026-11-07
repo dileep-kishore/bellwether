@@ -5,6 +5,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// `bw version`'s protocol, which `bw machine status` compares with the helper there.
+const PROTOCOL: u32 = 2;
 const MB: usize = 1024 * 1024;
 
 struct Machine {
@@ -80,7 +82,7 @@ impl Machine {
 /// A runnable stand-in for bw of `size` bytes: sh stops at `exit`, so the padding after it is never read.
 fn fake_binary(path: &Path, version: &str, size: usize) -> String {
     let mut bytes = format!(
-        "#!/bin/sh\necho '{{\"protocol\":1,\"version\":\"{version}\",\"build\":\"unknown\",\"target\":\"fake\"}}'\nexit 0\n"
+        "#!/bin/sh\necho '{{\"protocol\":{PROTOCOL},\"version\":\"{version}\",\"build\":\"unknown\",\"target\":\"fake\"}}'\nexit 0\n"
     )
     .into_bytes();
     let mut x: u32 = 0x2545_f491;

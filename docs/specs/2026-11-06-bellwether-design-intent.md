@@ -441,3 +441,116 @@ for this build; tests that need the Herdr window are deferred, other tests
   New terminal", since chat entries arrive in phase 2, which reruns the
   original wording ("starts a Codex chat whose process runs on macmini").
   Evidence: phase plan, phase 1 step 7.
+- 2026-11-06: the composer names a fifth send result, "not sent
+  (`<reason>`)", for a closed terminal or an unreachable machine. Original:
+  "Results show by name: sent, refused (agent waiting on a prompt), refused
+  (another conversation), unconfirmed." Evidence:
+  `docs/plans/2026-11-06-bellwether-phase-2.md`, decision 7 (`hc send`'s
+  `not_found`, `finished` and `unavailable` fit none of the four).
+- 2026-11-06: a copied picture is named `<digest>.<format>` and pruned
+  after 7 days. Original: "copies each (4 MB cap) into
+  `~/.config/herdr-app/data/bellwether/pictures/` under a unique name for
+  `image()`." Evidence: phase 2 plan, decision 8 (the digest is the unique
+  name; without pruning the folder grows without bound).
+- 2026-11-06: the cache pruning default adds pictures, 7 days. Original:
+  "Cache under `~/.cache/bellwether/` with per-folder pruning (feeds 7 days,
+  events 24 h and 2,000 files, requests 24 h, git pages 200 MB, Linear 30
+  days)." Evidence: phase 2 plan, decision 8.
+- 2026-11-06: "+" records a pending chat in `shared("bw.chat-tabs")` before
+  `tab.new`, and `bw-tabs` adds the chat pane when the new tab appears.
+  Original: "Bellwether starts the agent with `tab.new {space, argv,
+  name}`, adds the chat with `pane.split {direction: "right", mod:
+  "bw-chat", props: {terminal}}`, records both pane ids in
+  `shared("bw.chat-tabs")`, and zooms the chat pane." Evidence: `run()`
+  returns `null` (`herdr.d.ts:79`), so `tab.new` gives no tab, pane or
+  terminal id; phase 2 plan, decision 10.
+- 2026-11-06: a chat pane behind its terminal's zoom counts as not shown
+  and polls every 10 s; flipping back reads at once. Original: "A chat tab
+  that is not shown polls its feed every 10 s instead of every 2 s; status
+  comes from `agents()` regardless." Evidence: phase 2 plan, decision 12.
+- 2026-11-06: until phase 4, agents start with `agent.run` unchanged; the
+  per-session additions arrive with the browser (sentence added to the
+  Tabs bullet on additions). Evidence: phase 2 plan, decision 10 (the only
+  additions the spec names are the browser MCP server and its
+  instructions, and a Codex `developer_instructions` addition needs that
+  machine's TOML read first).
+- 2026-11-06: Codex 0.167's `exec` and `js` tools run JavaScript; tool
+  lines name the inner `tools.exec_command` and `tools.apply_patch` calls,
+  and `agent_message` records show as status lines. Original: "It also
+  logs `exec` and `js` JavaScript tool calls and `agent_message` records."
+  Evidence: phase 2 plan, decision 5 (`jq` over
+  `tests/fixtures/sessions/codex-*`).
+- 2026-11-06: build note, not a spec change: done check 2's remote half
+  runs with Codex on `bwloop`, and Claude on another machine is owed to a
+  window run, because bwloop's core runs in the Background launchd session
+  and cannot read the login keychain. Evidence: phase 2 plan, Build
+  environment and decision 14; `docs/research/2026-11-06-phase0-spike.md`,
+  section 3.
+- 2026-11-07: `bw send` runs on the space's machine, through the helper
+  there, with the terminal's local address. Original: "`bw send` runs on
+  the window machine with a `machine/t` address and never uses
+  `--force`." Evidence: phase 2 Task 9, real Codex on `bwloop`: `hc send`
+  from another core types the text as `<hc from="…">…</hc>`, so `/new`
+  never ran there and the agent saw the wrapper; a send from that
+  machine's own core arrives unwrapped.
+- 2026-11-07: build note, not a spec change: macOS 27 hides another
+  process's environment (`ps -E` and `KERN_PROCARGS2` give argv only), so
+  `bw locate` takes `CODEX_HOME` from the rollouts the agent holds open
+  and `CLAUDE_CONFIG_DIR` only from `bw`'s own environment. Evidence:
+  phase 2 Task 7 (`crates/bw/src/chat/dirs.rs`, commit `98cba29`).
+- 2026-11-07: a chat that has never shown a conversation sends its first
+  message with `bw send --expect-session none`, which passes only while
+  that kind's agent runs in the terminal with no session log. Original:
+  "`bw send` and `bw answer` carry `--expect-kind`, `--expect-session` and
+  `--expect-path` and refuse when the terminal's conversation changed."
+  Evidence: phase 2 Task 11, Claude 2.1.319 and Codex 0.167 write no log
+  until their first message, so a fresh chat tab could never send it.
+- 2026-11-07: `bw-chat` finds its terminal in its own tab, and new chat
+  props carry the `window` id of the app home that wrote them. Original:
+  "`pane.split {direction: "right", mod: "bw-chat", props: {terminal}}`".
+  Evidence: phase 2 Codex review, P2B-1 (Herdr stores props unchanged, so
+  a window on the other machine read `machine: null` as its own machine
+  and showed or sent to an unrelated terminal); commit `17b4b1d`.
+- 2026-11-07: a pending chat adopts only a new tab with the name it asked
+  for, and without a space only a new space in its folder. Original:
+  "`bw-tabs` adds the chat when the new tab appears". Evidence: phase 2
+  Codex review, P2B-3 (another tab or space appearing during the launch
+  got the chat pane); commit `c529721`.
+- 2026-11-07: `bw-tabs` registers an existing chat tab its app home never
+  recorded, with no split or zoom, so `⌘J` works on it (sentence added to
+  the Tabs bullet). Evidence: phase 2 Codex review, P2B-2 (`⌘J` and the
+  Terminal buttons did nothing in another window or a fresh app home);
+  commit `054fe2e`.
+- 2026-11-07: `--expect-session none` passes only for a positively fresh
+  session, and an unresolved lookup prints the `ambiguous` state, which
+  `bw send` refuses. Original: "sends its first message with
+  `--expect-session none`, which passes only while that kind's agent runs
+  there with no session log yet." Evidence: phase 2 Codex review, P2A-3
+  (no candidate, several, or a claimed one also ended in `no_log`, so a
+  first message could reach a conversation the chat never showed); commit
+  `cec254f`.
+- 2026-11-07: after Claude's `/clear` or Codex's `/new`, `no_log` names the
+  new session and the chat sends its first message with `--expect-session
+  <id> --expect-path none` (bullet added to "Sending and answering").
+  Evidence: phase 2 Codex review, P2A-1 (the composer stayed disabled, so
+  the new conversation could start only from the terminal); commits
+  `47b0479` (helper) and `bda1d0a` (chat).
+- 2026-11-07: a Codex terminal with more than one open root thread gives
+  the `ambiguous` state, which shows and sends nothing until one remains
+  (bullet added to "Sending and answering"). Evidence: phase 2 Codex
+  review, P2A-2 (Codex 0.167 keeps a left thread loaded for 60 s, so after
+  `/resume` the greatest thread id named a conversation the terminal did
+  not show); commit `8585f20`.
+- 2026-11-07: build note, not a spec change: the changed-files line reads
+  a Codex patch's paths from the whole input, before the 4 KB display cut.
+  Evidence: phase 2 Codex review, P2A-4; commit `fc8e4ca`.
+- 2026-11-07: build note, not a spec change: a first `bw feed` keeps the
+  line its 2 MiB window starts inside, up to 16 MiB, so a picture within
+  the 4 MB cap shows. Evidence: phase 2 Codex review, P2A-5; commit
+  `7cecf8d`.
+- 2026-11-07: build note, not a spec change: `~~~` fences are measured as
+  code boxes, as they are drawn. Evidence: phase 2 Codex review, P2B-4;
+  commit `503381e`.
+- 2026-11-07: build note, not a spec change: dragging the scrollbar away
+  from the newest row stops auto-follow. Evidence: phase 2 Codex review,
+  P2B-5; commit `61d1729`.

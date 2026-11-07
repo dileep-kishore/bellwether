@@ -1,8 +1,9 @@
 //! The `hc` CLI (`BW_HC`, default `hc`), which runs programs and writes files on other machines.
 
-use std::ffi::OsString;
-use std::io::Write;
+use std::ffi::{OsStr, OsString};
+use std::io::{Read, Write};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use serde_json::Value;
@@ -23,12 +24,18 @@ pub enum HcError {
     NoProgram(String),
     /// hc answered something this helper does not understand.
     Failed(String),
+    /// hc reached the terminal and said no: `blocked`, `not_found`, `finished` or `status_mismatch`.
+    Refused { kind: String, message: String },
+    /// hc had not answered when the caller's time ran out, and was killed.
+    TimedOut,
 }
 
 impl std::fmt::Display for HcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             HcError::Unreachable(m) | HcError::NoProgram(m) | HcError::Failed(m) => f.write_str(m),
+            HcError::Refused { kind, message } => write!(f, "{kind}: {message}"),
+            HcError::TimedOut => f.write_str("hc did not answer in time"),
         }
     }
 }
@@ -49,12 +56,20 @@ fn refusal(stderr: &[u8]) -> HcError {
     let message = v["error"]["message"].as_str().unwrap_or(&text).to_string();
     match kind {
         "spawn_failed" => HcError::NoProgram(message),
+        "blocked" | "not_found" | "finished" | "status_mismatch" => HcError::Refused {
+            kind: kind.to_string(),
+            message,
+        },
         _ => HcError::Unreachable(format!("{kind}: {message}")),
     }
 }
 
 fn run(args: &[String], stdin: Option<&[u8]>) -> Result<Value, HcError> {
-    let mut child = Command::new(program())
+    run_with(&program(), args, stdin)
+}
+
+fn run_with(program: &OsStr, args: &[String], stdin: Option<&[u8]>) -> Result<Value, HcError> {
+    let mut child = Command::new(program)
         .args(args)
         .stdin(if stdin.is_some() {
             Stdio::piped()
@@ -73,11 +88,55 @@ fn run(args: &[String], stdin: Option<&[u8]>) -> Result<Value, HcError> {
         child.wait_with_output()
     })
     .map_err(|e| HcError::Unreachable(format!("hc did not finish: {e}")))?;
-    if !out.status.success() {
-        return Err(refusal(&out.stderr));
+    answer(out.status.success(), &out.stdout, &out.stderr)
+}
+
+fn answer(success: bool, stdout: &[u8], stderr: &[u8]) -> Result<Value, HcError> {
+    if !success {
+        return Err(refusal(stderr));
     }
-    serde_json::from_slice(&out.stdout)
+    serde_json::from_slice(stdout)
         .map_err(|e| HcError::Failed(format!("hc printed something other than JSON: {e}")))
+}
+
+fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut p) = pipe {
+            let _ = p.read_to_end(&mut buf);
+        }
+        buf
+    })
+}
+
+/// Like `run` with no input, but kills hc once `timeout` passes.
+fn run_timed(program: &OsStr, args: &[String], timeout: Duration) -> Result<Value, HcError> {
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| HcError::Unreachable(format!("cannot run hc: {e}")))?;
+    let stdout = drain(child.stdout.take());
+    let stderr = drain(child.stderr.take());
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                // The readers are left behind: a program hc started may still hold the pipes open.
+                return Err(HcError::TimedOut);
+            }
+            Err(e) => return Err(HcError::Unreachable(format!("hc did not finish: {e}"))),
+        }
+    };
+    let stdout = stdout.join().unwrap_or_default();
+    let stderr = stderr.join().unwrap_or_default();
+    answer(status.success(), &stdout, &stderr)
 }
 
 fn decode(v: &Value) -> Vec<u8> {
@@ -132,5 +191,174 @@ pub fn hc_write(machine: &str, path: &str, bytes: &[u8]) -> Result<(), HcError> 
             n.map_or("?".into(), |n| n.to_string()),
             bytes.len()
         ))),
+    }
+}
+
+/// `hc get <address> --json`: one terminal, by `t7` or `machine/t7`.
+pub fn hc_get(address: &str) -> Result<Value, HcError> {
+    hc_get_with(&program(), address)
+}
+
+pub fn hc_get_with(program: &OsStr, address: &str) -> Result<Value, HcError> {
+    run_with(
+        program,
+        &["get".into(), address.into(), "--json".into()],
+        None,
+    )
+}
+
+/// `hc ls --json`: this core's live terminals.
+pub fn hc_ls() -> Result<Value, HcError> {
+    hc_ls_with(&program())
+}
+
+pub fn hc_ls_with(program: &OsStr) -> Result<Value, HcError> {
+    run_with(program, &["ls".into(), "--json".into()], None)
+}
+
+/// Types `text` into the terminal at `address` and presses enter, refusing a blocked program (never `--force`).
+pub fn hc_send(address: &str, text: &str, timeout: Duration) -> Result<Value, HcError> {
+    hc_send_with(&program(), address, text, timeout)
+}
+
+pub fn hc_send_with(
+    program: &OsStr,
+    address: &str,
+    text: &str,
+    timeout: Duration,
+) -> Result<Value, HcError> {
+    // hc reads an argument after `--` as the address or text even when it starts with `-`.
+    let args = [
+        "send".to_string(),
+        "--json".into(),
+        "--".into(),
+        address.into(),
+        text.into(),
+    ];
+    run_timed(program, &args, timeout)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::{Path, PathBuf};
+    use std::time::Instant;
+
+    /// A script that runs tests/fake-hc with `env` set and writes its argv, one per line, to `argv.txt`.
+    struct Fake {
+        dir: tempfile::TempDir,
+        program: PathBuf,
+    }
+
+    impl Fake {
+        fn new(env: &[(&str, &str)]) -> Fake {
+            let dir = tempfile::tempdir().unwrap();
+            let fake = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fake-hc");
+            let mut script = format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nexport FAKE_HC_LOG='{}'\n",
+                dir.path().join("argv.txt").display(),
+                dir.path().join("calls.log").display()
+            );
+            for (k, v) in env {
+                script.push_str(&format!("export {k}='{v}'\n"));
+            }
+            script.push_str(&format!("exec '{}' \"$@\"\n", fake.display()));
+            let program = dir.path().join("hc");
+            std::fs::write(&program, script).unwrap();
+            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+            Fake { dir, program }
+        }
+
+        fn argv(&self) -> Vec<String> {
+            std::fs::read_to_string(self.dir.path().join("argv.txt"))
+                .unwrap()
+                .lines()
+                .map(String::from)
+                .collect()
+        }
+
+        fn log(&self) -> String {
+            std::fs::read_to_string(self.dir.path().join("calls.log")).unwrap_or_default()
+        }
+    }
+
+    #[test]
+    fn get_parses_json() {
+        let gets = tempfile::tempdir().unwrap();
+        std::fs::write(
+            gets.path().join("bwloop_t1.json"),
+            r#"{"id":"t1","pid":4242,"argv":["codex"],"cwd":"/x"}"#,
+        )
+        .unwrap();
+        let fake = Fake::new(&[("FAKE_HC_GET_DIR", gets.path().to_str().unwrap())]);
+        let v = hc_get_with(fake.program.as_os_str(), "bwloop/t1").unwrap();
+        assert_eq!(v["pid"], 4242);
+        assert_eq!(fake.argv(), ["get", "bwloop/t1", "--json"]);
+        match hc_get_with(fake.program.as_os_str(), "t9") {
+            Err(HcError::Refused { kind, .. }) => assert_eq!(kind, "not_found"),
+            other => panic!("expected not_found, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ls_parses_json() {
+        let fake = Fake::new(&[]);
+        let v = hc_ls_with(fake.program.as_os_str()).unwrap();
+        assert_eq!(v["terminals"], serde_json::json!([]));
+        assert_eq!(fake.argv(), ["ls", "--json"]);
+    }
+
+    #[test]
+    fn send_argv_is_double_dash_address_text() {
+        let fake = Fake::new(&[]);
+        let v = hc_send_with(
+            fake.program.as_os_str(),
+            "bwloop/t3",
+            "--force -x",
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        assert_eq!(v["status"], "working");
+        assert_eq!(
+            fake.argv(),
+            ["send", "--json", "--", "bwloop/t3", "--force -x"]
+        );
+        assert_eq!(fake.log(), "send bwloop/t3 --force -x\n");
+    }
+
+    #[test]
+    fn blocked_is_refused_with_kind() {
+        let fake = Fake::new(&[("FAKE_HC_SEND_FAIL", "blocked")]);
+        match hc_send_with(fake.program.as_os_str(), "t3", "hi", Duration::from_secs(5)) {
+            Err(HcError::Refused { kind, message }) => {
+                assert_eq!(kind, "blocked");
+                assert!(!message.is_empty());
+            }
+            other => panic!("expected blocked, got {other:?}"),
+        }
+        let fake = Fake::new(&[("FAKE_HC_SEND_FAIL", "machine_unknown")]);
+        assert!(matches!(
+            hc_send_with(
+                fake.program.as_os_str(),
+                "x/t3",
+                "hi",
+                Duration::from_secs(5)
+            ),
+            Err(HcError::Unreachable(_))
+        ));
+    }
+
+    #[test]
+    fn slow_send_times_out() {
+        let fake = Fake::new(&[("FAKE_HC_SEND_SLEEP", "3")]);
+        let start = Instant::now();
+        let r = hc_send_with(fake.program.as_os_str(), "t3", "hi", Duration::from_secs(1));
+        assert!(matches!(r, Err(HcError::TimedOut)), "got {r:?}");
+        let took = start.elapsed();
+        assert!(
+            took >= Duration::from_secs(1) && took < Duration::from_millis(2500),
+            "took {took:?}"
+        );
     }
 }
