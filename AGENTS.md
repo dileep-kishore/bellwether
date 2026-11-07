@@ -21,7 +21,11 @@ Guidance for coding agents. `CLAUDE.md` is a symlink to this file.
   `shared/` and `scripts/sync.sh` copies it into each mod that lists it.
   `scripts/check.sh` fails when a copy differs from its source.
 - `exec` returns once, with a 30 s and 8 MiB cap, and nothing streams. Work
-  that watches logs or Git runs in a Rust helper that a mod polls or reads.
+  that watches logs runs in a Rust helper that a mod polls or reads. A mod may
+  watch Git itself with `watchFolder` on the window machine and timers
+  elsewhere, when each Git call is short, read-only (`--no-optional-locks`,
+  `-c core.fsmonitor=false`, `--no-textconv`) and runs on the space's machine
+  with `exec(..., { on })`.
 - Mods run on the machine showing the window; spaces can live on another
   machine (`exec(..., { on: space.machine })`).
 - After any change to a mod, `scripts/sync.sh` and `scripts/check.sh` must
