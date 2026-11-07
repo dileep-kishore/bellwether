@@ -43,8 +43,18 @@ esac
 out=$("$bw" machine install "$machine" --force)
 end=$(printf '%s\n' "$out" | tail -1)
 parts=$(printf '%s\n' "$out" | jq -s '[.[] | select(.step == "copy")] | length' 2>/dev/null)
-if [ "$(field "$end" .type)" = installed ] && [ "$(field "$end" .sha256)" = "$(shasum -a 256 "$bw" | cut -c1-64)" ]; then
-  pass "install --force on $machine: $(field "$end" .bytes) bytes in $parts part(s), sha256 matches this machine's bw"
+# The binary bw sends depends on the target there, in source_for's order (crates/bw/src/machine/mod.rs).
+target=$(field "$end" .target)
+if [ -n "${BW_INSTALL_SOURCE:-}" ]; then
+  want_sum=$(shasum -a 256 "$BW_INSTALL_SOURCE" | cut -c1-64) from="BW_INSTALL_SOURCE"
+elif [ "$target" = "$(field "$local_v" .target)" ]; then
+  want_sum=$(shasum -a 256 "$bw" | cut -c1-64) from="this machine's bw"
+else
+  want_sum=$(awk '$2 == "bw" || $2 == "*bw" || $2 == "./bw" { print $1 }' \
+    "$HOME/.local/share/bellwether/dist/$target/SHA256SUMS" 2>/dev/null) from="dist/$target/SHA256SUMS"
+fi
+if [ "$(field "$end" .type)" = installed ] && [ -n "$want_sum" ] && [ "$(field "$end" .sha256)" = "$want_sum" ]; then
+  pass "install --force on $machine ($target): $(field "$end" .bytes) bytes in $parts part(s), sha256 matches $from"
 else
   fail "install --force on $machine: $end"
 fi
