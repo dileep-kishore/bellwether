@@ -67,6 +67,41 @@ describe("scrubText", () => {
     );
   });
 
+  test("rewrites the paths in Claude and Codex hook payloads and HC_* variables", () => {
+    const sid = "4ddbb5d8-cd66-4547-9525-d6282dd8f0be";
+    const claude = JSON.stringify({
+      session_id: sid,
+      transcript_path: `${home}/.claude/projects/-private-tmp-claude-501-bw-rec-claude-child-approval/${sid}.jsonl`,
+      cwd: "/private/tmp/claude-501/bw-rec/claude-child-approval",
+      scratchpad_dir: `/private/tmp/claude-501/-private-tmp-claude-501-bw-rec-claude-child-approval/${sid}/scratchpad`,
+      agent_id: "a74b1c8063469d6e2",
+    });
+    expect(JSON.parse(scrubText(claude, ctx))).toEqual({
+      session_id: sid,
+      transcript_path: `/home/user/.claude/projects/-scratch-claude-child-approval/${sid}.jsonl`,
+      cwd: "/scratch/claude-child-approval",
+      scratchpad_dir: `/tmp/-scratch-claude-child-approval/${sid}/scratchpad`,
+      agent_id: "a74b1c8063469d6e2",
+    });
+
+    const rollout = "sessions/2026/11/07/rollout-2026-11-07T02-23-00-01a1b588.jsonl";
+    const codex = JSON.stringify({
+      transcript_path: `/private/tmp/claude-501/bw-rec/codex-child-approval.codex-home/${rollout}`,
+      agent_transcript_path: `${home}/.bwl/bw-verify/probe/codex-home/${rollout}`,
+    });
+    expect(JSON.parse(scrubText(codex, ctx))).toEqual({
+      transcript_path: `/scratch/codex-child-approval.codex-home/${rollout}`,
+      agent_transcript_path: `/home/user/.bwl/bw-verify/probe/codex-home/${rollout}`,
+    });
+
+    const env = `HC_SESSION=bw-probe\nHC_TERMINAL_ID=t4\nHC_TERMINAL_SOCKET=${home}/.local/state/herdr-core/bw-probe/bw-probe.sock\n`;
+    const envOut = scrubText(env, ctx);
+    expect(envOut).toBe(
+      "HC_SESSION=bw-probe\nHC_TERMINAL_ID=t4\nHC_TERMINAL_SOCKET=/home/user/.local/state/herdr-core/bw-probe/bw-probe.sock\n",
+    );
+    expect(checkText(scrubText(claude, ctx) + scrubText(codex, ctx) + envOut, ctx)).toEqual([]);
+  });
+
   test("leaves words that only contain a token prefix alone", () => {
     const text = "risk-free task-list ask-user desk-lamp";
     expect(scrubText(text, ctx)).toBe(text);

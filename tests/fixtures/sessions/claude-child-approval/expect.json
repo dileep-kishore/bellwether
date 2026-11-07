@@ -1,0 +1,21 @@
+{
+  "agent": "claude",
+  "version": "2.1.319",
+  "session": "d3435260-916e-4949-b6f1-feb6980fd421",
+  "file": "d3435260-916e-4949-b6f1-feb6980fd421.jsonl",
+  "user_messages": 4,
+  "assistant_messages": 5,
+  "tool_calls": 4,
+  "pictures": 0,
+  "notes": "user_messages counts the four typed messages; the log also holds a synthetic [Request interrupted by user for tool use] and a <task-notification> user record. The session was resumed once, after c-esc, into the same file.",
+  "children": [
+    {"id": "a84924e78e12c62b3", "type": "toucher", "depth": 1, "parent": "d3435260-916e-4949-b6f1-feb6980fd421", "tool_use_id": "toolu_01Q86suhmwNyr4eS7sqAU87o", "background": false, "file": "d3435260-916e-4949-b6f1-feb6980fd421/subagents/agent-a84924e78e12c62b3.jsonl", "user_messages": 1, "assistant_messages": 1, "tool_calls": 1},
+    {"id": "a91e5aa4b7fd5eefd", "type": "toucher", "depth": 1, "parent": "d3435260-916e-4949-b6f1-feb6980fd421", "tool_use_id": "toolu_01K6jLHhBSTrJfEvt6BfsEFu", "background": true, "file": "d3435260-916e-4949-b6f1-feb6980fd421/subagents/agent-a91e5aa4b7fd5eefd.jsonl", "user_messages": 1, "assistant_messages": 1, "tool_calls": 1}
+  ],
+  "requests": [
+    {"case": "a", "kind": "approval", "tool": "Bash", "command": "touch fg.txt", "child": "a84924e78e12c62b3", "screen": "screen-a.txt", "keys": ["1"], "answer": "1. Yes", "result": "fg.txt created", "tool_use_id": "toolu_01CFkjgfQawSc7F4S41cVRMf", "status": "status-a.json"},
+    {"case": "c-esc", "kind": "approval", "tool": "Bash", "command": "touch esc.txt", "child": null, "screen": "screen-c-esc.txt", "keys": ["esc"], "answer": "Esc to cancel", "result": "esc.txt absent", "tool_use_id": "toolu_016G39y7PGT2AkDvsE2rcPrf", "status": "status-c-esc.json"},
+    {"case": "b", "kind": "approval", "tool": "Bash", "command": "touch bg.txt", "child": "a91e5aa4b7fd5eefd", "screen": "screen-b.txt", "keys": ["1"], "answer": "1. Yes", "result": "bg.txt created", "tool_use_id": "toolu_01ToW42ajR6xYvKSFLDbENsf", "status": "status-b.json"},
+    {"case": "c-always", "kind": "approval", "tool": "Bash", "command": "touch always.txt", "child": null, "screen": "screen-c-always.txt", "keys": ["2"], "answer": "2. Yes, and always allow access to /scratch/claude-child-approval from this project", "result": "always.txt created", "tool_use_id": "toolu_017F6c1WdutYUBvPAkT5KMhZ", "status": "status-c-always.json"}
+  ]
+}
