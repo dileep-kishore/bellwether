@@ -32,7 +32,7 @@
  * @property {(folder: string, now: number) => void} rejected
  * @property {(now: number) => Target | null} next
  * @property {(key: string, now: number) => void} start
- * @property {(key: string, now: number) => void} finish
+ * @property {(key: string, now: number, outcome?: { ok: boolean }) => void} finish no outcome counts as success
  * @property {(now: number) => number | null} wakeIn
  * @property {(machine: string | null) => boolean} inFlight
  */
@@ -40,7 +40,9 @@
 /** @type {Times} */
 export const TIMES = Object.freeze({ throttle: 1000, openLocal: 30000, rejected: 60000, remote: 15000, selectedRemote: 1500 });
 
+// Run once after a success; after a failure, again at the machine's usual interval.
 const ONCE = new Set(["place", "helper"]);
+const MIN_RETRY = 1000;
 
 /** @param {Target} t */
 function priority(t) {
@@ -84,7 +86,7 @@ function same(a, b) {
  * @returns {Schedule}
  */
 export function createSchedule(times = TIMES) {
-  /** @type {Map<string, { target: Target, added: number, lastStart: number | null, marked: boolean }>} */
+  /** @type {Map<string, { target: Target, added: number, lastStart: number | null, marked: boolean, failed: boolean }>} */
   const states = new Map();
   // Kept apart from `states` so a call still runs, and holds its machine, after its target is dropped.
   /** @type {Map<string, string | null>} */
@@ -96,8 +98,11 @@ export function createSchedule(times = TIMES) {
     const t = state.target;
     if (running.has(t.key)) return null;
     if (state.lastStart === null) return state.added;
-    if (ONCE.has(t.kind)) return null;
     const last = state.lastStart;
+    if (ONCE.has(t.kind)) {
+      if (!state.failed) return null;
+      return last + Math.max(MIN_RETRY, t.machine == null ? times.openLocal : times.remote);
+    }
     let due = Infinity;
     if (state.marked) due = last + times.throttle;
     if (t.machine == null) {
@@ -129,7 +134,7 @@ export function createSchedule(times = TIMES) {
         keep.add(t.key);
         const old = states.get(t.key);
         if (!old) {
-          states.set(t.key, { target: t, added: now, lastStart: null, marked: false });
+          states.set(t.key, { target: t, added: now, lastStart: null, marked: false, failed: false });
           changed = true;
         } else if (!same(old.target, t)) {
           old.target = t;
@@ -193,8 +198,10 @@ export function createSchedule(times = TIMES) {
       state.marked = false;
     },
 
-    finish(key, _now) {
+    finish(key, _now, outcome) {
       running.delete(key);
+      const state = states.get(key);
+      if (state) state.failed = outcome?.ok === false;
     },
 
     wakeIn(now) {

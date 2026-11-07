@@ -81,7 +81,7 @@ export async function runRefresher(cx, { schedule, run, onResult, watchFolder, n
     call
       .catch((e) => ({ ok: false, state: "failed", message: e instanceof Error ? e.message : String(e) }))
       .then((result) => {
-        schedule.finish(target.key, now());
+        schedule.finish(target.key, now(), { ok: Boolean(/** @type {any} */ (result)?.ok) });
         finished.push([target, result]);
         poke.poke();
       });

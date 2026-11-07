@@ -37,6 +37,48 @@ describe("refresh schedule", () => {
     expect(s.next(10_000_000)).toBe(null);
   });
 
+  test("a failed place reruns after 30 s local, 15 s remote, until it succeeds", () => {
+    const s = createSchedule();
+    const local = target("place", "/r/alpha");
+    const remote = target("place", "/home/u/gamma", { machine: "macmini" });
+    s.setTargets([local, remote], 0);
+    s.start(local.key, 0);
+    s.start(remote.key, 0);
+    s.finish(local.key, 10, { ok: false });
+    s.finish(remote.key, 10, { ok: false });
+    expect(s.next(14_999)).toBe(null);
+    expect(s.wakeIn(10)).toBe(14_990);
+    expect(s.next(15_000)?.key).toBe(remote.key);
+    s.start(remote.key, 15_000);
+    s.finish(remote.key, 15_010, { ok: true });
+    expect(s.next(29_999)).toBe(null);
+    expect(s.next(30_000)?.key).toBe(local.key);
+    s.start(local.key, 30_000);
+    s.finish(local.key, 30_010, { ok: true });
+    expect(s.next(10_000_000)).toBe(null);
+    expect(s.wakeIn(10_000_000)).toBe(null);
+  });
+
+  test("a failed helper reruns after the remote interval", () => {
+    const s = createSchedule();
+    const h = target("helper", "", { machine: "macmini" });
+    s.setTargets([h], 0);
+    s.start(h.key, 0);
+    s.finish(h.key, 10, { ok: false });
+    expect(s.next(14_999)).toBe(null);
+    expect(s.next(15_000)?.key).toBe(h.key);
+  });
+
+  test("a failed run-once target never retries sooner than 1000 ms", () => {
+    const s = createSchedule({ ...TIMES, openLocal: 5, remote: 5 });
+    const p = target("place", "/r/alpha");
+    s.setTargets([p], 0);
+    s.start(p.key, 0);
+    s.finish(p.key, 1, { ok: false });
+    expect(s.next(999)).toBe(null);
+    expect(s.next(1000)?.key).toBe(p.key);
+  });
+
   test("events throttle to one refresh per second, then trailing", () => {
     const s = createSchedule();
     const t = counts("/r/alpha", { wakeOn: ["/r/alpha"] });

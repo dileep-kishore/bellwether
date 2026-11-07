@@ -205,6 +205,41 @@ describe("refresh driver", () => {
     await r.stop();
   });
 
+  test("driver: a place whose first read fails is read again", async () => {
+    const w = world();
+    const p = target("place", "/home/u/gamma", { machine: "macmini" });
+    const answers = [{ ok: false, state: "unreachable", message: "temporary" }, { ok: true, place: {} }];
+    const r = start(w, [p], { run: async () => answers.shift() });
+    await w.advance(14_999);
+    expect(r.calls).toEqual([[p.key, 0]]);
+    await w.advance(1);
+    expect(r.calls).toEqual([
+      [p.key, 0],
+      [p.key, 15_000],
+    ]);
+    await w.advance(600_000);
+    expect(r.calls).toHaveLength(2);
+    await r.stop();
+  });
+
+  test("driver: a place whose read throws is read again", async () => {
+    const w = world();
+    const p = target("place", "/r/alpha");
+    let n = 0;
+    const r = start(w, [p], {
+      run: async () => {
+        if (n++ === 0) throw new Error("exec rejected");
+        return { ok: true, place: {} };
+      },
+    });
+    await w.advance(30_000);
+    expect(r.calls).toEqual([
+      [p.key, 0],
+      [p.key, 30_000],
+    ]);
+    await r.stop();
+  });
+
   test("driver: a watch event refreshes its targets, throttled", async () => {
     const w = world();
     const t = target("counts", "/r/alpha-wt/feat", { wakeOn: ["/r/alpha-wt/feat"] });
