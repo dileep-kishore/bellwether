@@ -4,14 +4,14 @@ import { fake, phase } from "../harness/herdr-stub.js";
 import { byId, findAll, fire, textOf } from "../harness/kit-stub.js";
 import { forgetProject, projectKey, worktreeKey } from "../../shared/projects-model.js";
 import { COUNTS_SCRIPT } from "../../shared/git.js";
-import { HELPER_SCRIPT } from "../../shared/helper.js";
+import { HELPER_SCRIPT, HELPER_VERSION, PROTOCOL } from "../../shared/helper.js";
 
 const ALPHA = projectKey(null, "/r/alpha/.git");
 const GAMMA = projectKey("macmini", "/home/u/gamma/.git");
 const DETACHED = worktreeKey(null, "/r/alpha-wt/detached");
 const FEAT = worktreeKey(null, "/r/alpha-wt/feat");
 const NO_MODIFIERS = { shift: false, control: false, alt: false, platform: false, function: false };
-const VERSION_OK = { code: 0, stdout: '{"type":"version","protocol":1,"version":"0.1.0"}\n', stderr: "" };
+const VERSION_OK = { code: 0, stdout: JSON.stringify({ type: "version", protocol: PROTOCOL, version: HELPER_VERSION }) + "\n", stderr: "" };
 
 /** The harness's fixture lookup, so a test can put its own answers in front of a fixture's. */
 function answer(entries, cmd, args, on) {
@@ -216,7 +216,7 @@ describe("bw-projects", () => {
     expect(textOf(byId(m.el, "machine-local"))).not.toContain("setting up");
 
     installed = true;
-    finish({ code: 0, stdout: '{"type":"installed","machine":"macmini","version":"0.1.0"}\n', stderr: "" });
+    finish({ code: 0, stdout: JSON.stringify({ type: "installed", machine: "macmini", version: HELPER_VERSION }) + "\n", stderr: "" });
     await settle(m);
     expect(textOf(byId(m.el, "machine-macmini"))).toBe("MACMINI");
   });

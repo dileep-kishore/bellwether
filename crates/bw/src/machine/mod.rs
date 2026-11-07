@@ -19,7 +19,8 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const HELPER_DIR: &str = ".local/share/bellwether/helper";
 /// Under this machine's home: helpers built here for other platforms, from scripts/build-dist.sh.
 const DIST_DIR: &str = ".local/share/bellwether/dist";
-const RUN_HELPER: &str = r#"exec "$HOME"/.local/share/bellwether/helper/current/bw "$@""#;
+pub(crate) const RUN_HELPER: &str =
+    r#"exec "$HOME"/.local/share/bellwether/helper/current/bw "$@""#;
 
 const USAGE: &str = "usage: bw machine status <machine> | bw machine install <machine> [--force]";
 
