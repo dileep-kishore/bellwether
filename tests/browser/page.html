@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bellwether test page</title>
+<style>
+  body { font: 16px -apple-system, system-ui, sans-serif; margin: 24px; }
+  #grid { display: grid; grid-template-columns: repeat(3, 120px); gap: 16px; }
+  button { width: 120px; height: 48px; font-size: 15px; }
+  #log { margin-top: 24px; }
+</style>
+</head>
+<body>
+<h1>Bellwether test page</h1>
+<p>Tab: <strong id="who"></strong></p>
+<div id="grid">
+  <button id="b1">Button 1</button>
+  <button id="b2">Button 2</button>
+  <button id="b3">Button 3</button>
+  <button id="b4">Button 4</button>
+  <button id="b5">Button 5</button>
+  <button id="b6">Button 6</button>
+  <button id="b7">Button 7</button>
+  <button id="b8">Button 8</button>
+  <button id="b9">Button 9</button>
+</div>
+<ol id="log"></ol>
+<script>
+  const who = new URLSearchParams(location.search).get("who") || "none";
+  document.getElementById("who").textContent = who;
+  const log = document.getElementById("log");
+  for (const b of document.querySelectorAll("#grid button")) {
+    b.addEventListener("click", (event) => {
+      const button = Number(b.id.slice(1));
+      const li = document.createElement("li");
+      li.textContent = `Button ${button} clicked (${who})`;
+      log.append(li);
+      const body = JSON.stringify({ who, button, at_ms: Date.now(), trusted: event.isTrusted });
+      // A screenshot then shows a click the server never logged.
+      const lost = () => { li.textContent += " (not logged)"; };
+      fetch("/click", { method: "POST", headers: { "content-type": "application/json" }, body })
+        .then((r) => { if (!r.ok) lost(); }, lost);
+    });
+  }
+</script>
+</body>
+</html>
