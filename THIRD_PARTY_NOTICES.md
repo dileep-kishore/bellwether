@@ -26,6 +26,9 @@ Copyright (c) 2026 Min-Chen Lee.
 | `mods/bw-chat/feedstate.js` (rows, older rows on top, splice; a `state` line names the wait and keeps rows, a helper failure keeps rows, a new path or session empties them) | `herdr-app/mods/flockbook/feedstate.js` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
 | `mods/bw-chat/estimate.js` (`READ_W` 736, an 80 % bubble, heights for `tools`, `changed` and picture rows) | `herdr-app/mods/flockbook/estimate.js` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
 | `mods/bw-chat/mdblocks.js` | `herdr-app/mods/flockbook/mdblocks.js` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | copied unchanged |
+| `mods/bw-chat/timeline.js` (the row bodies, the tool line and its calls, `chipIcon`, `oneLine`, the virtual list with `on_item_click` and its scrollbar) | `herdr-app/mods/flockbook/chat.js` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
+| `mods/bw-chat/main.js` (the feed poll, older rows on scroll-up at the top, following the newest row, the height cache) | `herdr-app/mods/flockbook/chat.js` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
+| `mods/bw-chat/composer.js` (`withoutEnter`, the Textarea box, Enter sends and Shift-Enter adds a line; files, paste and status tags dropped) | `herdr-app/mods/flockbook/composer.js` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
 
 ## herdr-t3
 
