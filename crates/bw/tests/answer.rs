@@ -1022,3 +1022,114 @@ fn picker_question_keys_follow_answer_question() {
     // question::steps for Codex: the option's digit, which picks and submits.
     assert_eq!(x.typed(), ["keys t2 2"]);
 }
+
+/// A one-question Claude picker, as 2.1.296 draws it: header `Color`, the options in this order.
+fn color_picker(options: &[(&str, &str)]) -> String {
+    let mut s = String::from("❯ Ask me.\n────────────────────\n ☐ Color\nWhich color?\n");
+    for (i, (label, detail)) in options.iter().enumerate() {
+        let mark = if i == 0 { "❯" } else { " " };
+        s.push_str(&format!("{mark} {}. {label}\n", i + 1));
+        if !detail.is_empty() {
+            s.push_str(&format!("     {detail}\n"));
+        }
+    }
+    let n = options.len();
+    s.push_str(&format!(
+        "  {}. Type something.\n────────────────────\n  {}. Chat about this\nEnter to select · ↑/↓ to navigate · Esc to cancel\n",
+        n + 1,
+        n + 2
+    ));
+    s
+}
+
+/// claude-approval's log while a Claude picker shows in `t1`: the picker is on screen only.
+fn claude_picker(x: &Scratch, screen: &str) -> (Agent, String) {
+    let (agent, log) = x.claude(
+        &upto(
+            &claude_log(),
+            &format!(r#""type":"tool_use","id":"{CLAUDE_CALL}""#),
+        ),
+        &blocked(),
+    );
+    x.screen("t1", "txt", screen);
+    x.screen("t1", "after.txt", CALM);
+    (agent, log.to_string_lossy().to_string())
+}
+
+#[test]
+fn claude_picker_answer_presses_its_digit() {
+    let x = Scratch::new();
+    let (_claude, log) = claude_picker(&x, &color_picker(&[("Red", ""), ("Blue", "")]));
+    let r = x.request("t1");
+    assert_eq!(
+        (r["kind"].as_str(), r["answerable"].as_bool()),
+        (Some("question"), Some(true)),
+        "{r}"
+    );
+    let line = x.answer(
+        "t1",
+        &r,
+        ("claude", CLAUDE_SID, &log),
+        &["--answers", r#"[{"picks":[1]}]"#],
+    );
+    assert_eq!(result(&line), "answered", "{line}");
+    assert_eq!(x.typed(), ["keys t1 2"]);
+}
+
+#[test]
+fn replaced_claude_picker_with_other_options_is_stale() {
+    let x = Scratch::new();
+    let (_claude, log) = claude_picker(&x, &color_picker(&[("Red", ""), ("Blue", "")]));
+    let r = x.request("t1");
+    // Answered in the terminal and replaced by a picker with the same header and text, before any poll.
+    x.screen("t1", "txt", &color_picker(&[("Blue", ""), ("Red", "")]));
+    let line = x.answer(
+        "t1",
+        &r,
+        ("claude", CLAUDE_SID, &log),
+        &["--answers", r#"[{"picks":[1]}]"#],
+    );
+    assert_eq!(result(&line), "stale", "{line}");
+    assert!(x.typed().is_empty(), "{:?}", x.log());
+}
+
+#[test]
+fn a_poll_of_a_replaced_claude_picker_gives_a_new_request() {
+    let x = Scratch::new();
+    let (_claude, log) = claude_picker(&x, &color_picker(&[("Red", ""), ("Blue", "")]));
+    let first = x.request("t1");
+    for options in [[("Blue", ""), ("Red", "")], [("Red", "warm"), ("Blue", "")]] {
+        x.screen("t1", "txt", &color_picker(&options));
+        let next = x.request("t1");
+        assert_ne!(next["id"], first["id"], "{options:?}");
+    }
+    let line = x.answer(
+        "t1",
+        &first,
+        ("claude", CLAUDE_SID, &log),
+        &["--answers", r#"[{"picks":[1]}]"#],
+    );
+    assert_eq!(result(&line), "stale", "{line}");
+    assert!(x.typed().is_empty(), "{:?}", x.log());
+}
+
+#[test]
+fn claude_picker_changed_at_the_second_read_presses_nothing() {
+    let x = Scratch::new();
+    let (_claude, log) = claude_picker(&x, &color_picker(&[("Red", ""), ("Blue", "")]));
+    let r = x.request("t1");
+    // The first read in `bw answer` still shows the card's picker; the next one shows the replacement.
+    x.screen(
+        "t1",
+        "next.txt",
+        &color_picker(&[("Blue", ""), ("Red", "")]),
+    );
+    let line = x.answer(
+        "t1",
+        &r,
+        ("claude", CLAUDE_SID, &log),
+        &["--answers", r#"[{"picks":[1]}]"#],
+    );
+    assert_eq!(result(&line), "stale", "{line}");
+    assert!(x.typed().is_empty(), "{:?}", x.log());
+}

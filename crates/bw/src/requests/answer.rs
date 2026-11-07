@@ -31,7 +31,7 @@ use super::matchers::{self, ScreenPrompt};
 use super::screen::HcScreen;
 use super::store::{self, Occurrence};
 use crate::chat::send::{self, Check};
-use crate::chat::{args, feed, locate, tail};
+use crate::chat::{args, feed, locate, rows, tail};
 use crate::hc::{self, HcError};
 
 const USAGE: &str = "usage: bw answer --terminal <t> --request <id> --expect-kind <claude|codex> \
@@ -513,11 +513,20 @@ impl Answer<'_> {
         let q = if self.input.agent == "codex" {
             self.logged_question(o, Delivery::Picker)
         } else {
-            question::pending_question(&screen, &pane)
+            screen
+                .visible_text(&pane)
                 .ok()
-                .flatten()
+                .as_deref()
+                .and_then(cards::claude_picker)
+                .map(|(q, _)| q)
                 .filter(|q| Some(&q.tool_use_id) == o.screen_id.as_ref())
         };
+        // The keys answer only the question the card showed: same text, options and order.
+        let q = q.filter(|q| {
+            o.shown
+                .as_ref()
+                .is_some_and(|s| s["question"]["questions"] == json!(rows::question(q).questions))
+        });
         let Some(mut q) = q else {
             self.claims.release(&o.id);
             return Sent::Nothing("stale", STALE.into());

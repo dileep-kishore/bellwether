@@ -782,8 +782,7 @@ fn approval(pass: &Pass, store: &mut Store, p: &ScreenPrompt) -> String {
 fn picker(pass: &Pass, store: &mut Store, text: &str) -> Option<String> {
     let ambiguous = pass.ambiguity();
     if pass.input.agent == "claude" {
-        let (headers, q) = question::claude_screen(text)?;
-        let req = question::screen_request(&headers, vec![q]);
+        let (req, unread) = claude_picker(text)?;
         let asked = Asked {
             kind: "question",
             screen_id: Some(req.tool_use_id.clone()),
@@ -795,7 +794,7 @@ fn picker(pass: &Pass, store: &mut Store, text: &str) -> Option<String> {
             answerable: ambiguous.is_none(),
             reason: ambiguous,
             question: Some(json!(rows::question(&req))),
-            unread: headers.len().saturating_sub(req.questions.len()),
+            unread,
         };
         return Some(on_screen(pass, store, asked, None, Vec::new()));
     }
@@ -833,6 +832,25 @@ fn picker(pass: &Pass, store: &mut Store, text: &str) -> Option<String> {
         Some(q.tool_use_id.clone()),
         |_| false,
     ))
+}
+
+/// The Claude picker on `text`: the question shown, as a request whose `tool_use_id` is its screen id, and how
+/// many of its questions are not shown. With every question shown the id also covers each question's text and
+/// options in order with their details, so a picker replaced by one with the same header is a new occurrence.
+pub fn claude_picker(text: &str) -> Option<(QuestionRequest, usize)> {
+    let (headers, q) = question::claude_screen(text)?;
+    let mut req = question::screen_request(&headers, vec![q]);
+    let unread = headers.len().saturating_sub(req.questions.len());
+    if unread == 0 {
+        let shown = serde_json::to_string(&rows::question(&req).questions).unwrap_or_default();
+        // Keeps the vendored "screen-" prefix: `question::answer_question` reads it as a screen-only request.
+        req.tool_use_id = format!(
+            "{}.{}",
+            req.tool_use_id,
+            &hash_id(&shown)["screen-".len()..]
+        );
+    }
+    Some((req, unread))
 }
 
 /// A prompt on screen no matcher reads: shown so the user knows the agent waits, answered in the terminal.
