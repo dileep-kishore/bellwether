@@ -1,0 +1,18 @@
+{
+  "machines": [
+    {
+      "name": null,
+      "layout": "ready"
+    }
+  ],
+  "spaces": [],
+  "panes": [],
+  "agents": [],
+  "terminals": [],
+  "focused": null,
+  "shared": {},
+  "exec": [],
+  "knownAgents": {
+    "": []
+  }
+}
