@@ -20,7 +20,9 @@ const skKey = ["sk", "proj", "0123456789abcdefABCDEF"].join("-");
 const ctx = { users: [user], hosts: [host] };
 
 function run(args) {
-  const p = Bun.spawnSync(["bun", CLI, ...args], { stdout: "pipe", stderr: "pipe" });
+  // The CLI scrubs this machine's hostname, so the planted one must be named on every other machine.
+  const env = { ...process.env, BW_SCRUB_HOSTS: host };
+  const p = Bun.spawnSync(["bun", CLI, ...args], { stdout: "pipe", stderr: "pipe", env });
   return { code: p.exitCode, out: p.stdout.toString() + p.stderr.toString() };
 }
 
