@@ -308,6 +308,56 @@ fn changed_files_row_reads_the_whole_patch() {
     }
 }
 
+/// A PNG header for a 16x16 picture, padded with zeros to `size` bytes.
+fn big_png(size: usize) -> Vec<u8> {
+    let mut b = vec![0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13];
+    b.extend_from_slice(b"IHDR");
+    b.extend_from_slice(&[0, 0, 0, 16, 0, 0, 0, 16, 8, 2, 0, 0, 0]);
+    b.resize(size, 0);
+    b
+}
+
+#[test]
+fn first_read_keeps_a_picture_longer_than_the_tail() {
+    // A 2 MiB PNG is about 2.8 MB of base64: longer than the 2 MiB first read, under the 4 MB picture cap.
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(big_png(2 * 1024 * 1024));
+    let first = r#"{"type":"user","message":{"role":"user","content":"look"}}"#;
+    let picture = serde_json::json!({"type": "user", "message": {"role": "user", "content": [
+        {"type": "image", "source": {"type": "base64", "data": b64, "media_type": "image/png"}}]}});
+    let reply = serde_json::json!({"type": "assistant", "message": {"role": "assistant", "model": "claude-x",
+        "content": [{"type": "text", "text": "I see it"}]}});
+    let at = first.len() as u64 + 1;
+    let x = Scratch::new();
+    for (name, after) in [("picture-last", None), ("picture-then-reply", Some(&reply))] {
+        let mut text = format!("{first}\n{picture}\n");
+        if let Some(r) = after {
+            text += &format!("{r}\n");
+        }
+        let log = x.path(&format!("{name}.jsonl"));
+        std::fs::write(&log, text).unwrap();
+        let lines = x.feed(&log, "claude", true, None);
+        assert_eq!(
+            line(&lines, "log")["start"],
+            at,
+            "{name}: the range starts at the picture's line"
+        );
+        let rows = rows(&lines);
+        let offsets: Vec<&Value> = rows
+            .iter()
+            .filter_map(|r| r["pics"].as_array())
+            .flatten()
+            .map(|p| &p["offset"])
+            .collect();
+        assert_eq!(offsets, vec![&serde_json::json!(at)], "{name}: {rows:#?}");
+        assert_eq!(
+            rows.iter().any(|r| r["k"] == "assistant"),
+            after.is_some(),
+            "{name}"
+        );
+    }
+}
+
 #[test]
 fn live_tool_line_until_result() {
     let x = Scratch::new();
@@ -538,7 +588,21 @@ fn before_reads_older_rows() {
     assert_eq!(head["count"], older_rows.len() as u64);
     assert!(!older_rows.is_empty());
     assert!(older_rows.iter().all(|r| !tail_ids.contains(&r["id"])));
-    assert_eq!(older_rows[0]["k"], "user", "a cut first line is dropped");
+    // A cut first line is dropped: the range starts at a whole line, and the first row is that line's.
+    let text = std::fs::read(&log).unwrap();
+    let at = usize::try_from(older_start).unwrap();
+    assert_eq!(text[at - 1], b'\n');
+    let whole: Value =
+        serde_json::from_slice(text[at..].split(|b| *b == b'\n').next().unwrap()).unwrap();
+    let uuid = whole["uuid"].as_str().unwrap();
+    assert!(
+        older_rows[0]["id"]
+            .as_str()
+            .unwrap()
+            .starts_with(&format!("{uuid}-")),
+        "{uuid}: {}",
+        older_rows[0]
+    );
 
     let s = older_start.to_string();
     let (_, oldest) = x.bw(&[

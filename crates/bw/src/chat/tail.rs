@@ -35,29 +35,52 @@ fn size_of(path: &Path) -> std::io::Result<u64> {
     f.seek(SeekFrom::End(0))
 }
 
-/// The whole lines from `from` (a line start), or else from the last `bytes` of the file, where a cut first line is
-/// dropped. A last line with no newline yet is left out.
+/// The whole lines from `from` (a line start), or else from the last `bytes` of the file. A last line with no
+/// newline yet is left out.
 pub fn read(path: &Path, from: Option<u64>, bytes: u64) -> std::io::Result<Range> {
+    read_max(path, from, bytes, MAX_LINE)
+}
+
+/// `read`, where the line the last `bytes` start in (a screenshot) is read whole when it is at most `max_line`
+/// and dropped when longer.
+pub fn read_max(
+    path: &Path,
+    from: Option<u64>,
+    bytes: u64,
+    max_line: u64,
+) -> std::io::Result<Range> {
     let size = size_of(path)?;
     let mut start = match from {
         Some(f) => f.min(size),
         None => size.saturating_sub(bytes),
     };
-    let data = read_span(path, start, size)?;
-    let mut body: &[u8] = &data;
+    let mut data = read_span(path, start, size)?;
     if from.is_none() && start > 0 {
-        let Some(nl) = body.iter().position(|&b| b == b'\n') else {
-            return Ok(Range {
-                lines: vec![],
-                offsets: vec![],
-                start: size,
-                size,
-            });
-        };
-        start += nl as u64 + 1;
-        body = &body[nl + 1..];
+        let nl = data.iter().position(|&b| b == b'\n');
+        // A line still being written counts up to the file's end; the range then starts at it and holds none.
+        let line_end = nl.map_or(size, |n| start + n as u64 + 1);
+        match line_start_within(path, start, max_line)? {
+            Some(from) if line_end - from <= max_line => {
+                let mut head = read_span(path, from, start)?;
+                head.append(&mut data);
+                data = head;
+                start = from;
+            }
+            _ => {
+                let Some(nl) = nl else {
+                    return Ok(Range {
+                        lines: vec![],
+                        offsets: vec![],
+                        start: size,
+                        size,
+                    });
+                };
+                data.drain(..=nl);
+                start += nl as u64 + 1;
+            }
+        }
     }
-    let mut parts: Vec<&[u8]> = body.split(|&b| b == b'\n').collect();
+    let mut parts: Vec<&[u8]> = data.split(|&b| b == b'\n').collect();
     parts.pop(); // after the last "\n": empty, or a line still being written
     let (lines, offsets) = whole(parts, start);
     Ok(Range {
@@ -143,17 +166,23 @@ pub fn read_before_max(
 
 /// The start of the line that holds byte `at`: just after the newline before it, or 0.
 fn line_start(path: &Path, at: u64) -> std::io::Result<u64> {
+    Ok(line_start_within(path, at, u64::MAX)?.unwrap_or(0))
+}
+
+/// `line_start`, looking back at most `limit` bytes: None when the line starts before that.
+fn line_start_within(path: &Path, at: u64, limit: u64) -> std::io::Result<Option<u64>> {
     const STEP: u64 = 64 * 1024;
+    let floor = at.saturating_sub(limit);
     let mut end = at;
-    while end > 0 {
-        let from = end.saturating_sub(STEP);
+    while end > floor {
+        let from = end.saturating_sub(STEP).max(floor);
         let data = read_span(path, from, end)?;
         if let Some(nl) = data.iter().rposition(|&b| b == b'\n') {
-            return Ok(from + nl as u64 + 1);
+            return Ok(Some(from + nl as u64 + 1));
         }
         end = from;
     }
-    Ok(0)
+    Ok((floor == 0).then_some(0))
 }
 
 pub fn items(lines: &[String]) -> Vec<ConversationItem> {
@@ -203,4 +232,43 @@ pub fn model(lines: &[String]) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file(text: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("log.jsonl");
+        std::fs::write(&p, text).unwrap();
+        (dir, p)
+    }
+
+    #[test]
+    fn first_read_keeps_the_line_it_starts_in() {
+        // Offsets: "aaaa" 0, "bbbbbbbbbb" 5, "cc" 16; 19 bytes.
+        let (_d, p) = file("aaaa\nbbbbbbbbbb\ncc\n");
+        let r = read_max(&p, None, 8, 100).unwrap();
+        assert_eq!(
+            (r.lines, r.offsets, r.start),
+            (vec!["bbbbbbbbbb".to_string(), "cc".into()], vec![5, 16], 5)
+        );
+        // A line longer than the bound is still dropped.
+        let r = read_max(&p, None, 8, 10).unwrap();
+        assert_eq!((r.lines, r.start), (vec!["cc".to_string()], 16));
+        // A window that starts on a line start drops nothing.
+        let r = read_max(&p, None, 3, 100).unwrap();
+        assert_eq!((r.lines, r.start), (vec!["cc".to_string()], 16));
+    }
+
+    #[test]
+    fn first_read_inside_a_line_still_written_starts_at_that_line() {
+        // The next read goes on from that line's start, so the line is read whole once it ends.
+        let (_d, p) = file("aaaa\nbbbbbbbb");
+        let r = read_max(&p, None, 3, 100).unwrap();
+        assert_eq!((r.lines.len(), r.start, r.size), (0, 5, 13));
+        let r = read_max(&p, None, 3, 4).unwrap();
+        assert_eq!((r.lines.len(), r.start), (0, 13));
+    }
 }
