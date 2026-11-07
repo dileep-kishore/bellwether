@@ -13,7 +13,7 @@ const term = (pane, terminal, tabId, over = {}) => ({ pane, terminal, tab: tabId
 const chat = (pane, tabId, over = {}) => ({ pane, terminal: null, mod: "bw-chat", tab: tabId, title: "Chat", focused: false, zoomed: false, ...over });
 
 const claudePending = { kind: "claude", machine: null, space: "s1", folder: null, beforeTabs: ["tb7"], beforeSpaces: [], name: "Claude" };
-const spacesWithNewTab = [space("s1", [tab("tb7"), tab("tb8", { active: true })], { active: true })];
+const spacesWithNewTab = [space("s1", [tab("tb7"), tab("tb8", { active: true, name: "Claude", named: true })], { active: true })];
 const panesTerminalOnly = [term("p7", "t7", "tb7"), term("p8", "t8", "tb8", { focused: true })];
 const panesWithChat = [...panesTerminalOnly, chat("p9", "tb8")];
 
@@ -79,7 +79,7 @@ describe("adopt", () => {
     const spaces = [
       space("s1", [tab("tb7", { active: true })]),
       space("s4", [tab("tb9", { active: true })], { active: true }),
-      space("macmini/s6", [tab("macmini/tb11", { active: true }), tab("macmini/tb12")], { machine: "macmini" }),
+      space("macmini/s6", [tab("macmini/tb11", { active: true, name: "Codex" }), tab("macmini/tb12")], { machine: "macmini", folder: "/home/u/gamma" }),
     ];
     const panes = [term("p7", "t7", "tb7"), term("p10", "t10", "tb9"), term("macmini/p11", "macmini/t11", "macmini/tb11"), term("macmini/p12", "macmini/t12", "macmini/tb12")];
     const r = adopt(s, spaces, panes, 50);
@@ -87,9 +87,32 @@ describe("adopt", () => {
     expect(Object.keys(r.next?.tabs ?? {})).toEqual(["macmini/tb11"]);
   });
 
+  test("a pending chat takes only a new tab with its name, not another tab that appeared first", () => {
+    const s = addPending(null, { ...claudePending, beforeTabs: ["tb1"], beforeSpaces: ["s1"] }, 0);
+    const spaces = [space("s1", [tab("tb1"), tab("unrelated", { name: "2" }), tab("claude", { name: "Claude", named: true })])];
+    const panes = [term("p1", "t1", "tb1"), term("p2", "t2", "unrelated"), term("p3", "t3", "claude")];
+    const r = adopt(s, spaces, panes, 100);
+    expect(r.actions.map((a) => a[1].pane)).toEqual(["p3"]);
+    expect(Object.keys(r.next?.tabs ?? {})).toEqual(["claude"]);
+    const early = adopt(s, [space("s1", [tab("tb1"), tab("unrelated", { name: "2" })])], panes.slice(0, 2), 100);
+    expect(early).toEqual({ next: null, actions: [], notices: [] });
+  });
+
+  test("no space: a new space in another folder, or a first tab with another name, is not taken", () => {
+    const s = addPending(null, { kind: "claude", machine: "mini", space: null, folder: "/a", beforeTabs: [], beforeSpaces: ["s1"], name: "Claude" }, 0);
+    const spaces = [
+      space("s1", [], { machine: "mini" }),
+      space("mini/sB", [tab("mini/tbB", { name: "Claude" })], { machine: "mini", folder: "/b" }),
+      space("mini/sC", [tab("mini/tbC", { name: "zsh" })], { machine: "mini", folder: "/a/" }),
+      space("mini/sA", [tab("mini/tbA", { name: "Claude" })], { machine: "mini", folder: "/a/" }),
+    ];
+    const panes = [term("mini/pB", "mini/tB", "mini/tbB"), term("mini/pC", "mini/tC", "mini/tbC"), term("mini/pA", "mini/tA", "mini/tbA")];
+    expect(adopt(s, spaces, panes, 100).actions.map((a) => a[1].pane)).toEqual(["mini/pA"]);
+  });
+
   test("remote ids keep their machine prefix in props and entries", () => {
     const s = addPending(null, { kind: "codex", machine: "macmini", space: "macmini/s3", folder: null, beforeTabs: ["macmini/tb5"], beforeSpaces: [], name: "Codex" }, 0);
-    const spaces = [space("macmini/s3", [tab("macmini/tb5"), tab("macmini/tb6", { active: true })], { machine: "macmini", active: true })];
+    const spaces = [space("macmini/s3", [tab("macmini/tb5"), tab("macmini/tb6", { active: true, name: "Codex" })], { machine: "macmini", active: true })];
     const panes = [term("macmini/p5", "macmini/t5", "macmini/tb5"), term("macmini/p7", "macmini/t7", "macmini/tb6")];
     const r1 = adopt(s, spaces, panes, 10);
     expect(r1.actions).toEqual([["pane.split", { direction: "right", pane: "macmini/p7", mod: "bw-chat", props: { terminal: "macmini/t7", machine: "macmini", kind: "codex" } }]]);

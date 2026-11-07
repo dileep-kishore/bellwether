@@ -31,6 +31,7 @@ function pendingClaude(at) {
   s.pending = [{ id: "p-1", kind: "claude", machine: null, space: "s1", folder: "/r/alpha", beforeTabs: ["tb7"], beforeSpaces: ["s1", "macmini/s3"], name: "Claude Code", at }];
   data.panes = data.panes.filter((p) => p.pane !== "p9");
   data.spaces[0].tabs[1].zoomed = false;
+  data.spaces[0].tabs[1].name = "Claude Code";
   return data;
 }
 
