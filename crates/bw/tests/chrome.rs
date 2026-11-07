@@ -118,14 +118,9 @@ fn ss_output_parses() {
     assert!(listen::loopback_only(&ls[2..3], 52818).is_err());
 }
 
-/// A free 127.0.0.1 port; nothing listens on it once this returns.
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
+#[path = "support/ports.rs"]
+mod ports;
+use ports::free_port;
 
 fn write_script(path: &Path, body: &str) {
     fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
