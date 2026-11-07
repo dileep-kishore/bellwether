@@ -441,3 +441,48 @@ for this build; tests that need the Herdr window are deferred, other tests
   New terminal", since chat entries arrive in phase 2, which reruns the
   original wording ("starts a Codex chat whose process runs on macmini").
   Evidence: phase plan, phase 1 step 7.
+- 2026-11-06: the composer names a fifth send result, "not sent
+  (`<reason>`)", for a closed terminal or an unreachable machine. Original:
+  "Results show by name: sent, refused (agent waiting on a prompt), refused
+  (another conversation), unconfirmed." Evidence:
+  `docs/plans/2026-11-06-bellwether-phase-2.md`, decision 7 (`hc send`'s
+  `not_found`, `finished` and `unavailable` fit none of the four).
+- 2026-11-06: a copied picture is named `<digest>.<format>` and pruned
+  after 7 days. Original: "copies each (4 MB cap) into
+  `~/.config/herdr-app/data/bellwether/pictures/` under a unique name for
+  `image()`." Evidence: phase 2 plan, decision 8 (the digest is the unique
+  name; without pruning the folder grows without bound).
+- 2026-11-06: the cache pruning default adds pictures, 7 days. Original:
+  "Cache under `~/.cache/bellwether/` with per-folder pruning (feeds 7 days,
+  events 24 h and 2,000 files, requests 24 h, git pages 200 MB, Linear 30
+  days)." Evidence: phase 2 plan, decision 8.
+- 2026-11-06: "+" records a pending chat in `shared("bw.chat-tabs")` before
+  `tab.new`, and `bw-tabs` adds the chat pane when the new tab appears.
+  Original: "Bellwether starts the agent with `tab.new {space, argv,
+  name}`, adds the chat with `pane.split {direction: "right", mod:
+  "bw-chat", props: {terminal}}`, records both pane ids in
+  `shared("bw.chat-tabs")`, and zooms the chat pane." Evidence: `run()`
+  returns `null` (`herdr.d.ts:79`), so `tab.new` gives no tab, pane or
+  terminal id; phase 2 plan, decision 10.
+- 2026-11-06: a chat pane behind its terminal's zoom counts as not shown
+  and polls every 10 s; flipping back reads at once. Original: "A chat tab
+  that is not shown polls its feed every 10 s instead of every 2 s; status
+  comes from `agents()` regardless." Evidence: phase 2 plan, decision 12.
+- 2026-11-06: until phase 4, agents start with `agent.run` unchanged; the
+  per-session additions arrive with the browser (sentence added to the
+  Tabs bullet on additions). Evidence: phase 2 plan, decision 10 (the only
+  additions the spec names are the browser MCP server and its
+  instructions, and a Codex `developer_instructions` addition needs that
+  machine's TOML read first).
+- 2026-11-06: Codex 0.167's `exec` and `js` tools run JavaScript; tool
+  lines name the inner `tools.exec_command` and `tools.apply_patch` calls,
+  and `agent_message` records show as status lines. Original: "It also
+  logs `exec` and `js` JavaScript tool calls and `agent_message` records."
+  Evidence: phase 2 plan, decision 5 (`jq` over
+  `tests/fixtures/sessions/codex-*`).
+- 2026-11-06: build note, not a spec change: done check 2's remote half
+  runs with Codex on `bwloop`, and Claude on another machine is owed to a
+  window run, because bwloop's core runs in the Background launchd session
+  and cannot read the login keychain. Evidence: phase 2 plan, Build
+  environment and decision 14; `docs/research/2026-11-06-phase0-spike.md`,
+  section 3.

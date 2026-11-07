@@ -226,19 +226,21 @@ holds the space runs the agents, the logs, Git and the hooks.
   - New terminal: Shell, Claude, Codex (Herdr's own agent-in-a-terminal).
   - New worktree…, Open worktree… (Herdr's `worktree` dialog).
 - A chat tab is one Herdr tab with two panes: the agent's terminal and a
-  `bw-chat` pane beside it. Bellwether starts the agent with `tab.new
-  {space, argv, name}`, adds the chat with `pane.split {direction: "right",
-  mod: "bw-chat", props: {terminal}}`, records both pane ids in
-  `shared("bw.chat-tabs")`, and zooms the chat pane. `⌘J` is bound to
-  `bw-tabs.chat-flip`, handled by the always-shown `bw-tabs` mod (a
-  `<mod>.<command>` reaches shown copies only, and a hidden chat pane is not
-  shown); it zooms the other pane and focuses it, so the tab flips between
-  chat and terminal as Orca's agent tabs do. Herdr's status for the agent
-  stays on the tab. If phase 0's spike finds the zoom flip unreliable, the
-  fallback is a tab whose only pane is the chat, with the agent's terminal
-  started by `hc run --keep` carrying the tab's `herdr.space` and
-  `herdr.tab` labels, shown with `terminal.show`, and ended by the chat's
-  `close`; its ownership and close behaviour are specified in that spike.
+  `bw-chat` pane beside it. Bellwether records a pending chat in
+  `shared("bw.chat-tabs")` and starts the agent with `tab.new {space, argv,
+  name}`; since `run` returns no ids, `bw-tabs` adds the chat when the new
+  tab appears with `pane.split {direction: "right", mod: "bw-chat", props:
+  {terminal}}`, records both pane ids there, and zooms the chat pane. `⌘J`
+  is bound to `bw-tabs.chat-flip`, handled by the always-shown `bw-tabs`
+  mod (a `<mod>.<command>` reaches shown copies only, and a hidden chat
+  pane is not shown); it zooms the other pane and focuses it, so the tab
+  flips between chat and terminal as Orca's agent tabs do. Herdr's status
+  for the agent stays on the tab. If phase 0's spike finds the zoom flip
+  unreliable, the fallback is a tab whose only pane is the chat, with the
+  agent's terminal started by `hc run --keep` carrying the tab's
+  `herdr.space` and `herdr.tab` labels, shown with `terminal.show`, and
+  ended by the chat's `close`; its ownership and close behaviour are
+  specified in that spike.
 - Bellwether launches chat agents with per-session additions (see
   "Browser"): Claude with `--mcp-config` and `--append-system-prompt-file`,
   Codex with `-c mcp_servers.bw-browser…` and `-c developer_instructions=…`,
@@ -247,9 +249,12 @@ holds the space runs the agents, the logs, Git and the hooks.
   trusted project's `.codex/config.toml`) followed by Bellwether's text, so
   nothing the user set is lost. Claude gets no `--strict-mcp-config`, and
   Codex's browser server gets `default_tools_approval_mode="approve"`. Terminal
-  tabs of Claude or Codex get the same additions.
-- A chat tab that is not shown polls its feed every 10 s instead of every
-  2 s; status comes from `agents()` regardless.
+  tabs of Claude or Codex get the same additions. The additions arrive with
+  the browser in phase 4; until then chat and terminal tabs start agents
+  with `agent.run` unchanged.
+- A chat tab that is not shown, including a chat pane behind its terminal's
+  zoom, polls its feed every 10 s instead of every 2 s, and flipping back
+  reads at once; status comes from `agents()` regardless.
 
 ## Chat (`bw-chat`)
 
@@ -281,7 +286,8 @@ plus, in a sub-agent view, the child session.
 - Composer: a rounded box with chips (attached Linear issues), the text
   field ("Message Claude…"), and send. Slash commands pass through to the
   agent. Results show by name: sent, refused (agent waiting on a prompt),
-  refused (another conversation), unconfirmed.
+  refused (another conversation), unconfirmed, and not sent (`<reason>`)
+  for a closed terminal or an unreachable machine.
 
 ### Sources and parsing
 
@@ -291,8 +297,9 @@ plus, in a sub-agent view, the child session.
   `parentAgentId` from depth 2).
 - Codex 0.167 writes each sub-agent to its own rollout, whose `session_meta`
   names `parent_thread_id`; the parent calls `spawn_agent`; `event_msg` items
-  `SubAgentActivity` carry `agent_thread_id`. It also logs `exec` and `js`
-  JavaScript tool calls and `agent_message` records.
+  `SubAgentActivity` carry `agent_thread_id`. Its `exec` and `js` tools run
+  JavaScript, so tool lines name the inner `tools.exec_command` and
+  `tools.apply_patch` calls; `agent_message` records show as status lines.
 - Flockbook skips sidechain lines (`conversation/mod.rs:232`), shows `Agent`
   as one row (`:647`), reads only Codex `response_item` (`:452`), and its
   resolver ignores `session_meta.source` (`resolver.rs:1118-1131`).
@@ -302,7 +309,7 @@ plus, in a sub-agent view, the child session.
   the root per terminal, and handles the Codex 0.167 records.
 - Pictures: `bw feed --pictures` lists them; the window-side `bw picture`
   copies each (4 MB cap) into `~/.config/herdr-app/data/bellwether/pictures/`
-  under a unique name for `image()`.
+  as `<digest>.<format>` for `image()`, pruned after 7 days.
 
 ### Sending and answering
 
@@ -575,7 +582,7 @@ repository.
   matched.
 - Cache under `~/.cache/bellwether/` with per-folder pruning (feeds 7 days,
   events 24 h and 2,000 files, requests 24 h, git pages 200 MB, Linear 30
-  days).
+  days); pictures under the app home's `data/bellwether/pictures/` 7 days.
 
 ## Change log
 
