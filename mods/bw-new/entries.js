@@ -3,7 +3,7 @@ import { placeOf } from "./projects-model.js";
 
 /**
  * @typedef {{ key: string, name: string, icon: string | null, tint: boolean, run: string[], installed: boolean }} KnownAgent
- * @typedef {{ space: string | null, machine: string | null, folder: string | null }} MenuContext
+ * @typedef {{ space: string | null, machine: string | null, folder: string | null, closed?: true }} MenuContext
  * @typedef {["run", string, Record<string, unknown>] | ["overlay", Record<string, unknown>]} RowAction
  * @typedef {{ id: string, section: "New terminal" | "Worktree", label: string, enabled: boolean, hint: string, agent: KnownAgent | null, action: RowAction }} Row
  */
@@ -16,6 +16,7 @@ const DIALOGS = [
 
 /**
  * Where the menu acts: `{space}` from bw-tabs, or `{machine, folder}` for a project without a space.
+ * A `{space}` that no longer exists is `closed`: acting on this Mac instead would start work elsewhere.
  * @param {any} props
  * @param {any[]} spaces SpaceInfo[]
  * @param {any[]} panes PaneInfo[]
@@ -24,7 +25,7 @@ const DIALOGS = [
 export function contextOf(props, spaces, panes) {
   if (typeof props?.space === "string") {
     const space = spaces.find((s) => s.id === props.space);
-    if (!space) return { space: null, machine: null, folder: null };
+    if (!space) return { space: null, machine: null, folder: null, closed: true };
     return { space: space.id, machine: space.machine ?? null, folder: placeOf(space, panes) || null };
   }
   return { space: null, machine: props?.machine ?? null, folder: props?.folder ?? null };
@@ -60,5 +61,6 @@ export function menuEntries({ agents, failed, ctx }) {
       action: ["overlay", { mod: "worktree", kind: "dialog", width: d.width, height: d.height, props }],
     });
   }
+  if (ctx.closed) return rows.map((r) => ({ ...r, enabled: false, hint: "the space closed" }));
   return rows;
 }

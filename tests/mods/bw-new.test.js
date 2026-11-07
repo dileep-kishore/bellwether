@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { live, mount } from "../harness/mount.js";
+import { fake } from "../harness/herdr-stub.js";
 import { byId, textOf } from "../harness/kit-stub.js";
 import { contextOf, menuEntries } from "../../mods/bw-new/entries.js";
 
@@ -81,12 +82,45 @@ describe("entries", () => {
     expect(contextOf({ machine: null, folder: "/r/beta" }, [], [])).toEqual(NO_SPACE);
     expect(contextOf({ machine: "macmini", folder: "/x" }, [], [])).toEqual({ space: null, machine: "macmini", folder: "/x" });
     expect(contextOf({ folder: "/x" }, [], [])).toEqual({ space: null, machine: null, folder: "/x" });
-    expect(contextOf({ space: "gone" }, [], [])).toEqual({ space: null, machine: null, folder: null });
+    expect(contextOf({ space: "gone" }, [], [])).toEqual({ space: null, machine: null, folder: null, closed: true });
     expect(contextOf(undefined, [], [])).toEqual({ space: null, machine: null, folder: null });
   });
 });
 
+describe("entries", () => {
+  test("a closed space disables every row and says so", () => {
+    const ctx = { space: null, machine: null, folder: null, closed: true };
+    for (const r of menuEntries({ agents: [claude(true), codex(true)], failed: false, ctx })) {
+      expect([r.id, r.enabled, r.hint]).toEqual([r.id, false, "the space closed"]);
+    }
+  });
+});
+
 describe("bw-new", () => {
+  test("the space closing while the menu is open runs nothing", async () => {
+    const data = live("remote-active");
+    data.knownAgents = async () => [codex(true)];
+    const m = await mount("bw-new", { props: { space: "macmini/s3", overlay: "o" }, live: data });
+    await m.cx.flush();
+    fake.spaces = fake.spaces.filter((s) => s.id !== "macmini/s3");
+    m.render();
+    expect(textOf(byId(m.el, "row-shell"))).toContain("the space closed");
+    await m.click("row-shell");
+    await m.click("row-codex");
+    await m.click("row-worktree-new");
+    expect(m.log.run).toEqual([]);
+    expect(m.log.overlays).toEqual([]);
+    expect(m.log.closed).toEqual([]);
+  });
+
+  test("a row drawn before the space closed runs nothing", async () => {
+    const m = await mount("bw-new", { props: { space: "macmini/s3", overlay: "o" }, live: live("remote-active") });
+    fake.spaces = fake.spaces.filter((s) => s.id !== "macmini/s3");
+    await m.click("row-shell");
+    expect(m.log.run).toEqual([]);
+    expect(m.log.closed).toEqual([]);
+  });
+
   test("bw-new shows cached agents then knownAgents for the space's machine", async () => {
     /** @type {(v: unknown) => void} */
     let answer = () => {};
