@@ -5,7 +5,8 @@
 //! (`bw send`'s guard and code, over a lookup without the 30 s memory); a fresh `bw cards` pass with its own
 //! screen read still has the request, pending and answerable; one claim per occurrence; hc still names the same
 //! program (`KeyGate`); a second screen read still shows the same box; the keys; then the screen read every
-//! 300 ms for up to 3 s to see the box leave. A Codex async question is one message (`hc send`, never `--force`).
+//! 300 ms for up to 3 s to see the box leave. A Codex async question is one message (`hc send`, never `--force`),
+//! sent only while neither the pass nor a screen read just before it shows a prompt.
 //!
 //! Adapted from Flockbook's xplat/flockbook-modfeed/src/cards.rs `approve`, `answer` and `parse_answers`
 //! (lines 150-282; MIT, Copyright (c) 2026 Min-Chen Lee): claims keyed by occurrence, the key read from the box on
@@ -216,9 +217,13 @@ impl Answer<'_> {
                 .filter(|o| o.state == "pending" || o.state == "uncertain")
                 .map(|o| o.id.clone())
                 .collect();
-            (o, live)
+            let on_screen = s
+                .occurrences
+                .iter()
+                .any(|o| o.screen_id.is_some() && (o.state == "pending" || o.state == "uncertain"));
+            (o, live, on_screen)
         });
-        let (o, live) = match pass {
+        let (o, live, on_screen) = match pass {
             Ok(p) => p,
             Err(e) => return out("failed", None, &format!("{e}; nothing was pressed")),
         };
@@ -266,7 +271,7 @@ impl Answer<'_> {
                 self.finish(&o, action, self.press(&o, action))
             }
             ("question_async", Asked::Answers(answers)) => {
-                if self.blocked {
+                if self.blocked || on_screen {
                     return out(
                         "refused-prompt",
                         Some(&o.state),
@@ -492,6 +497,19 @@ impl Answer<'_> {
             Err((result, message)) => return Sent::Nothing(result, message),
         };
         let screen = Counted::new(self.screen());
+        // hc says idle while Codex's `/new` folder prompt shows, so only a read shows where the text would land.
+        let refused = match screen.visible_text(&self.pane()) {
+            Ok(text) if self.prompt_on(&text) => Some((
+                "refused-prompt",
+                "the agent waits on a prompt; answer it first".to_string(),
+            )),
+            Ok(_) => None,
+            Err(e) => Some(("failed", format!("cannot read the screen ({e:?})"))),
+        };
+        if let Some((result, why)) = refused {
+            self.claims.release(&o.id);
+            return Sent::Nothing(result, format!("{why}; nothing was sent"));
+        }
         match question::answer_question(&screen, &self.pane(), &q, answers, Some(&gate)) {
             Ok(()) => Sent::Out,
             Err(HerdrError::Server { code, message }) if code == "blocked" => {
@@ -500,6 +518,16 @@ impl Answer<'_> {
             }
             Err(e) => self.after_error(o, &screen, e),
         }
+    }
+
+    /// Whether `text` shows a prompt a message would land in, by the matchers `bw cards` uses.
+    fn prompt_on(&self, text: &str) -> bool {
+        let agent = self.input.agent.as_str();
+        matchers::approval_on_screen(agent, text).is_some()
+            || matchers::folder_prompt_on_screen(agent, text).is_some()
+            || question::claude_screen(text).is_some()
+            || question::codex_screen(text).is_some()
+            || matchers::other_prompt(agent, text)
     }
 
     /// A question picker: the keys `question::answer_question` gives, each behind the key gate.

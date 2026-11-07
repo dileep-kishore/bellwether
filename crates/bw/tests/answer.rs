@@ -1171,3 +1171,82 @@ fn multi_question_claude_picker_is_show_only() {
         .iter()
         .any(|l| l["state"] == "pending"));
 }
+
+fn folder_screen() -> String {
+    read(&fixtures().join("screens/codex-new-folder.txt"))
+}
+
+#[test]
+fn async_answer_is_refused_while_the_folder_prompt_shows() {
+    let x = Scratch::new();
+    let (_codex, log, r) = async_question(&x, &json!({"app": "codex", "state": "idle"}));
+    // The user ran /new and left its folder prompt open: hc says idle, the old log is still the root's.
+    x.screen("t2", "txt", &folder_screen());
+    let line = x.answer(
+        "t2",
+        &r,
+        ("codex", QUESTION_SID, &log),
+        &["--answers", r#"[{"picks":[],"other":"2"}]"#],
+    );
+    assert_eq!(result(&line), "refused-prompt", "{line}");
+    assert!(x.typed().is_empty(), "{:?}", x.log());
+}
+
+#[test]
+fn async_answer_reads_the_screen_again_before_sending() {
+    let x = Scratch::new();
+    let (_codex, log, r) = async_question(&x, &json!({"app": "codex", "state": "idle"}));
+    // The pass's read shows no prompt; the read just before the send shows the folder prompt.
+    x.screen("t2", "next.txt", &folder_screen());
+    let line = x.answer(
+        "t2",
+        &r,
+        ("codex", QUESTION_SID, &log),
+        &["--answers", r#"[{"picks":[1]}]"#],
+    );
+    assert_eq!(result(&line), "refused-prompt", "{line}");
+    assert!(x.typed().is_empty(), "{:?}", x.log());
+    // Nothing went out, so the claim is free once the prompt is gone.
+    std::fs::remove_file(x.dir().join("screens/t2.next.txt")).unwrap();
+    let line = x.answer(
+        "t2",
+        &r,
+        ("codex", QUESTION_SID, &log),
+        &["--answers", r#"[{"picks":[1]}]"#],
+    );
+    assert_eq!(result(&line), "answered", "{line}");
+    assert_eq!(x.typed(), ["send t2 large"]);
+}
+
+#[test]
+fn async_answer_is_refused_while_the_pass_has_a_prompt() {
+    let x = Scratch::new();
+    let (_codex, log, r) = async_question(&x, &json!({"app": "codex", "state": "idle"}));
+    // The pass reads the folder prompt; by the read before the send it looks gone.
+    let calm = read(&sessions("codex-question").join("screen-async.txt"));
+    x.screen("t2", "txt", &folder_screen());
+    x.screen("t2", "next.txt", &calm);
+    let line = x.answer(
+        "t2",
+        &r,
+        ("codex", QUESTION_SID, &log),
+        &["--answers", r#"[{"picks":[1]}]"#],
+    );
+    assert_eq!(result(&line), "refused-prompt", "{line}");
+    assert!(x.typed().is_empty(), "{:?}", x.log());
+}
+
+#[test]
+fn async_answer_needs_a_screen_read() {
+    let x = Scratch::new();
+    let (_codex, log, r) = async_question(&x, &json!({"app": "codex", "state": "idle"}));
+    std::fs::remove_file(x.dir().join("screens/t2.txt")).unwrap();
+    let line = x.answer(
+        "t2",
+        &r,
+        ("codex", QUESTION_SID, &log),
+        &["--answers", r#"[{"picks":[1]}]"#],
+    );
+    assert_eq!(result(&line), "failed", "{line}");
+    assert!(x.typed().is_empty(), "{:?}", x.log());
+}
