@@ -23,8 +23,8 @@ fn is_build_id(s: &str) -> bool {
 fn version_prints_protocol_version_build_and_target() {
     let (code, v) = run(&["version"]);
     assert_eq!(code, 0);
-    assert_eq!(v["protocol"], 1);
-    assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(v["protocol"], 2);
+    assert_eq!(v["version"], "0.2.0");
     let target = v["target"].as_str().expect("target is a string");
     assert!(!target.is_empty());
     let build = v["build"].as_str().expect("build is a string");
@@ -41,4 +41,13 @@ fn unknown_subcommand_is_a_usage_error() {
     assert_eq!(v["type"], "error");
     assert_eq!(v["code"], "usage");
     assert!(v["message"].is_string());
+}
+
+#[test]
+fn feed_is_not_built_yet() {
+    let (code, v) = run(&["feed", "--log", "/nowhere.jsonl", "--agent", "claude"]);
+    assert_eq!(code, 1);
+    assert_eq!(v["type"], "error");
+    assert_eq!(v["code"], "not_built");
+    assert_eq!(v["message"], "feed arrives in a later task");
 }
