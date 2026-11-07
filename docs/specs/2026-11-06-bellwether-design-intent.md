@@ -498,3 +498,10 @@ for this build; tests that need the Herdr window are deferred, other tests
   `bw locate` takes `CODEX_HOME` from the rollouts the agent holds open
   and `CLAUDE_CONFIG_DIR` only from `bw`'s own environment. Evidence:
   phase 2 Task 7 (`crates/bw/src/chat/dirs.rs`, commit `98cba29`).
+- 2026-11-07: a chat that has never shown a conversation sends its first
+  message with `bw send --expect-session none`, which passes only while
+  that kind's agent runs in the terminal with no session log. Original:
+  "`bw send` and `bw answer` carry `--expect-kind`, `--expect-session` and
+  `--expect-path` and refuse when the terminal's conversation changed."
+  Evidence: phase 2 Task 11, Claude 2.1.319 and Codex 0.167 write no log
+  until their first message, so a fresh chat tab could never send it.

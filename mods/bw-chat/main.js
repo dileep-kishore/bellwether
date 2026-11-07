@@ -8,7 +8,7 @@ import { exec, home, nextCommand, panes, run, shared, spaces, theme } from "herd
 import { entryForTerminal, isShown } from "./chat-tabs.js";
 import { Composer } from "./composer.js";
 import { columnWidth, rowHeight } from "./estimate.js";
-import { applyFeed, applyOlder, emptyFeed, olderFrom } from "./feedstate.js";
+import { applyFeed, applyOlder, emptyFeed, freshChat, olderFrom } from "./feedstate.js";
 import { createHelper, parseLines } from "./helper.js";
 import { createPictures } from "./pictures.js";
 import { createPoke } from "./refresh-driver.js";
@@ -179,7 +179,8 @@ export default class Chat extends View {
   /** Runs from the composer's submit, an event. @param {string} text @param {any} cx */
   send(text, cx) {
     const t = /** @type {Target} */ (this.target);
-    const { session, path } = this.feed;
+    const fresh = freshChat(this.feed, t.kind);
+    const { session, path } = fresh ? { session: "none", path: "none" } : this.feed;
     if (this.sending || !session || !path) return;
     this.sending = true;
     this.note = null;
@@ -294,13 +295,14 @@ export default class Chat extends View {
     const tab = entryForTerminal(shared(CHAT_TABS), target.terminal)?.tab ?? term?.tab ?? null;
     const f = this.feed;
     const gone = !term || f.waiting?.state === "no_terminal";
+    const fresh = !gone && freshChat(f, target.kind);
 
     /** @type {Problem | null} */
     let problem = null;
     if (gone) problem = { title: `${this.name} exited`, message: "", exited: true };
     else if (this.installing !== null) problem = { title: helperText("installing", this.installing), message: "", exited: false };
     else if (f.error) problem = { title: helperText(f.error.state, target.machine), message: f.error.message, exited: false };
-    else if (f.waiting) problem = { title: waitingText(f.waiting.state, this.name, target.machine), message: f.waiting.message, exited: false };
+    else if (f.waiting && !fresh) problem = { title: waitingText(f.waiting.state, this.name, target.machine), message: f.waiting.message, exited: false };
 
     root.child(this.header(t, term, gone));
     const rows = f.rows;
@@ -336,8 +338,8 @@ export default class Chat extends View {
     const reason = gone ? `${this.name} exited`
       : this.sending ? "Sending…"
         : problem ? problem.title
-          : !f.path || !f.session ? (f.loaded ? waitingText("no_log", this.name) : "Loading…")
-            : null;
+          : fresh || (f.path && f.session) ? null
+            : f.loaded ? waitingText("no_log", this.name) : "Loading…";
     return root.child(this.composer.render(t, { disabled: reason !== null, reason, sending: this.sending, note: this.note }));
   }
 }

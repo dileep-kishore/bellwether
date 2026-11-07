@@ -6,6 +6,10 @@
 //! kind, session or log path differ from what the chat read. Then `hc send --json -- <t> <text>`, never
 //! `--force`, so hc refuses a terminal waiting on a prompt.
 //!
+//! Claude and Codex write no log until their first message, so a chat that has never shown a conversation
+//! sends with `--expect-session none --expect-path none`: that passes only while the terminal's agent of the
+//! expected kind is running and has no log at all.
+//!
 //! The guard is adapted from Flockbook's xplat/flockbook-modfeed/src/cards.rs `send` (MIT, Copyright (c) 2026
 //! Min-Chen Lee).
 
@@ -19,7 +23,10 @@ use super::locate::{self, LocateFailure};
 use crate::hc::{self, HcError};
 
 const USAGE: &str = "usage: bw send --terminal <t> --expect-kind <claude|codex> \
-                     --expect-session <id> --expect-path <log> --text <message>";
+                     --expect-session <id|none> --expect-path <log|none> --text <message>";
+
+/// The expectation of a chat that has never shown a conversation: the agent has written no log yet.
+const NO_LOG: &str = "none";
 
 /// `hc send` waits up to 3 s for the program to stop typing, and `exec` stops the mod's call at 30 s.
 const SEND_TIMEOUT_S: u64 = 25;
@@ -35,7 +42,11 @@ struct Shown {
 /// Why nothing reached the terminal before `hc send`.
 #[derive(Debug, PartialEq)]
 enum NotShown {
-    /// No agent conversation to compare: a new one with no log yet, or no agent at all.
+    /// The expected kind's agent runs here and has written no log yet.
+    NoLog {
+        agent: String,
+    },
+    /// No agent conversation to compare: an agent not running, or no agent at all.
     Unconfirmed(String),
     Error {
         code: &'static str,
@@ -54,9 +65,10 @@ fn failure(f: LocateFailure) -> NotShown {
             message: m,
         },
         LocateFailure::NotAgent(m) => NotShown::Unconfirmed(m),
-        LocateFailure::NoLog { agent } => NotShown::Unconfirmed(format!(
-            "no {agent} session log for the conversation shown now"
-        )),
+        LocateFailure::NoLog { agent } => NotShown::NoLog { agent },
+        LocateFailure::NoProcess { agent } => {
+            NotShown::Unconfirmed(format!("no {agent} process runs in it"))
+        }
     }
 }
 
@@ -79,6 +91,32 @@ fn mismatch(shown: &Shown, kind: &str, session: &str, path: &str) -> Option<Stri
         return Some(format!("it shows session {} now", shown.session));
     }
     None
+}
+
+/// What the guard decided before any text is typed.
+#[derive(Debug, PartialEq)]
+enum Check {
+    Pass,
+    Refuse(String),
+    Error(&'static str, String),
+}
+
+/// `expected` is the chat's session and path, or None when it has never shown a conversation.
+fn check(shown: Result<Shown, NotShown>, kind: &str, expected: Option<(&str, &str)>) -> Check {
+    match (shown, expected) {
+        (Ok(s), Some((session, path))) => match mismatch(&s, kind, session, path) {
+            Some(why) => Check::Refuse(why),
+            None => Check::Pass,
+        },
+        (Ok(s), None) => Check::Refuse(format!("it shows session {} now", s.session)),
+        (Err(NotShown::NoLog { agent }), None) if agent == kind => Check::Pass,
+        (Err(NotShown::NoLog { agent }), None) => Check::Refuse(format!("it runs {agent} now")),
+        (Err(NotShown::NoLog { agent }), Some(_)) => Check::Refuse(format!(
+            "no {agent} session log for the conversation shown now"
+        )),
+        (Err(NotShown::Unconfirmed(why)), _) => Check::Refuse(why),
+        (Err(NotShown::Error { code, message }), _) => Check::Error(code, message),
+    }
 }
 
 fn result(result: &str, message: &str) -> ExitCode {
@@ -121,6 +159,15 @@ pub fn run(argv: &[String]) -> ExitCode {
     ) else {
         return crate::usage(USAGE);
     };
+    let expected = match (session == NO_LOG, path == NO_LOG) {
+        (false, false) => Some((session, path)),
+        (true, true) => None,
+        _ => {
+            return crate::usage(&format!(
+                "--expect-session none and --expect-path none go together; {USAGE}"
+            ))
+        }
+    };
     if text.is_empty() {
         return crate::usage(&format!("--text is empty; {USAGE}"));
     }
@@ -130,21 +177,15 @@ pub fn run(argv: &[String]) -> ExitCode {
             "{address}: run bw send on the terminal's own machine with its local address; {USAGE}"
         ));
     }
-    let shown = shown_here(address);
-    let refused = |why: &str| {
-        result(
-            "refused-conversation",
-            &format!("{address} now shows another conversation ({why}); nothing was sent"),
-        )
-    };
-    match shown {
-        Ok(s) => {
-            if let Some(why) = mismatch(&s, kind, session, path) {
-                return refused(&why);
-            }
+    match check(shown_here(address), kind, expected) {
+        Check::Pass => {}
+        Check::Refuse(why) => {
+            return result(
+                "refused-conversation",
+                &format!("{address} now shows another conversation ({why}); nothing was sent"),
+            )
         }
-        Err(NotShown::Unconfirmed(why)) => return refused(&why),
-        Err(NotShown::Error { code, message }) => return super::error(code, &message),
+        Check::Error(code, message) => return super::error(code, &message),
     }
 
     let wait = timeout();
@@ -191,5 +232,44 @@ mod tests {
         );
         assert!(mismatch(&s, "codex", "b", "/l/a.jsonl").is_some());
         assert!(mismatch(&s, "codex", "a", "/l/b.jsonl").is_some());
+    }
+
+    #[test]
+    fn none_passes_only_a_running_agent_without_a_log() {
+        let no_log = |agent: &str| {
+            Err(NotShown::NoLog {
+                agent: agent.into(),
+            })
+        };
+        assert_eq!(check(no_log("codex"), "codex", None), Check::Pass);
+        assert!(matches!(
+            check(no_log("claude"), "codex", None),
+            Check::Refuse(_)
+        ));
+        // After Claude `/clear` the new session has no log yet, while the chat still shows the old one.
+        assert!(matches!(
+            check(no_log("claude"), "claude", Some(("a", "/l/a.jsonl"))),
+            Check::Refuse(_)
+        ));
+        assert!(matches!(
+            check(Ok(shown("codex", "b", "/l/b.jsonl")), "codex", None),
+            Check::Refuse(m) if m.contains(" b ")
+        ));
+        assert!(matches!(
+            check(
+                Err(NotShown::Unconfirmed("no codex process".into())),
+                "codex",
+                None
+            ),
+            Check::Refuse(_)
+        ));
+        assert_eq!(
+            check(
+                Ok(shown("codex", "a", "/l/a.jsonl")),
+                "codex",
+                Some(("a", "/l/a.jsonl"))
+            ),
+            Check::Pass
+        );
     }
 }
