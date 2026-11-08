@@ -372,6 +372,9 @@ describe("bw-chat", () => {
     expect(again.ids.some((id) => narrow.ids.includes(id))).toBe(false);
     // The same width keeps the same view, so a re-render (a poll) keeps its selection.
     expect(again).toEqual(wide);
+    // A pane under 288 px once kept a 240 px column and cut the bubble at the pane's edge.
+    const tiny = await bubbleAt(200);
+    expect(tiny.w).toBe(Math.floor(152 * 0.8));
   });
 
   test("Open in Changes keeps Changes chosen when the space had Browser stored", async () => {

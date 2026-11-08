@@ -15,8 +15,8 @@ use std::path::{Path, PathBuf};
 use codex_approval::{codex_box, codex_id};
 use codex_folder::{folder_box, folder_id};
 use matchers::{
-    approval_on_screen, folder_prompt_on_screen, other_prompt, same_call, Action, ScreenPrompt,
-    CODEX_CHILD_ANSWERABLE,
+    approval_on_screen, folder_prompt_on_screen, other_prompt, same_call, same_drawn, Action,
+    ScreenPrompt, CODEX_CHILD_ANSWERABLE,
 };
 use serde_json::Value;
 
@@ -463,4 +463,175 @@ fn claude_always_is_offered_only_for_a_yes_and_option() {
         p.actions[1].label,
         "Yes, allow all edits during this session (shift+tab)"
     );
+}
+
+/// Words and wrap points dropped: what a command reads as after a rewrap.
+fn unwrapped(s: &str) -> String {
+    s.split_whitespace().collect()
+}
+
+#[test]
+fn rewrap_claude_approval_keeps_its_id() {
+    // One prompt read at 80 columns, then after its terminal narrowed to 52 (scripts/verify/record-wrap.sh).
+    let wide = approval_on_screen("claude", &screen("screens/claude-approval-80.txt"))
+        .expect("80 columns");
+    let narrow = approval_on_screen("claude", &screen("screens/claude-approval-52.txt"))
+        .expect("52 columns");
+    assert_eq!(narrow.screen_id, wide.screen_id);
+    assert_eq!(unwrapped(&narrow.command), unwrapped(&wide.command));
+    assert_eq!(
+        unwrapped(&wide.command),
+        "touchwrapped-output-file-with-a-long-name-for-the-rewrap-test.txt"
+    );
+    assert_eq!(
+        actions(&narrow).iter().map(|a| a.0).collect::<Vec<_>>(),
+        actions(&wide).iter().map(|a| a.0).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn rewrap_codex_approval_keeps_its_id() {
+    let wide = codex_box(&screen("screens/codex-approval-80.txt")).expect("80 columns");
+    let narrow = codex_box(&screen("screens/codex-approval-52.txt")).expect("52 columns");
+    assert_eq!(codex_id(&narrow), codex_id(&wide));
+    assert_eq!(unwrapped(&narrow.command), unwrapped(&wide.command));
+}
+
+#[test]
+fn rewrap_codex_folder_prompt_is_read_and_keeps_its_id() {
+    // At 24 columns the question wraps over two lines and the descriptions are gone.
+    let wide = folder_box(&screen("screens/codex-new-folder-80.txt")).expect("80 columns");
+    let narrow = folder_box(&screen("screens/codex-new-folder-24.txt")).expect("24 columns");
+    let names =
+        |f: &codex_folder::FolderBox| f.options.iter().map(|o| o.0.clone()).collect::<Vec<_>>();
+    assert_eq!(
+        names(&narrow),
+        ["Use current Git worktree", "Create new Git worktree"]
+    );
+    assert_eq!(names(&narrow), names(&wide));
+    assert_eq!(folder_id(&narrow), folder_id(&wide));
+}
+
+#[test]
+fn rewrap_other_command_changes_the_id() {
+    let s = screen("screens/claude-approval-80.txt");
+    let other = s.replace("wrapped-output-file", "wrapped-outpvt-file");
+    let a = approval_on_screen("claude", &s).unwrap();
+    let b = approval_on_screen("claude", &other).unwrap();
+    assert_ne!(a.screen_id, b.screen_id);
+    let c = codex_box(&screen("screens/codex-approval-80.txt")).unwrap();
+    let d = codex_box(
+        &screen("screens/codex-approval-80.txt")
+            .replace("wrapped-output-file", "wrapped-outpvt-file"),
+    )
+    .unwrap();
+    assert_ne!(codex_id(&c), codex_id(&d));
+}
+
+#[test]
+fn rewrap_codex_folder_prompt_at_15_columns() {
+    // A chat tab's terminal behind the chat is 15 columns wide: the question breaks inside "conversation".
+    let narrow = folder_box(&screen("screens/codex-new-folder-15.txt")).expect("15 columns");
+    let wide = folder_box(&screen("screens/codex-new-folder-80.txt")).unwrap();
+    assert_eq!(folder_id(&narrow), folder_id(&wide));
+    let p = folder_prompt_on_screen("codex", &screen("screens/codex-new-folder-15.txt"))
+        .expect("a prompt");
+    assert_eq!(p.screen_id, folder_id(&wide));
+}
+
+#[test]
+fn rewrap_claude_approval_at_16_columns() {
+    // One prompt read at 34 columns, then after its pane narrowed to 16 in the window: the question wraps, option 2
+    // reads "2.Yes, and" and loses "this project".
+    let wide = approval_on_screen("claude", &screen("screens/claude-approval-pair-34.txt"))
+        .expect("34 columns");
+    let narrow = approval_on_screen("claude", &screen("screens/claude-approval-pair-16.txt"))
+        .expect("16 columns");
+    assert_eq!(narrow.screen_id, wide.screen_id);
+    assert_eq!(unwrapped(&narrow.command), "touchpair-wrapped-file.txt");
+    let ids = |p: &ScreenPrompt| {
+        actions(p)
+            .iter()
+            .map(|a| a.0.to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(&narrow), ["approve", "always", "deny"]);
+    assert_eq!(ids(&narrow), ids(&wide));
+}
+
+#[test]
+fn rewrap_detail_leaves_out_the_wrapped_tip() {
+    // Claude's tip wraps onto lines the box keeps; the card's detail is the description alone, at any width.
+    // The description itself can break inside a word, as the screen draws it, so it is compared unwrapped.
+    for file in [
+        "screens/claude-approval-pair-34.txt",
+        "screens/claude-approval-pair-16.txt",
+    ] {
+        let p = approval_on_screen("claude", &screen(file)).unwrap();
+        assert_eq!(
+            unwrapped(&p.detail),
+            "Createemptyfilepair-wrapped-file.txt",
+            "{file}"
+        );
+    }
+}
+
+/// A Claude Edit box whose ╌ block is empty: the file is named only in the question.
+fn edit_box(file: &str) -> String {
+    format!(
+        "────────────────────────────────────────\n Edit file\n╌╌╌╌╌╌╌╌╌╌\n╌╌╌╌╌╌╌╌╌╌\n Do you want to make this edit to {file}?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel\n"
+    )
+}
+
+#[test]
+fn rewrap_id_names_the_question_and_the_asker() {
+    // Two Edit prompts with the same empty command: the question names the file, so the ids differ.
+    let a = approval_on_screen("claude", &edit_box("a.rs")).expect("an Edit box");
+    let b = approval_on_screen("claude", &edit_box(".env.production")).expect("an Edit box");
+    assert_ne!(a.screen_id, b.screen_id);
+    // The same command asked by two sub-agents: the header names the asker.
+    let s = screen("screens/claude-approval-80.txt");
+    let one = s.replace(
+        " Bash command\n",
+        " Bash command · from the toucher agent\n",
+    );
+    let two = s.replace(
+        " Bash command\n",
+        " Bash command · from the cleaner agent\n",
+    );
+    assert_ne!(one, s, "(setup) the header changed");
+    assert_ne!(
+        approval_on_screen("claude", &one).unwrap().screen_id,
+        approval_on_screen("claude", &two).unwrap().screen_id
+    );
+}
+
+#[test]
+fn rewrap_question_wrapped_over_five_lines_is_read() {
+    // A 15-column pane wraps "Do you want to make this edit to codex_folder.rs?" over five lines.
+    let s = edit_box("codex_folder.rs").replace(
+        " Do you want to make this edit to codex_folder.rs?",
+        " Do you want to\n make this\n edit to\n codex_folder\n .rs?",
+    );
+    let p = approval_on_screen("claude", &s).expect("a box with a long question");
+    assert_eq!(
+        actions(&p).iter().map(|a| a.0).collect::<Vec<_>>(),
+        ["approve", "deny"]
+    );
+}
+
+#[test]
+fn same_drawn_tolerates_line_breaks_only() {
+    assert!(same_drawn("touch approved.txt", "touch\napproved.txt"));
+    assert!(same_drawn(
+        "touch wrapped-long-name.txt",
+        "touch wrapped-long-\nname.txt"
+    ));
+    assert!(
+        same_drawn("touch  a.txt", "touch a.txt"),
+        "a run of spaces in a line counts as one"
+    );
+    assert!(!same_drawn("touch approved.txt", "touch approved .txt"));
+    assert!(!same_drawn("touch a.txt", "touch b.txt"));
+    assert!(!same_drawn("rm -rf build", "rm -rf build/"));
 }

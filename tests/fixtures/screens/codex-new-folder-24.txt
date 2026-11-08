@@ -1,0 +1,40 @@
+
+  >_ OpenAI Codex (v0.1…
+     …p/codex-new-folder
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  Where should the new
+  conversation run?
+
+
+› 1. Use current Git
+     worktree
+  2. Create new Git
+     worktree
+
+  enter select · esc
+  back

@@ -556,6 +556,23 @@ fn on_screen(
     on_screen_with(pass, store, asked, who, events, None, |_| false)
 }
 
+/// The command and option 2's label of `asked`, kept on its occurrence when first seen.
+fn first_of(asked: &Asked) -> Value {
+    let always = asked
+        .actions
+        .iter()
+        .find(|(id, _)| id == "always")
+        .map(|(_, label)| label.as_str());
+    json!({"command": asked.command, "always": always})
+}
+
+/// Whether `asked` shows the command its occurrence first showed, line breaks aside.
+fn same_first(o: &Occurrence, asked: &Asked) -> bool {
+    o.first
+        .as_ref()
+        .is_none_or(|f| matchers::same_drawn(f["command"].as_str().unwrap_or(""), &asked.command))
+}
+
 fn on_screen_with(
     pass: &Pass,
     store: &mut Store,
@@ -573,7 +590,10 @@ fn on_screen_with(
             && (o.state == "pending" || o.state == "uncertain")
     });
     let existing = match existing {
-        Some(i) if superseded(&store.occurrences[i]) => {
+        // Same id but another command (it differs only in spacing, which the id leaves out): another prompt.
+        Some(i)
+            if superseded(&store.occurrences[i]) || !same_first(&store.occurrences[i], &asked) =>
+        {
             resolve(pass, &mut store.occurrences[i]);
             None
         }
@@ -603,6 +623,7 @@ fn on_screen_with(
                 left_ms: None,
                 events: Vec::new(),
                 shown: None,
+                first: Some(first_of(&asked)),
             });
             store.occurrences.len() - 1
         }
@@ -932,6 +953,7 @@ fn async_questions(pass: &Pass, store: &mut Store) -> Vec<String> {
                 left_ms: None,
                 events: Vec::new(),
                 shown: None,
+                first: None,
             });
         }
         let Some(o) = store.occurrences.iter_mut().find(|o| o.id == id) else {

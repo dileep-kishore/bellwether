@@ -161,3 +161,17 @@ test("a chip lifts muted text to Subtext 1 on hover, and keeps a colour it was g
   expect(failed.attrs.text_color).toBe("#blocked");
   expect(failed.attrs.hover.text_color).toBeUndefined();
 });
+
+test("a shrinking button narrows to its row and cuts its label", () => {
+  const label = "Yes, and always allow access to /private/tmp/bw-wc/alpha from this project";
+  const el = button(t, { id: "b", label, on: "raised", shrink: true });
+  // The stub records a call with no argument as a key whose value is undefined.
+  expect("flex_none" in el.attrs).toBe(false);
+  expect(el.attrs.min_w).toBe(0);
+  expect("max_w_full" in el.attrs).toBe(true);
+  const cut = findAll(el, (e) => "truncate" in e.attrs);
+  expect(cut).toHaveLength(1);
+  expect(textOf(cut[0])).toBe(label);
+  // Without shrink a button keeps its size, as before.
+  expect("flex_none" in button(t, { id: "c", label: "Deny" }).attrs).toBe(true);
+});

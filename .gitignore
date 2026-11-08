@@ -6,3 +6,5 @@ docs/drafts/
 # herdr-app check writes these type files into each mod folder it checks.
 mods/*/jsconfig.json
 mods/*/*.d.ts
+# Serena writes its project state here when it starts in a checkout.
+.serena/

@@ -203,7 +203,10 @@ Bellwether never uses or touches your own Chrome or its default profile.
 arguments from the kernel (`KERN_PROCARGS2` on macOS, `/proc/<pid>/cmdline`
 on Linux) and refuses a process whose arguments it cannot read. When the port
 is free and the profile is not running, it starts Chrome with `open -n`.
-`--background` adds `-g`, which keeps focus where it is. Otherwise it starts
+`--background` adds `-g`, which asks macOS to keep focus where it is; a
+window manager such as OmniWM can still bring the new window forward, so for
+3 s `bw` watches the front app and hands it back to the app that was in front
+before the start. Otherwise it starts
 nothing and names the state: `port_taken` with the pid and command of the
 program on the port, or `no_debug_port` when the profile runs without the
 port. It reports `not_installed` when it finds no Google Chrome and
@@ -218,8 +221,11 @@ tab and Arrange buttons. It adds Start when Chrome is stopped, runs without
 the port or failed to start. Below the header:
 
 - Each tab has one row with its favicon, title, host and path. An accent bar
-  marks the active tab. Clicking a row focuses that tab, and hovering shows a
-  close button.
+  marks the active tab: with the Bellwether Chrome in front, each window's
+  focused tab; otherwise the tab Bellwether last focused or opened, since
+  Chrome then reports focus in no tab, or in every tab an agent opened in the
+  background. Clicking a row focuses that tab, and hovering shows a close
+  button.
 - The Forwards section lists each forward with its state and a Stop button.
 - Forward port adds a forward for a dev server
   (`ssh -L 127.0.0.1:<n>:127.0.0.1:<n>`) from the active space's machine.
@@ -378,6 +384,14 @@ that folder removes its history and sign-ins.
 - Arrange works on macOS only.
 - After the Bellwether Chrome restarts, a running agent's browser tools stop
   working until its next session.
+- Claude started on another machine by a core that SSH started cannot read
+  that machine's login keychain, so it runs unlogged ("Not logged in" or API
+  billing). Start that machine's core from its own login session.
+- A chat tab's terminal keeps its share of the tab's split while the chat is
+  zoomed: about 15 columns in a window under 1000 px wide. A prompt that
+  wraps there still keeps one card, but Codex scrolls a long approval's
+  options out of view at that width, so a Codex sub-agent's approval falls
+  back to "Answer in terminal". Herdr offers no command to size a pane.
 - The checks in a Herdr window are still owed: the panel, Arrange beside a
   real Herdr window, a screenshot inline in a chat, and a real SSH machine.
 
@@ -555,6 +569,20 @@ scripts/verify/requests.sh                    # also real agents here
 scripts/verify/requests.sh --machine <name>   # also Codex on <name>; <name> must be a temporary hc machine (bwloop)
 ```
 
+A prompt's id ignores how the pane wraps it, so narrowing or widening a
+chat's pane keeps one card: a Claude approval's id hashes its box from the
+header through the question without whitespace, tips or options, a Codex
+approval's its text without whitespace or rule lines, and Codex's folder
+prompt's its question and option names. Because spacing and options are
+left out, `bw answer` presses a key only while the box still shows the
+command the card first showed, line breaks aside, and for Always the same
+option 2 label; otherwise it reports the card as changed. `scripts/verify/record-wrap.sh` records the screens the
+`rewrap` tests read: a Claude approval, a Codex approval and Codex's `/new`
+folder prompt at 80 columns, then again after an `hc attach` viewer narrows
+the same terminal. It runs Claude haiku and Codex in a private core
+(`HC_SESSION=bw-wrap`) in scratch repositories, scrubs the screens into
+`tests/fixtures/screens/`, and removes the core and the folders.
+
 `scripts/verify/feed-cost.sh [runs]` times `bw feed --log … --pictures` on
 the largest Claude and Codex logs on this Mac: a first read, an unchanged
 cursor and one appended line, each `runs` times (default 5) on a scratch
@@ -605,7 +633,9 @@ call to the stage's `helper-calls.log` (a timestamp and the command, such as
 `feed` or `browser status`, never its arguments, which can hold chat text) and
 runs the repository's `bw`, so a check can count calls without touching the
 installed helper.
-`shared/helper.js` needs `bw version` to report version 0.4.0 and protocol 4.
+`shared/helper.js` needs `bw version` to report version 0.4.1 and protocol 4;
+0.4.1 carries phase 4b's prompt and browser fixes, so a machine with 0.4.0
+reinstalls once.
 Phase 4's helper adds the `browser` and `agent` commands, so every machine's
 helper reinstalls once. When another machine's helper is missing or
 outdated, a mod runs this Mac's `bw machine install <machine>` and checks

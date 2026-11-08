@@ -1,0 +1,40 @@
+
+  >_ OpenAI Co…
+     …a-wt/feat
+
+
+› Reply with
+  the single
+  word ready.
+
+
+• ready
+
+  Worked for 1s
+  • 21:49
+
+
+
+
+
+
+
+
+
+  Where
+  should the
+  new
+  conversatio
+  n run?
+
+
+› 1. Use
+     current
+     Git
+     worktree
+  2. Create new
+     Git
+     worktree
+
+  enter select
+  · esc back

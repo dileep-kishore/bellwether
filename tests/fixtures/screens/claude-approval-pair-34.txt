@@ -1,0 +1,40 @@
+  ⎿  Created checka.txt (+0
+     -0)
+
+⏺ I ran touch checka.txt in
+  /private/tmp/bw-wc/alpha, and it
+  finished without errors
+  (observed). Nothing is waiting
+  on you.
+
+✻ Crunched for 5s · done 9:59 PM
+
+❯ Run the Bash command touch
+  pair-wrapped-file.txt yourself,
+  nothing else.
+
+⏺ Creating empty file
+  pair-wrapped-file.txt
+  ⎿  $ touch pair-wrapped-file.txt
+
+──────────────────────────────────
+ Bash command
+ Tip: auto mode handles these
+ prompts for you — choose "switch
+ to auto mode" below
+ Create empty file
+ pair-wrapped-file.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ touch pair-wrapped-file.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and always allow access
+      to /private/tmp/bw-wc/alpha
+      from this project
+   3. Yes, and switch to auto mode
+      · auto mode handles these
+      prompts for you
+   4. No
+
+ Esc to cancel · Tab to amend

@@ -5,7 +5,7 @@
 //! lines, options `1. … (y)`, an optional `2. … (p)` and a last `… (esc)`, and the footer. Anything else in the box
 //! gives no match, so no key is ever chosen for a prompt this code has not seen.
 
-use herdr_core::approval::hash_id;
+use herdr_core::approval::{hash_id, id_text};
 
 pub const QUESTION: &str = "Would you like to run the following command?";
 pub const FOOTER: &str = "Press enter to confirm or esc to cancel";
@@ -31,6 +31,30 @@ pub struct CodexBox {
 pub fn plain(line: &str) -> &str {
     let t = line.trim();
     t.strip_prefix('›').map(str::trim_start).unwrap_or(t)
+}
+
+/// The index of the line after the last run of non-blank lines that read `question` once whitespace is dropped: a
+/// narrow pane wraps the question over several lines, between words or inside one.
+pub fn question_end(raw: &[&str], question: &str) -> Option<usize> {
+    let squeeze = |s: &str| s.split_whitespace().collect::<String>();
+    let want = squeeze(question);
+    let mut end = None;
+    let mut i = 0;
+    while i < raw.len() {
+        if plain(raw[i]).is_empty() {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < raw.len() && !plain(raw[i]).is_empty() {
+            i += 1;
+        }
+        let text: String = raw[start..i].iter().map(|l| squeeze(plain(l))).collect();
+        if text == want {
+            end = Some(i);
+        }
+    }
+    end
 }
 
 /// `N. text` as `(N, text)`.
@@ -95,8 +119,8 @@ enum Label {
 
 pub fn codex_box(screen: &str) -> Option<CodexBox> {
     let raw: Vec<&str> = screen.split('\n').collect();
-    let ask = raw.iter().rposition(|l| plain(l) == QUESTION)?;
-    let mut rest = blocks(&raw[ask + 1..]).into_iter();
+    let after = question_end(&raw, QUESTION)?;
+    let mut rest = blocks(&raw[after..]).into_iter();
     let (mut thread, mut reason, mut seen) = (None, String::new(), None::<Label>);
     let command_block = loop {
         let b = rest.next()?;
@@ -170,7 +194,7 @@ pub fn codex_box(screen: &str) -> Option<CodexBox> {
         return None;
     }
     let lines = std::iter::once(QUESTION.to_string())
-        .chain(blocks(&raw[ask + 1..]).into_iter().flatten())
+        .chain(blocks(&raw[after..]).into_iter().flatten())
         .collect();
     Some(CodexBox {
         command: command.join("\n"),
@@ -181,7 +205,8 @@ pub fn codex_box(screen: &str) -> Option<CodexBox> {
     })
 }
 
-/// The box's id: a hash of its lines, which include the command, the reason and a sub-agent's thread.
+/// The box's id: a hash of its lines, which include the command, the reason and a sub-agent's thread, without
+/// whitespace, so a rewrap keeps it.
 pub fn codex_id(b: &CodexBox) -> String {
-    hash_id(&format!("codex\n{}", b.lines.join("\n")))
+    hash_id(&format!("codex\n{}", id_text(&b.lines)))
 }

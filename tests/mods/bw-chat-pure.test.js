@@ -172,7 +172,13 @@ describe("estimate", () => {
     expect(READ_W).toBe(736);
     expect(columnWidth(2000)).toBe(736);
     expect(columnWidth(600)).toBe(600 - GUTTER * 2);
-    expect(columnWidth(100)).toBe(240);
+  });
+
+  test("columnWidth fits a narrow pane instead of clipping it", () => {
+    expect(columnWidth(200)).toBe(152);
+    expect(columnWidth(288)).toBe(240);
+    expect(columnWidth(800)).toBe(736);
+    expect(columnWidth(40)).toBe(0);
   });
 
   test("tools row grows when open", () => {

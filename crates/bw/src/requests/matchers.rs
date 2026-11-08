@@ -4,11 +4,11 @@
 //! key is chosen for it. Keys are hc key names (`hc keys -- <t> <key>`).
 
 use herdr_core::approval::{
-    screen_box, screen_prompt, screen_shows_prompt, CLIPPED_TITLE, PROMPT_MARKER,
+    screen_box, screen_prompt, screen_shows_prompt, CLIPPED_TITLE, PROMPT_MARKER, QUESTION_LINES,
 };
 use herdr_core::question;
 
-use super::codex_approval::{codex_box, codex_id, numbered, plain, FOOTER};
+use super::codex_approval::{codex_box, codex_id, plain, FOOTER};
 use super::codex_folder::{folder_box, folder_id};
 
 /// Task 1 case (e): a Codex sub-agent's box shows on the parent's screen, the matcher reads it
@@ -37,6 +37,55 @@ pub struct ScreenPrompt {
     /// Who the box says asks: Claude's agent type (`from the toucher agent`), Codex's thread path. It names no id,
     /// so it only confirms who asked.
     pub from: Option<String>,
+}
+
+/// Whether two drawings of a command say the same: runs of spaces inside a line count as one, and a line break
+/// stands for nothing or one space, since a pane breaks a line between words or inside one. Spaces inside a line
+/// must match, so `touch a.txt` and `touch a .txt` differ. A command over `DRAWN_MAX` characters must match
+/// exactly.
+pub fn same_drawn(a: &str, b: &str) -> bool {
+    let norm = |s: &str| -> Vec<char> {
+        s.split('\n')
+            .map(words)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
+            .chars()
+            .collect()
+    };
+    let (a, b) = (norm(a), norm(b));
+    if a.len() > DRAWN_MAX || b.len() > DRAWN_MAX {
+        return a == b;
+    }
+    // ok[i][j]: a[i..] and b[j..] say the same.
+    let (n, m) = (a.len(), b.len());
+    let mut ok = vec![vec![false; m + 1]; n + 1];
+    ok[n][m] = true;
+    for i in (0..=n).rev() {
+        for j in (0..=m).rev() {
+            if i == n && j == m {
+                continue;
+            }
+            let (x, y) = (a.get(i), b.get(j));
+            ok[i][j] = (x.is_some() && x == y && ok[i + 1][j + 1])
+                || (x == Some(&'\n') && (ok[i + 1][j] || (y == Some(&' ') && ok[i + 1][j + 1])))
+                || (y == Some(&'\n') && (ok[i][j + 1] || (x == Some(&' ') && ok[i + 1][j + 1])));
+        }
+    }
+    ok[0][0]
+}
+
+/// Longer commands are compared exactly, keeping `same_drawn`'s table small.
+const DRAWN_MAX: usize = 4096;
+
+/// `N. text` as `(N, text)`; a narrow pane draws `2.Yes` with no space after the number.
+fn option_number(line: &str) -> Option<(usize, &str)> {
+    let digits = line.bytes().take_while(u8::is_ascii_digit).count();
+    let rest = line[digits..].strip_prefix('.')?;
+    if digits == 0 || rest.is_empty() {
+        return None;
+    }
+    Some((line[..digits].parse().ok()?, rest.trim()))
 }
 
 fn action(id: &str, label: &str, keys: &[&'static str]) -> Action {
@@ -69,9 +118,11 @@ fn claude_box(screen: &str) -> Option<ScreenPrompt> {
     }
     let mut opts: Vec<String> = vec![];
     for l in &b.lines[ask + 1..] {
-        match numbered(l) {
+        match option_number(l) {
             Some((n, text)) if n == opts.len() + 1 => opts.push(text.to_string()),
             Some(_) => return None,
+            // The question's own wrapped tail ("proceed?") comes before option 1.
+            None if opts.is_empty() => {}
             None => {
                 let last = opts.last_mut()?;
                 last.push(' ');
@@ -249,7 +300,7 @@ pub fn other_prompt(agent: &str, screen: &str) -> bool {
     }
 }
 
-/// A line `Do you want …` whose question ends with `?` within three lines, as Claude asks.
+/// A line `Do you want …` whose question ends with `?` within `QUESTION_LINES` lines, as Claude asks.
 fn claude_asks(screen: &str) -> bool {
     let ls: Vec<&str> = screen
         .split('\n')
@@ -257,7 +308,7 @@ fn claude_asks(screen: &str) -> bool {
         .collect();
     ls.iter().enumerate().any(|(i, l)| {
         l.starts_with(PROMPT_MARKER)
-            && ls[i..(i + 3).min(ls.len())]
+            && ls[i..(i + QUESTION_LINES).min(ls.len())]
                 .iter()
                 .any(|x| x.ends_with('?'))
     })
