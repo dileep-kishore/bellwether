@@ -42,10 +42,12 @@ import { createGuard, guardedUntil, isGuarded, observe, observeLeft } from "./fo
 import { createHelper, parseLines } from "./helper.js";
 import {
   ATTACH,
+  chipFrom,
   chipsFor,
   clearChips,
   composeMessage,
   needsChoice,
+  refreshChip,
   removeChip,
   setChipMode,
   sizeText,
@@ -583,6 +585,15 @@ export default class Chat extends View {
           const built = await this.helper.call(null, textArgs(chip, address));
           const line = built.ok ? /** @type {any} */ (built.lines.find((l) => l.type === "linear-text")) : null;
           if (!line || typeof line.text !== "string") {
+            if (built.ok === false && built.code === "too_large" && tab !== null) {
+              // The description grew past 8 KB after Attach: read its size so the chip offers the choice.
+              await this.resizeChip(tab, chip.identifier);
+              this.note = {
+                text: `${chip.identifier}'s description is now over 8 KB: choose Trim or Send as a file on its chip`,
+                bad: true,
+              };
+              return;
+            }
             const why = built.ok === false ? built.message : "bw linear printed no text";
             this.note = { text: `Could not read ${chip.identifier}: ${why}; nothing was sent`, bad: true };
             return;
@@ -625,6 +636,14 @@ export default class Chat extends View {
         cx.notify();
       }
     });
+  }
+
+  /** Reads an attached issue again and stores its chip with the current size. @param {string} tab @param {string} id */
+  async resizeChip(tab, id) {
+    const answer = await this.helper.call(null, ["linear", "issue", "--id", id]);
+    const line = answer.ok ? answer.lines.find((/** @type {any} */ l) => l.type === "linear-issue") : null;
+    const fresh = line ? chipFrom(line, Date.now()) : null;
+    if (fresh) setShared(ATTACH, refreshChip(shared(ATTACH), tab, fresh));
   }
 
   /**
@@ -1342,11 +1361,17 @@ export default class Chat extends View {
         this.chipHover = next;
         cx.notify();
       },
-      remove: (id) => {
-        if (tab !== null) setShared(ATTACH, removeChip(shared(ATTACH), tab, id));
+      remove: (id, cx) => {
+        if (tab === null) return;
+        this.note = null;
+        setShared(ATTACH, removeChip(shared(ATTACH), tab, id));
+        cx.notify();
       },
-      mode: (id, mode) => {
-        if (tab !== null) setShared(ATTACH, setChipMode(shared(ATTACH), tab, id, mode));
+      mode: (id, mode, cx) => {
+        if (tab === null) return;
+        this.note = null;
+        setShared(ATTACH, setChipMode(shared(ATTACH), tab, id, mode));
+        cx.notify();
       },
     });
     return root.child(

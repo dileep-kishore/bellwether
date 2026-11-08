@@ -121,6 +121,16 @@ export function setChipMode(stored, tab, identifier, mode) {
   return wrap(tabs);
 }
 
+/**
+ * The stored value with `chip` in place of the tab's chip with its identifier, where that one was.
+ * @param {unknown} stored @param {string} tab @param {Chip} chip
+ */
+export function refreshChip(stored, tab, chip) {
+  const tabs = readTabs(stored);
+  tabs[tab] = (tabs[tab] ?? []).map((c) => (c.identifier === chip.identifier ? { ...chip } : c));
+  return wrap(tabs);
+}
+
 /** Over the limit with no choice yet: Send must wait. @param {Chip} chip */
 export const needsChoice = (chip) => chip.bytes > TEXT_LIMIT && chip.mode === null;
 

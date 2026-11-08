@@ -6,7 +6,7 @@ import { live, mount, repo } from "../harness/mount.js";
 import { fake } from "../harness/herdr-stub.js";
 import { byId, emit, findAll, fire, inspect, textOf } from "../harness/kit-stub.js";
 import { HELPER_SCRIPTS, HELPER_VERSION, PROTOCOL } from "../../shared/helper.js";
-import { addChip, ATTACH, chipFrom, chipsFor } from "../../shared/linear-attach.js";
+import { addChip, ATTACH, chipFrom, chipsFor, refreshChip } from "../../shared/linear-attach.js";
 
 const CLAUDE = { terminal: "t8", machine: null, kind: "claude" };
 const CODEX_REMOTE = { terminal: "macmini/t5", machine: "macmini", kind: "codex" };
@@ -195,5 +195,65 @@ describe("chips", () => {
     expect(calls(m, "send")).toEqual([]);
     expect(textOf(byId(m.el, "send-note"))).toBe("Could not read PLA-1: Linear is unreachable; nothing was sent");
     expect(inspect(textarea(m).attrs.state).value).toBe("hi");
+  });
+
+  test("choosing Trim or removing the chip clears the note that asked for it", async () => {
+    const m = await mount("bw-chat", { props: CLAUDE, live: data([chip("PLA-2", "x".repeat(9000))]) });
+    await typeAndSend(m, "hi");
+    expect(byId(m.el, "send-note")).not.toBe(null);
+    await m.click("chip-trim-PLA-2");
+    expect(byId(m.render(), "send-note")).toBe(null);
+    await typeAndSend(m, "hi");
+    expect(calls(m, "send")).toHaveLength(1);
+  });
+
+  test("a description that grew past 8 KB after Attach offers the choice instead of failing again", async () => {
+    const tooLarge = {
+      code: 1,
+      stdout:
+        '{"type":"error","code":"too_large","message":"PLA-1\'s description is 8.8 KB: trim it or send it as a file"}\n',
+      stderr: "",
+    };
+    const m = await mount("bw-chat", {
+      props: CLAUDE,
+      live: data([chip("PLA-1")], {
+        linear: (a) => {
+          if (!a.includes("--text"))
+            return out([
+              {
+                type: "linear-issue",
+                identifier: "PLA-1",
+                title: "Title PLA-1",
+                url: "https://linear.app/x/issue/PLA-1",
+                state: { name: "Todo" },
+                description: "y".repeat(9000),
+                bytes: 9000,
+              },
+            ]);
+          return a.includes("--trim") ? null : tooLarge;
+        },
+      }),
+    });
+    await typeAndSend(m, "hi");
+    expect(calls(m, "send")).toEqual([]);
+    expect(chipsFor(fake.shared[ATTACH], "tb8")[0]?.bytes).toBe(9000);
+    const el = m.render();
+    expect(byId(el, "chip-choice-PLA-1")).not.toBe(null);
+    expect(textOf(byId(el, "send-note"))).toContain("choose Trim or Send as a file");
+    expect(inspect(textarea(m).attrs.state).value).toBe("hi");
+    await m.click("chip-trim-PLA-1");
+    await typeAndSend(m, "hi");
+    expect(calls(m, "linear").at(-1)?.args).toEqual(["linear", "issue", "--id", "PLA-1", "--text", "--trim"]);
+    expect(calls(m, "send")).toHaveLength(1);
+  });
+
+  test("refreshChip updates one chip in place and keeps the others", () => {
+    let s = addChip(undefined, "t", chip("PLA-1"), ["t"]);
+    s = addChip(s, "t", chip("PLA-2"), ["t"]);
+    s = refreshChip(s, "t", { ...chip("PLA-1", "z".repeat(9000)), mode: null });
+    expect(chipsFor(s, "t").map((c) => [c.identifier, c.bytes])).toEqual([
+      ["PLA-1", 9000],
+      ["PLA-2", 5],
+    ]);
   });
 });
