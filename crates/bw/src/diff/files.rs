@@ -23,6 +23,10 @@ pub const LIST_BYTES: usize = 4 * 1024 * 1024;
 const COUNT_LIMIT: u64 = 64 * 1024 * 1024;
 /// Git calls a file binary when its first 8000 bytes hold a NUL.
 const BINARY_PROBE: usize = 8000;
+/// Changes' `git diff` names the paths status listed, so Git stats only those; past these the argument
+/// list could pass the system's limit, and the whole index is compared instead.
+const PATHSPEC_PATHS: usize = 1000;
+const PATHSPEC_BYTES: usize = 128 * 1024;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -230,10 +234,25 @@ fn diff_rows(top: &Path, args: &[&str]) -> Result<Vec<Row>, Fail> {
 /// the index in memory only) lists them, with `git diff`'s counts; then untracked files. Also returns the
 /// untracked paths.
 fn change_rows(top: &Path, entries: &[StatusEntry]) -> Result<(Vec<Row>, Vec<String>), Fail> {
-    let mut args = vec!["diff"];
-    args.extend(DIFF_FLAGS);
-    args.extend(["--raw", "--numstat", "-z", "--no-renames", "--"]);
-    let (raw, counts) = raw_numstat(&git_ok(top, &args)?);
+    let changed: Vec<&str> = entries
+        .iter()
+        .filter_map(|e| match e {
+            StatusEntry::Tracked { worktree, path } if *worktree != '.' => Some(path.as_str()),
+            _ => None,
+        })
+        .collect();
+    let (raw, counts) = if changed.is_empty() {
+        (Vec::new(), std::collections::HashMap::new())
+    } else {
+        let mut args = vec!["diff"];
+        args.extend(DIFF_FLAGS);
+        args.extend(["--raw", "--numstat", "-z", "--no-renames", "--"]);
+        let bytes: usize = changed.iter().map(|p| p.len() + 1).sum();
+        if changed.len() <= PATHSPEC_PATHS && bytes <= PATHSPEC_BYTES {
+            args.extend(&changed);
+        }
+        raw_numstat(&git_ok(top, &args)?)
+    };
     let mut rows = Vec::new();
     let mut untracked = Vec::new();
     for e in entries {

@@ -23,6 +23,9 @@ pub const READ_ONLY: [&str; 5] = [
     "-c",
     "diff.autoRefreshIndex=false",
 ];
+/// Git's parallel stat (`core.preloadIndex`) spends four times the CPU of one thread at the same wall time:
+/// `git status` on a 40,000-file checkout costs 480 ms with it and 113 ms without.
+pub const ONE_THREAD: [&str; 2] = ["-c", "core.preloadIndex=false"];
 /// A repository's own config can name programs for these; Bellwether never runs them.
 pub const DIFF_FLAGS: [&str; 3] = ["--no-ext-diff", "--no-textconv", "--no-color"];
 /// Variables that would point Git at another repository or another diff program.
@@ -87,7 +90,11 @@ pub fn run(argv: &[String]) -> ExitCode {
 /// A `git` command in `dir` with the read-only flags first.
 pub fn command(dir: &Path, args: &[&str]) -> Command {
     let mut c = Command::new("git");
-    c.arg("-C").arg(dir).args(READ_ONLY).args(args);
+    c.arg("-C")
+        .arg(dir)
+        .args(READ_ONLY)
+        .args(ONE_THREAD)
+        .args(args);
     for v in CLEARED {
         c.env_remove(v);
     }

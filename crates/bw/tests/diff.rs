@@ -859,3 +859,40 @@ fn fetch_reports_a_noisy_failure_at_once() {
     let message = lines[0]["message"].as_str().unwrap();
     assert!(!message.contains("took over"), "{message}");
 }
+
+#[test]
+fn changes_counts_with_few_or_many_edited_files() {
+    let dir = tempfile::Builder::new()
+        .prefix("bw-diff-many")
+        .tempdir_in("/private/tmp")
+        .unwrap();
+    let repo = dir.path();
+    git(repo, &["init", "-q", "-b", "main"]);
+    let n = 1100;
+    for i in 0..n {
+        std::fs::write(repo.join(format!("f{i}.txt")), "x\n").unwrap();
+    }
+    git(repo, &["add", "."]);
+    git(
+        repo,
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.invalid",
+            "commit",
+            "-q",
+            "-m",
+            "many",
+        ],
+    );
+    // Three paths go to `git diff` as pathspecs; 1,100 pass the bound and the whole index is compared.
+    for (edited, from) in [(3, 0), (n, 3)] {
+        for i in from..edited {
+            std::fs::write(repo.join(format!("f{i}.txt")), "x\ny\n").unwrap();
+        }
+        let all = section(&files(repo, &[]), "changes");
+        assert_eq!(all.len(), edited);
+        assert_eq!(all, reference(repo, &["diff", "--no-renames"]));
+    }
+}
