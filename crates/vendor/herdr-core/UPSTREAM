@@ -110,3 +110,18 @@ Changes:
   that the option text is left out of the id (it asserted the
   opposite). Test: crates/bw/tests/matchers.rs
   `rewrap_claude_approval_at_16_columns`.
+- 2026-11-07, src/approval.rs: `screen_box` drops a known tip whole
+  (`TIPS`, `drop_tips`): the "Tip:" line and the lines after it that
+  complete it, which a narrow pane wraps onto lines of their own.
+  `screen_prompt` hashes the box from its header through the end of its
+  question (`id_text`), so another command, file or asking sub-agent
+  changes the id while a rewrap does not; the options stay out, and
+  `bw answer` compares the command and option 2 itself.
+  `screen_shows_prompt` finds the question's "?" within
+  `QUESTION_LINES` (8) lines, not 3, and reads `1.Yes` with no space.
+  Tests: crates/bw/tests/matchers.rs
+  `rewrap_id_names_the_question_and_the_asker`,
+  `rewrap_question_wrapped_over_five_lines_is_read`,
+  `rewrap_claude_approval_at_16_columns`; crates/bw/tests/answer.rs
+  `second_read_*`.
+

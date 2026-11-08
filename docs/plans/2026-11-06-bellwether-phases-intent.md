@@ -302,4 +302,17 @@ Answer:
   so a Codex sub-agent's approval, whose options Codex scrolls out of view
   at that width, falls back to "Answer in terminal". Herdr has no command
   to size a pane; the README's Known limits says so.
+- 2026-11-07: phase 4b's independent review (tier 2 deep: GPT-6.1 Sol on
+  lenses 1, 2 and 5, Gemini 4 Argon on lenses 1 and 3; 9 merged
+  findings, Claude Opus verifiers: 7 confirmed, 1 plausible, 1 refuted)
+  changed step 1 again: a Claude approval's id hashes its box from the
+  header through the question with the tip dropped, and `bw answer`
+  refuses a key unless the box still shows the command the card first
+  showed (line breaks aside) and, for Always, the same option 2 label.
+  Original (amendment above): "hashes a Claude approval's tool and
+  command only". Evidence: a different Edit target or asking sub-agent
+  shared an id, and a command differing only by a space, or another
+  Always scope, got its key at the second read
+  (`crates/bw/tests/answer.rs` `second_read_*`). The helper moves to
+  0.4.1 so machines with 0.4.0 reinstall the fixes.
 

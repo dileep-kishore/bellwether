@@ -570,9 +570,13 @@ scripts/verify/requests.sh --machine <name>   # also Codex on <name>; <name> mus
 ```
 
 A prompt's id ignores how the pane wraps it, so narrowing or widening a
-chat's pane keeps one card: a Claude approval's id hashes its tool and
-command, a Codex approval's its text without whitespace or rule lines, and
-Codex's folder prompt's its question and option names. `scripts/verify/record-wrap.sh` records the screens the
+chat's pane keeps one card: a Claude approval's id hashes its box from the
+header through the question without whitespace, tips or options, a Codex
+approval's its text without whitespace or rule lines, and Codex's folder
+prompt's its question and option names. Because spacing and options are
+left out, `bw answer` presses a key only while the box still shows the
+command the card first showed, line breaks aside, and for Always the same
+option 2 label; otherwise it reports the card as changed. `scripts/verify/record-wrap.sh` records the screens the
 `rewrap` tests read: a Claude approval, a Codex approval and Codex's `/new`
 folder prompt at 80 columns, then again after an `hc attach` viewer narrows
 the same terminal. It runs Claude haiku and Codex in a private core

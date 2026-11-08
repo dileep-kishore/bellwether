@@ -1250,3 +1250,84 @@ fn async_answer_needs_a_screen_read() {
     assert_eq!(result(&line), "failed", "{line}");
     assert!(x.typed().is_empty(), "{:?}", x.log());
 }
+
+/// The second read shows `next` in place of the card's box; returns `bw answer`'s line and the keys it typed.
+fn claude_second_read(next: &str, action: &str) -> (Value, Vec<String>) {
+    let x = Scratch::new();
+    let (_claude, log, r) = claude_approval(&x, Some(CALM));
+    x.screen("t1", "next.txt", next);
+    let line = x.answer(
+        "t1",
+        &r,
+        ("claude", CLAUDE_SID, &log),
+        &["--action", action],
+    );
+    (line, x.typed())
+}
+
+#[test]
+fn second_read_with_other_spacing_is_stale() {
+    // The screen id leaves spacing out, so the command itself is compared: "approved .txt" is another file.
+    let screen = read(&sessions("claude-approval").join("screen-approval.txt"));
+    let (line, typed) = claude_second_read(
+        &screen.replace("touch approved.txt", "touch approved .txt"),
+        "approve",
+    );
+    assert_eq!(result(&line), "stale", "{line}");
+    assert!(typed.is_empty(), "{typed:?}");
+}
+
+#[test]
+fn second_read_with_other_always_scope_is_stale() {
+    let screen = read(&sessions("claude-approval").join("screen-approval.txt"));
+    let other = screen.replace(
+        "access to /scratch/claude-approval from",
+        "access to /other/project from",
+    );
+    let (line, typed) = claude_second_read(&other, "always");
+    assert_eq!(result(&line), "stale", "{line}");
+    assert!(typed.is_empty(), "{typed:?}");
+}
+
+#[test]
+fn second_read_of_the_same_command_rewrapped_still_answers() {
+    let screen = read(&sessions("claude-approval").join("screen-approval.txt"));
+    let rewrapped = screen.replace(" touch approved.txt\n", " touch\n approved.txt\n");
+    assert_ne!(rewrapped, screen, "(setup) the command line was rewrapped");
+    let (line, typed) = claude_second_read(&rewrapped, "approve");
+    assert_eq!(result(&line), "answered", "{line}");
+    assert_eq!(typed, ["keys t1 1"]);
+}
+
+#[test]
+fn codex_second_read_with_other_spacing_is_stale() {
+    let x = Scratch::new();
+    let text = read(&sessions("codex-approval").join(CODEX_FILE));
+    let (_codex, log) = x.codex(
+        "t7",
+        CODEX_FILE,
+        CODEX_SID,
+        &upto(
+            &text,
+            r#""call_id":"call_46bbea063d654fa28d8e66020fc0709d""#,
+        ),
+        &json!({"app": "codex", "kind": "permission", "state": "blocked"}),
+    );
+    let screen = read(&sessions("codex-approval").join("screen-approval.txt"));
+    x.screen("t7", "txt", &screen);
+    x.screen(
+        "t7",
+        "next.txt",
+        &screen.replace("touch approved.txt", "touch approved .txt"),
+    );
+    let r = x.request("t7");
+    let log = log.to_string_lossy().to_string();
+    let line = x.answer(
+        "t7",
+        &r,
+        ("codex", CODEX_SID, &log),
+        &["--action", "approve"],
+    );
+    assert_eq!(result(&line), "stale", "{line}");
+    assert!(x.typed().is_empty(), "{:?}", x.typed());
+}

@@ -79,6 +79,41 @@ fn re(cell: &'static OnceLock<Regex>, pat: &str) -> &'static Regex {
 // MARK: - PermissionGate
 
 pub const PROMPT_MARKER: &str = "Do you want";
+/// How many lines a wrapped "Do you want …?" may take; a 15-column pane wraps a file name over several.
+pub const QUESTION_LINES: usize = 8;
+
+/// Claude's tips that wrap onto lines of their own under the "Tip:" line; each is dropped whole.
+const TIPS: &[&str] = &["Tip: auto mode handles these prompts for you — choose \"switch to auto mode\" below"];
+
+/// `lines` without each "Tip:" line and the lines after it that complete a known tip.
+fn drop_tips(lines: Vec<String>) -> Vec<String> {
+    let squeeze = |s: &str| s.split_whitespace().collect::<String>();
+    let tips: Vec<String> = TIPS.iter().map(|t| squeeze(t)).collect();
+    let mut out = Vec::with_capacity(lines.len());
+    let mut i = 0;
+    while i < lines.len() {
+        if !lines[i].starts_with("Tip:") {
+            out.push(lines[i].clone());
+            i += 1;
+            continue;
+        }
+        let mut seen = squeeze(&lines[i]);
+        let (mut j, mut end) = (i + 1, i + 1);
+        while j < lines.len() {
+            seen.push_str(&squeeze(&lines[j]));
+            j += 1;
+            if tips.iter().any(|t| *t == seen) {
+                end = j;
+                break;
+            }
+            if !tips.iter().any(|t| t.starts_with(&seen)) {
+                break;
+            }
+        }
+        i = end;
+    }
+    out
+}
 
 /// The whole prompt shape: a line "Do you want …?" followed within a few lines by the option "1. Yes", and no
 /// question-picker footer ("Type something", "Chat about this"). Grok's and agy's prompts are their own boxes.
@@ -91,13 +126,14 @@ pub fn screen_shows_prompt(screen: &str) -> bool {
     }
     let ls: Vec<String> = screen.split('\n').map(|l| l.trim_matches(|c| "│|┃ \t".contains(c)).to_string()).collect();
     static YES: OnceLock<Regex> = OnceLock::new();
-    let yes = re(&YES, r"^(?:❯\s*)?1\.\s+Yes\b.*$");
+    // A narrow pane draws "1.Yes" with no space.
+    let yes = re(&YES, r"^(?:❯\s*)?1\.\s*Yes\b.*$");
     for (i, l) in ls.iter().enumerate() {
         if !l.starts_with(PROMPT_MARKER) {
             continue;
         }
-        // A long file name wraps the question: it ends with "?" within three lines.
-        let Some(end) = (i..(i + 3).min(ls.len())).find(|&j| ls[j].ends_with('?')) else { continue };
+        // A long file name wraps the question, over many lines in a narrow pane: it ends with "?" within eight.
+        let Some(end) = (i..(i + QUESTION_LINES).min(ls.len())).find(|&j| ls[j].ends_with('?')) else { continue };
         let next: Vec<&String> = ls[end + 1..].iter().filter(|x| !x.is_empty()).take(3).collect();
         if next.iter().any(|x| yes.is_match(x)) {
             return true;
@@ -248,8 +284,9 @@ pub fn screen_box(screen: &str) -> Option<ScreenBox> {
                 None => t.to_string(),
             }
         })
-        .filter(|t| !t.is_empty() && !t.starts_with("Tip:") && !is_countdown(t))
+        .filter(|t| !t.is_empty() && !is_countdown(t))
         .collect();
+    let bx = drop_tips(bx);
     let header = bx.first()?.clone();
     if Some(&header) == bx.last() {
         return None;
@@ -278,13 +315,19 @@ pub fn screen_box(screen: &str) -> Option<ScreenBox> {
     Some(ScreenBox { header, tool, command: command.iter().map(ungutter).collect::<Vec<_>>().join("\n"), lines: bx, clipped: false })
 }
 
-/// Id of the permission prompt on screen: a hash of the tool name and the command as `id_text` gives them, so a
-/// rewrap at another pane width keeps the id. The description, tips, question and options are left out: they wrap
-/// into lines no filter can tell apart, and Claude cuts option text short in a narrow pane. A clipped box hashes
-/// every line. None: no prompt.
+/// Id of the permission prompt on screen: a hash of the tool name and the box from its header to the end of its
+/// question, as `id_text` gives them, so a rewrap at another pane width keeps the id while another command, file or
+/// asking sub-agent changes it. Tips are already dropped; the options are left out because Claude cuts option text
+/// short in a narrow pane, and `bw answer` checks them on its own. A clipped box hashes every line. None: no prompt.
 pub fn screen_prompt(screen: &str) -> Option<String> {
     let b = screen_box(screen)?;
-    let text = if b.clipped { id_text(&b.lines) } else { id_text(&[b.command.clone()]) };
+    let text = if b.clipped {
+        id_text(&b.lines)
+    } else {
+        let ask = b.lines.iter().rposition(|l| l.contains(PROMPT_MARKER)).unwrap_or(b.lines.len());
+        let options = b.lines[ask..].iter().position(|l| l.starts_with("1.")).map_or(b.lines.len(), |k| ask + k);
+        id_text(&b.lines[..options])
+    };
     Some(hash_id(&format!("tool:{}\n{}", b.tool, text)))
 }
 

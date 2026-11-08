@@ -194,6 +194,31 @@ struct Answer<'a> {
     deadline: Instant,
 }
 
+/// Whether the box on screen still shows what the card first showed: the command, line breaks aside, and for
+/// `always`, option 2's label, since the screen id leaves spacing and options out. A narrow pane can cut that label
+/// short; then `always` is refused and the card's other actions still work.
+fn shows_first(o: &Occurrence, p: &ScreenPrompt, action: &str) -> bool {
+    let Some(first) = o.first.as_ref() else {
+        return true;
+    };
+    if !matchers::same_drawn(first["command"].as_str().unwrap_or(""), &p.command) {
+        return false;
+    }
+    if action != "always" {
+        return true;
+    }
+    let squeeze = |s: &str| s.split_whitespace().collect::<String>();
+    let now = p
+        .actions
+        .iter()
+        .find(|a| a.id == "always")
+        .map(|a| squeeze(&a.label));
+    first["always"]
+        .as_str()
+        .map(squeeze)
+        .is_some_and(|f| now.as_deref() == Some(f.as_str()))
+}
+
 /// What the keys did: nothing went out, they went (or may still land), or they went and failed after.
 enum Sent {
     Nothing(&'static str, String),
@@ -377,6 +402,9 @@ impl Answer<'_> {
         let Some(p) = self.same_box(o, &text) else {
             return release("stale", STALE.into());
         };
+        if !shows_first(o, &p, action) {
+            return release("stale", STALE.into());
+        }
         let Some(keys) = p
             .actions
             .iter()

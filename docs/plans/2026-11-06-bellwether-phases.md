@@ -212,13 +212,17 @@ FAIL with evidence. One PR, before Changes.
    the box's drawn lines, so a narrower or wider pane gives a Claude
    approval a second "Left the screen" card and marked the waiting Codex
    folder card answered. Build each id from text a rewrap cannot change: a
-   Claude approval's from its tool and command, a Codex approval's from its
+   Claude approval's from its box between header and question with the tip
+   dropped, a Codex approval's from its
    text with every whitespace character and the rule glyphs (`╌`, `─`, `│`)
    removed, and the Codex folder prompt's from its question and option
    names, since a narrow pane wraps words, breaks them, draws rules to its
    width, cuts Claude's option text short and drops Codex's descriptions.
    The parsers find a question that wrapped over several lines, even inside
-   a word, and read `2.Yes` as option 2. Leave the matchers' input as drawn, so `codex_folder.rs:42` still
+   a word, and read `2.Yes` as option 2. Since the ids leave spacing and
+   Claude's options out, `bw answer` presses a key only while the box still
+   shows the command the card first showed, line breaks aside, and for
+   Always the same option 2 label. Leave the matchers' input as drawn, so `codex_folder.rs:42` still
    splits options on two spaces, and keep the final screen guard in `bw
    answer` (`crates/bw/src/requests/answer.rs:349-356`). Commands that
    differ only in whitespace share an id, as `same_call` already treats

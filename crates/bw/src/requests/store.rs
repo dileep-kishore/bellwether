@@ -59,6 +59,10 @@ pub struct Occurrence {
     /// The request line as last printed while pending, so a resolved card keeps its text.
     #[serde(default)]
     pub shown: Option<Value>,
+    /// What its box held when first seen: `{"command", "always"}`, the command and option 2's label. The screen id
+    /// leaves spacing and options out so a rewrap keeps it, so a later pass and `bw answer` compare these instead.
+    #[serde(default)]
+    pub first: Option<Value>,
 }
 
 impl Occurrence {
@@ -245,6 +249,7 @@ mod tests {
             left_ms: None,
             events: vec![],
             shown: None,
+            first: None,
         }
     }
 

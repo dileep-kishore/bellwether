@@ -15,8 +15,8 @@ use std::path::{Path, PathBuf};
 use codex_approval::{codex_box, codex_id};
 use codex_folder::{folder_box, folder_id};
 use matchers::{
-    approval_on_screen, folder_prompt_on_screen, other_prompt, same_call, Action, ScreenPrompt,
-    CODEX_CHILD_ANSWERABLE,
+    approval_on_screen, folder_prompt_on_screen, other_prompt, same_call, same_drawn, Action,
+    ScreenPrompt, CODEX_CHILD_ANSWERABLE,
 };
 use serde_json::Value;
 
@@ -574,4 +574,64 @@ fn rewrap_detail_leaves_out_the_wrapped_tip() {
             "{file}"
         );
     }
+}
+
+/// A Claude Edit box whose ╌ block is empty: the file is named only in the question.
+fn edit_box(file: &str) -> String {
+    format!(
+        "────────────────────────────────────────\n Edit file\n╌╌╌╌╌╌╌╌╌╌\n╌╌╌╌╌╌╌╌╌╌\n Do you want to make this edit to {file}?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel\n"
+    )
+}
+
+#[test]
+fn rewrap_id_names_the_question_and_the_asker() {
+    // Two Edit prompts with the same empty command: the question names the file, so the ids differ.
+    let a = approval_on_screen("claude", &edit_box("a.rs")).expect("an Edit box");
+    let b = approval_on_screen("claude", &edit_box(".env.production")).expect("an Edit box");
+    assert_ne!(a.screen_id, b.screen_id);
+    // The same command asked by two sub-agents: the header names the asker.
+    let s = screen("screens/claude-approval-80.txt");
+    let one = s.replace(
+        " Bash command\n",
+        " Bash command · from the toucher agent\n",
+    );
+    let two = s.replace(
+        " Bash command\n",
+        " Bash command · from the cleaner agent\n",
+    );
+    assert_ne!(one, s, "(setup) the header changed");
+    assert_ne!(
+        approval_on_screen("claude", &one).unwrap().screen_id,
+        approval_on_screen("claude", &two).unwrap().screen_id
+    );
+}
+
+#[test]
+fn rewrap_question_wrapped_over_five_lines_is_read() {
+    // A 15-column pane wraps "Do you want to make this edit to codex_folder.rs?" over five lines.
+    let s = edit_box("codex_folder.rs").replace(
+        " Do you want to make this edit to codex_folder.rs?",
+        " Do you want to\n make this\n edit to\n codex_folder\n .rs?",
+    );
+    let p = approval_on_screen("claude", &s).expect("a box with a long question");
+    assert_eq!(
+        actions(&p).iter().map(|a| a.0).collect::<Vec<_>>(),
+        ["approve", "deny"]
+    );
+}
+
+#[test]
+fn same_drawn_tolerates_line_breaks_only() {
+    assert!(same_drawn("touch approved.txt", "touch\napproved.txt"));
+    assert!(same_drawn(
+        "touch wrapped-long-name.txt",
+        "touch wrapped-long-\nname.txt"
+    ));
+    assert!(
+        same_drawn("touch  a.txt", "touch a.txt"),
+        "a run of spaces in a line counts as one"
+    );
+    assert!(!same_drawn("touch approved.txt", "touch approved .txt"));
+    assert!(!same_drawn("touch a.txt", "touch b.txt"));
+    assert!(!same_drawn("rm -rf build", "rm -rf build/"));
 }
