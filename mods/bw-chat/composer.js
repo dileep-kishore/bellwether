@@ -3,7 +3,7 @@
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, Textarea, TextareaState } from "gpui-base";
 import { READ_W } from "./estimate.js";
-import { ICONS } from "./ui.js";
+import { spinner } from "./ui.js";
 
 /** @typedef {import("./ui.js").Theme} Theme */
 
@@ -41,6 +41,16 @@ export class Composer {
     this.input.set_auto_grow(1, 8);
     this.onSend = onSend;
     this.blocked = true;
+    /** The box holds the keyboard: its border turns Mauve. */
+    this.focused = false;
+    this.input.on("focus", (/** @type {unknown} */ _e, /** @type {any} */ cx) => {
+      this.focused = true;
+      cx.notify();
+    });
+    this.input.on("blur", (/** @type {unknown} */ _e, /** @type {any} */ cx) => {
+      this.focused = false;
+      cx.notify();
+    });
     // The last two texts the box reported, so a submit knows the text before Enter's new line (the box
     // reports that line's change before or after the submit).
     /** @type {[string, string]} */
@@ -97,9 +107,9 @@ export class Composer {
           .w_full()
           .max_w(READ_W)
           .rounded(16)
-          .bg(t.raised)
+          .bg(t.chrome)
           .border(1)
-          .border_color(t.border)
+          .border_color(this.focused && live ? t.accent : t.raised)
           .px(12)
           .pt(10)
           .pb(8)
@@ -116,7 +126,7 @@ export class Composer {
                   .min_w(0)
                   .truncate()
                   .text_size(12)
-                  .text_color(t.dim)
+                  .text_color(t.muted)
                   .child(v.disabled && v.reason ? v.reason : ""),
               )
               .child(
@@ -128,8 +138,8 @@ export class Composer {
                   .items_center()
                   .justify_center()
                   .rounded(14)
-                  .bg(live ? t.accent : t.chrome)
-                  .text_color(live ? t.background : t.dim)
+                  .bg(live ? t.accent : t.raised)
+                  .text_color(live ? t.accent_foreground : t.dim)
                   .disabled(v.disabled)
                   .when(live, (el) =>
                     el
@@ -138,7 +148,8 @@ export class Composer {
                         this.send(this.input.value(), cx),
                       ),
                   )
-                  .child(v.sending ? svg(ICONS["ring-spin"]).size(13).spin(900) : svg(SEND_ICON).size(14)),
+                  .when(live, (el) => el.hover((s) => s.opacity(0.9)))
+                  .child(v.sending ? spinner(t, 13) : svg(SEND_ICON).size(14)),
               ),
           ),
       )

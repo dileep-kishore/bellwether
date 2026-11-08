@@ -1,6 +1,8 @@
 {
   "id": "root",
   "type": "row",
+  "theme": "bellwether",
+  "preview": "layouts/bellwether.svg",
   "titlebar": "none",
   "traffic_lights": [12, 16],
   "background": "canvas",
@@ -71,7 +73,7 @@
                 "tab": "active",
                 "pane": {
                   "gap": 8,
-                  "radius": 10,
+                  "radius": 12,
                   "background": "background",
                   "lone": true,
                   "border": {
@@ -84,7 +86,7 @@
                   },
                   "header": {
                     "content": {
-                      "mod": "pane"
+                      "mod": "bw-pane"
                     },
                     "height": 30,
                     "position": "top",
@@ -102,7 +104,7 @@
             "px": 28
           },
           "content": {
-            "mod": "workspace-status"
+            "mod": "bw-status"
           }
         }
       ]

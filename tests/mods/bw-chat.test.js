@@ -4,8 +4,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { live, mount, repo } from "../harness/mount.js";
 import { fake } from "../harness/herdr-stub.js";
+import { wanted } from "../../shared/choice.js";
 import { byId, emit, findAll, fire, inspect, layOut, textOf } from "../harness/kit-stub.js";
-import { HELPER_SCRIPT, HELPER_VERSION, PROTOCOL } from "../../shared/helper.js";
+import { HELPER_SCRIPTS, HELPER_VERSION, PROTOCOL } from "../../shared/helper.js";
 import { columnWidth, sizes } from "../../mods/bw-chat/estimate.js";
 import { pollMs, sendText, targetOf, waitingText } from "../../mods/bw-chat/target.js";
 import { createPictures } from "../../mods/bw-chat/pictures.js";
@@ -44,7 +45,7 @@ function bw(handlers) {
   return async (/** @type {string} */ cmd, /** @type {string[]} */ args, /** @type {any} */ opts) => {
     const on = opts?.on ?? null;
     if (cmd === BW && handlers.install) return handlers.install(args, on);
-    if (cmd !== "sh" || args[1] !== HELPER_SCRIPT || args[2] !== "bw")
+    if (cmd !== "sh" || !HELPER_SCRIPTS.includes(args[1]) || args[2] !== "bw")
       return { code: 127, stdout: "", stderr: "sh: no such fake" };
     const sub = args[3];
     const h = handlers[sub] ?? (sub === "version" ? () => VERSION : null);
@@ -54,7 +55,7 @@ function bw(handlers) {
 }
 
 /** @param {any} m @param {string} sub */
-const calls = (m, sub) => m.log.exec.filter(([c, a]) => c === "sh" && a[1] === HELPER_SCRIPT && a[3] === sub);
+const calls = (m, sub) => m.log.exec.filter(([c, a]) => c === "sh" && HELPER_SCRIPTS.includes(a[1]) && a[3] === sub);
 /** @param {any} m */
 const list = (m) => findAll(m.el, (e) => e.tag === "VirtualList")[0] ?? null;
 /** Pictures drawn from bw picture's copies (the header's program icon is an image too). @param {any} el */
@@ -329,6 +330,13 @@ describe("bw-chat", () => {
     expect(text).toContain("Wrote `blue` to colour.txt.");
     expect(text).toContain("Edited files");
     expect(text).toContain("Changed 1 file · Open in Changes");
+    // Tool lines and the changed-files line are 28 px Surface 0 chips; Open in Changes is Mauve.
+    const chips = findAll(m.el, (e) => e.attrs.rounded === 14 && e.attrs.bg === "#raised" && e.attrs.h === 28);
+    expect(chips.map((c) => textOf(c))).toContain("Edited files");
+    expect(chips.some((c) => textOf(c) === "Changed 1 file · Open in Changes")).toBe(true);
+    expect(
+      findAll(m.el, (e) => e.attrs.text_color === "#accent" && textOf(e) === "Open in Changes").length,
+    ).toBeGreaterThan(0);
     expect(text).toContain("06:12 · Worked 8s · 1 tool");
     const bubble = findAll(m.el, (e) => e.attrs.rounded === 16 && textOf(e).includes("Call request_user_input once"));
     expect(bubble).toHaveLength(1);
@@ -338,6 +346,17 @@ describe("bw-chat", () => {
     expect(list(m).attrs.sizes).toEqual(sizes(rows, columnWidth(0)));
     fire(list(m), "on_item_click", "c-cx@24227", m.cx);
     expect(m.log.run).toEqual([["layout.select", { stack: "right-body", child: "changes" }]]);
+  });
+
+  test("Open in Changes keeps Changes chosen when the space had Browser stored", async () => {
+    const data = live("chat-tab");
+    data.shared["bw.right.tab"] = { s1: "browser" };
+    const m = await mount("bw-chat", { props: CODEX_REMOTE, live: data });
+    fire(list(m), "on_item_click", "c-cx@24227", m.cx);
+    expect(m.log.run).toEqual([["layout.select", { stack: "right-body", child: "changes" }]]);
+    expect(fake.shared["bw.right.tab"]).toEqual({ s1: "changes" });
+    // bw-right's next render would select whatever is stored for the shown space.
+    expect(wanted(fake.shared["bw.right.tab"], "s1", "changes")).toBe(null);
   });
 
   test("header: program icon, name, branch, machine tag and the ⌘J hint", async () => {
@@ -764,6 +783,9 @@ describe("bw-chat", () => {
     m.render();
     expect(textOf(m.el)).toContain("Claude is waiting for you · Answer in terminal (⌘J)");
     expect(textOf(m.el)).not.toMatch(/Allow|Deny|Approve/);
+    // The waiting line's mark breathes in Peach until the person answers.
+    const breathing = findAll(m.el, (e) => e.attrs.loop !== undefined);
+    expect(breathing.map((e) => [e.attrs.text_color, e.attrs.loop[0]])).toEqual([["#blocked", "opacity"]]);
     fire(list(m), "on_item_click", "perm-tu1", m.cx);
     expect(m.log.run).toEqual([["bw-tabs.chat-flip"]]);
   });

@@ -1,10 +1,17 @@
 // The right sidebar. With no `panel` prop this copy is the 36 px strip that switches the
 // `right-body` stack; with `panel` it is that stack child's placeholder until its phase fills it.
-import { View, div } from "gpui-kit";
+import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { layout, props, run, setShared, shared, spaces } from "herdr";
 import { PANELS, choose, chosen, wanted } from "./choice.js";
 import { themeColors } from "./ui.js";
+
+/** Each panel's placeholder icon, from the mod that will fill it. @type {Record<string, string>} */
+const PANEL_ICON = {
+  changes: "mods/bw-chat/icons/changes.svg",
+  issues: "mods/bw-right/icons/issues.svg",
+  browser: "mods/bw-browser/icons/globe.svg",
+};
 
 /** @typedef {import("./ui.js").Theme} Theme */
 
@@ -60,48 +67,86 @@ export default class Right extends View {
       .w_full()
       .flex_none()
       .px(8)
-      .gap(4)
       .items_center()
       .bg(t.chrome)
       .border_b(1)
       .border_color(t.border)
-      .children(
-        PANELS.map((p) => {
-          const on = p.id === shown;
-          return h_flex()
-            .id(`right-tab-${p.id}`)
-            .h(24)
-            .px(10)
-            .items_center()
-            .rounded(6)
-            .cursor_pointer()
-            .text_size(12)
-            .text_color(on ? t.foreground : t.muted)
-            .when(on, (el) => el.bg(t.selected).font_medium())
-            .when(!on, (el) => el.hover((s) => s.bg(t.hover)))
-            .on_click(() => {
-              run("layout.select", { stack: STACK, child: p.id });
-              if (!space) return;
-              this.asked = `${space.id}\n${p.id}`;
-              setShared(KEY, choose(shared(KEY), space.id, p.id, ids));
-            })
-            .child(p.label);
-        }),
+      .child(
+        h_flex()
+          .id("right-track")
+          .flex_1()
+          .h(28)
+          .p(2)
+          .gap(2)
+          .items_center()
+          .rounded(14)
+          .bg(t.raised)
+          .children(
+            PANELS.map((p) => {
+              const on = p.id === shown;
+              return h_flex()
+                .id(`right-tab-${p.id}`)
+                .flex_1()
+                .justify_center()
+                .h(24)
+                .px(10)
+                .gap(6)
+                .items_center()
+                .rounded(12)
+                .cursor_pointer()
+                .text_size(12)
+                .text_color(on ? t.foreground : t.muted)
+                .when(on, (el) =>
+                  el
+                    .bg(t.selected)
+                    .font_medium()
+                    .child(div().id(`right-dot-${p.id}`).size(6).flex_none().rounded(3).bg(t.accent)),
+                )
+                .when(!on, (el) => el.hover((s) => s.bg(t.hover).text_color(t.foreground)))
+                .on_click(() => {
+                  run("layout.select", { stack: STACK, child: p.id });
+                  if (!space) return;
+                  this.asked = `${space.id}\n${p.id}`;
+                  setShared(KEY, choose(shared(KEY), space.id, p.id, ids));
+                })
+                .child(p.label);
+            }),
+          ),
       );
   }
 
   /** @param {Theme} t */
   placeholder(t) {
     const p = PANELS.find((x) => x.id === this.panel);
-    const copy = p ? `${p.label}: coming in phase ${p.phase}` : `Unknown panel: ${this.panel}`;
+    const copy = p ? `Coming in phase ${p.phase}.` : `Unknown panel: ${this.panel}`;
     return v_flex()
       .size_full()
       .items_center()
       .justify_center()
+      .gap(10)
       .p(16)
       .bg(t.chrome)
-      .text_size(13)
-      .text_color(t.dim)
-      .child(div().text_center().child(copy));
+      .child(
+        div()
+          .size(40)
+          .rounded(20)
+          .bg(t.raised)
+          .flex()
+          .items_center()
+          .justify_center()
+          .child(
+            svg(PANEL_ICON[p?.id ?? ""] ?? PANEL_ICON.issues)
+              .size(18)
+              .text_color(t.accent),
+          ),
+      )
+      .child(
+        div()
+          .text_size(13)
+          .font_medium()
+          .text_color(t.foreground)
+          .child(p ? p.label : "Panel"),
+      )
+      .child(div().text_center().text_size(12).text_color(t.muted).child(copy));
   }
 }

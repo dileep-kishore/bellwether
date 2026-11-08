@@ -20,7 +20,7 @@ APP=$BUNDLE/Contents/MacOS/Herdr
 stage() {
   env -i HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" SHELL="${SHELL:-/bin/zsh}" TERM=xterm-256color \
     LANG="${LANG:-en_US.UTF-8}" TMPDIR="${TMPDIR:-/tmp}" ${SSH_AUTH_SOCK:+SSH_AUTH_SOCK="$SSH_AUTH_SOCK"} \
-    PATH="$D/bin:$PATH" HC_SESSION=bw-stage HERDR_APP_HOME="$A" HERDR_TELEMETRY=0 DO_NOT_TRACK=1 "$@"
+    PATH="$D/bin:$PATH" BW_HELPER="$D/bin/bw-log" HC_SESSION=bw-stage HERDR_APP_HOME="$A" HERDR_TELEMETRY=0 DO_NOT_TRACK=1 "$@"
 }
 core_id() { "$@" hc server status --json | jq -r .core.id; }
 mine() { [ "$(core_id stage)" != "$(core_id env -u HC_SESSION)" ]; }
@@ -31,6 +31,18 @@ up() {
   mkdir -p "$D/bin" "$A/mods" "$A/layouts"
   # The repo's bw, when built, ahead of any installed helper.
   for b in "$src/target/release/bw" "$src/target/debug/bw"; do [ -x "$b" ] && { ln -s "$b" "$D/bin/bw"; break; }; done
+  # Mods run the helper through BW_HELPER here, so each call is counted in helper-calls.log. Only the
+  # command is logged ("feed", "browser status"): send and answer carry the person's text.
+  real=$D/bin/bw
+  [ -e "$real" ] || real=$HOME/.local/share/bellwether/helper/current/bw
+  cat > "$D/bin/bw-log" <<LOG
+#!/bin/sh
+sub=\${2:-}
+case \$sub in -*) sub="" ;; esac
+printf '%s %s %s\\n' "\$(perl -MTime::HiRes=time -e 'printf "%.3f", time')" "\${1:-}" "\$sub" >> "$D/helper-calls.log"
+exec "$real" "\$@"
+LOG
+  chmod +x "$D/bin/bw-log"
   # Starting its core from this shell keeps it in this login session; a core in the Background
   # session cannot read the keychain, so claude there is logged out.
   stage hc server status --json > /dev/null

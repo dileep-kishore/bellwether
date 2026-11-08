@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { live, mount } from "../harness/mount.js";
 import { fake } from "../harness/herdr-stub.js";
 import { byId, textOf } from "../harness/kit-stub.js";
-import { PANELS, choose, chosen, wanted } from "../../mods/bw-right/choice.js";
+import { PANELS, choose, chosen, wanted } from "../../shared/choice.js";
 
 const selects = (m) => m.log.run.filter(([cmd]) => cmd === "layout.select");
 /** Does what Herdr does on layout.select: the stack's active child changes in layout(). */
@@ -46,11 +46,18 @@ describe("choice", () => {
 });
 
 describe("bw-right", () => {
-  test("panel copy names its phase", async () => {
-    expect(textOf((await mount("bw-right", { props: { panel: "changes" } })).el)).toContain(
-      "Changes: coming in phase 5",
-    );
-    expect(textOf((await mount("bw-right", { props: { panel: "issues" } })).el)).toContain("Issues: coming in phase 6");
+  test("panel copy names the panel and its phase", async () => {
+    expect(textOf((await mount("bw-right", { props: { panel: "changes" } })).el)).toBe("Changes Coming in phase 5.");
+    expect(textOf((await mount("bw-right", { props: { panel: "issues" } })).el)).toBe("Issues Coming in phase 6.");
+  });
+
+  test("the strip is a segmented pill: the shown panel is Surface 1 with a Mauve dot", async () => {
+    const m = await mount("bw-right", { live: withStored({ s1: "browser" }) });
+    expect(byId(m.el, "right-track").attrs).toMatchObject({ bg: "#raised", rounded: 14 });
+    expect(byId(m.el, "right-tab-browser").attrs).toMatchObject({ bg: "#selected", text_color: "#foreground" });
+    expect(byId(m.el, "right-dot-browser").attrs.bg).toBe("#accent");
+    expect(byId(m.el, "right-tab-changes").attrs).toMatchObject({ text_color: "#muted" });
+    expect(byId(m.el, "right-dot-changes")).toBe(null);
   });
 
   test("panel copies never switch the stack", async () => {

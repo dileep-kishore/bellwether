@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { live, mount, repo } from "../harness/mount.js";
 import { fake } from "../harness/herdr-stub.js";
 import { byId, findAll, fire, textOf } from "../harness/kit-stub.js";
-import { HELPER_SCRIPT } from "../../shared/helper.js";
-import { canForward, forwardLabel, isShown, viewOf } from "../../mods/bw-browser/model.js";
+import { HELPER_SCRIPTS } from "../../shared/helper.js";
+import { canForward, forwardLabel, forwardState, isShown, viewOf } from "../../mods/bw-browser/model.js";
 
 const PANEL = live("browser-panel");
 const STATUS = PANEL.exec
@@ -34,7 +34,7 @@ const out = (lines) => ({ code: 0, stdout: `${lines.map((l) => JSON.stringify(l)
  */
 function bw(answers) {
   return async (/** @type {string} */ cmd, /** @type {string[]} */ args, /** @type {any} */ opts) => {
-    if (cmd !== "sh" || args[1] !== HELPER_SCRIPT || args[2] !== "bw" || (opts?.on ?? null) !== null)
+    if (cmd !== "sh" || !HELPER_SCRIPTS.includes(args[1]) || args[2] !== "bw" || (opts?.on ?? null) !== null)
       return { code: 127, stdout: "", stderr: "sh: no such fake" };
     if (args[3] === "version") return VERSION;
     const a = answers[`${args[3]} ${args[4]}`];
@@ -143,11 +143,11 @@ describe("model", () => {
     expect(viewOf([], null).states).toBe("bw browser status printed no chrome line");
   });
 
-  test("forwardLabel names browser and dev forwards", () => {
-    expect(forwardLabel(STATUS[4])).toBe("macmini · browser :52817 · ready");
-    expect(forwardLabel(STATUS[5])).toBe("localhost:3000 ← macmini · reconnecting");
-    expect(forwardLabel({ ...STATUS[5], state: "ready" })).toBe("localhost:3000 ← macmini");
-    expect(forwardLabel({ ...STATUS[5], state: "ready_no_answer" })).toBe("localhost:3000 ← macmini · ready no answer");
+  test("forwardLabel names browser and dev forwards; forwardState is the pill's words", () => {
+    expect(forwardLabel(STATUS[4])).toBe("macmini · browser :52817");
+    expect(forwardLabel(STATUS[5])).toBe("localhost:3000 ← macmini");
+    expect(forwardState({ state: "ready_no_answer" })).toBe("ready no answer");
+    expect(forwardState(STATUS[5])).toBe("reconnecting");
   });
 
   test("canForward needs a space on another machine", () => {
@@ -236,7 +236,9 @@ describe("bw-browser", () => {
     expect(row.attrs.h).toBe(40);
     expect(row.attrs.bg).toBe("#selected");
     expect(byId(row, `browser-tab-bar-${GH.id}`).attrs).toMatchObject({ w: 2, bg: "#accent" });
-    expect(byId(row, `browser-favicon-${GH.id}`)).toMatchObject({
+    const frame = byId(row, `browser-favicon-${GH.id}`);
+    expect(frame.attrs).toMatchObject({ size: 24, rounded: 6, bg: "#raised" });
+    expect(frame.kids[0]).toMatchObject({
       tag: "image",
       attrs: { path: "data/bellwether/favicons/0123456789abcdef.png", w: 16, h: 16 },
     });
@@ -244,15 +246,15 @@ describe("bw-browser", () => {
     const page = byId(m.el, `browser-tab-${PAGE.id}`);
     expect(page.attrs.bg).not.toBe("#selected");
     expect(byId(page, `browser-tab-bar-${PAGE.id}`)).toBe(null);
-    expect(textOf(byId(m.el, "browser-header"))).toBe("Bellwether Chrome Running · 3 tabs New tab Arrange");
+    expect(textOf(byId(m.el, "browser-header"))).toBe("Bellwether Chrome Running · 3 tabs");
     expect(byId(m.el, "browser-header").attrs.h).toBe(36);
   });
 
   test("missing favicon shows the globe", async () => {
     const m = await panel();
-    expect(byId(m.el, `browser-favicon-${PAGE.id}`)).toMatchObject({
+    expect(byId(m.el, `browser-favicon-${PAGE.id}`).kids[0]).toMatchObject({
       tag: "svg",
-      attrs: { path: "mods/bw-browser/icons/globe.svg", size: 16 },
+      attrs: { path: "mods/bw-browser/icons/globe.svg", size: 14 },
     });
   });
 
@@ -326,9 +328,9 @@ describe("bw-browser", () => {
     );
     expect(rows.map((r) => r.attrs.h)).toEqual([28, 28]);
     expect(textOf(byId(m.el, "browser-forwards"))).toContain("FORWARDS");
-    expect(textOf(rows[0])).toBe("macmini · browser :52817 · ready Stop");
+    expect(textOf(rows[0])).toBe("macmini · browser :52817 ready Stop");
     expect(textOf(rows[1])).toBe(
-      "localhost:3000 ← macmini · reconnecting ssh: connect to host macmini port 22: Operation timed out Stop",
+      "localhost:3000 ← macmini reconnecting ssh: connect to host macmini port 22: Operation timed out Stop",
     );
     await m.click("browser-forward-stop-macmini-browser-52817");
     expect(browserCalls(m)).toEqual([["forward", "stop", "--machine", "macmini"]]);
@@ -459,7 +461,7 @@ describe("bw-browser", () => {
   test("no tabs open says so", async () => {
     const m = await panel({ answers: { "browser status": [CHROME] } });
     expect(textOf(byId(m.el, "browser-state"))).toBe("No tabs open");
-    expect(textOf(byId(m.el, "browser-header"))).toBe("Bellwether Chrome Running · 0 tabs New tab Arrange");
+    expect(textOf(byId(m.el, "browser-header"))).toBe("Bellwether Chrome Running · 0 tabs");
   });
 
   test("the panel fills its block in 13 px text", async () => {
@@ -467,4 +469,21 @@ describe("bw-browser", () => {
     expect(m.el.attrs).toMatchObject({ id: "browser-root", text_size: 13 });
     expect("size_full" in m.el.attrs).toBe(true);
   });
+});
+
+test("the header pill is Mauve while running, Peach for a taken port, Red when Chrome failed", async () => {
+  const { stateTone, forwardTone } = await import("../../mods/bw-browser/main.js");
+  expect(
+    ["running", "port_taken", "start_failed", "not_installed", "helper", "stopped", "loading"].map(stateTone),
+  ).toEqual(["accent", "blocked", "failed", "failed", "failed", "machine", "machine"]);
+  expect(["ready", "reconnecting", "failed"].map(forwardTone)).toEqual(["done", "blocked", "failed"]);
+});
+
+test("New tab and Arrange are round icon buttons that name themselves", async () => {
+  const m = await panel();
+  expect(["browser-new-tab", "browser-arrange"].map((id) => byId(m.el, id)?.attrs.accessibility_label)).toEqual([
+    "New tab",
+    "Arrange",
+  ]);
+  for (const id of ["browser-new-tab", "browser-arrange"]) expect(byId(m.el, id).attrs).toMatchObject({ w: 24, h: 24 });
 });

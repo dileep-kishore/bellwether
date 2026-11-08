@@ -75,7 +75,8 @@ test("project menu carries what bw-menu needs", () => {
   expect(projectMenu(project)).toEqual({
     mod: "bw-menu",
     kind: "popup",
-    width: 220,
+    width: 248,
+    frame: "none",
     props: {
       project: {
         key: project.key,
@@ -90,7 +91,7 @@ test("project menu carries what bw-menu needs", () => {
 });
 
 test("add project opens bw-add as a dialog", () => {
-  expect(addProject()).toEqual({ mod: "bw-add", kind: "dialog", width: 420, height: 220 });
+  expect(addProject()).toEqual({ mod: "bw-add", kind: "dialog", width: 420, height: 220, frame: "none" });
 });
 
 test("+ on a project opens bw-new in its main checkout", () => {
@@ -99,6 +100,7 @@ test("+ on a project opens bw-new in its main checkout", () => {
     kind: "popup",
     width: 232,
     height: 300,
+    frame: "none",
     props: { machine: "macmini", folder: "/home/u/gamma" },
   });
 });

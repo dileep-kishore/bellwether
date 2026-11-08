@@ -15,9 +15,9 @@ later phases.
 ## What phase 1 delivers
 
 The `bellwether` layout has three columns: the left sidebar (248 px, 160 to
-480), the active tab with a 32 px tab bar over it and Herdr's
-`workspace-status` under it, and a right sidebar (360 px, 280 to 900) that
-`cmd-alt-b` hides and shows. Six mods fill it:
+480), the active tab with a 32 px tab bar over it and the `bw-status` bar
+under it, and a right sidebar (360 px, 280 to 900) that `cmd-alt-b` hides and
+shows. Eight mods fill it:
 
 - `bw-projects` lists each machine's projects with every Git worktree, its
   ahead and behind counts, its `+N −M` change counts and one line per agent.
@@ -32,6 +32,13 @@ The `bellwether` layout has three columns: the left sidebar (248 px, 160 to
   Remove.
 - `bw-add` is the Add project dialog: pick a machine and a folder, and Git
   finds the repository it belongs to.
+- `bw-status` is the bar under the active tab: the shown space's machine and
+  branch, the agent count beside the most urgent status, a "needs you" pill
+  while any agent waits, and the command palette's key (click it to open the
+  palette).
+- `bw-pane` is each pane's header: the agent's status, the program, its
+  title and folder, and split right, split down, zoom and close buttons that
+  fade in while the pointer is on the header.
 
 A space on another machine works the same: Git runs there through
 `exec(..., { on })`, and an offline machine keeps its last rows.
@@ -374,16 +381,44 @@ that folder removes its history and sign-ins.
 - The checks in a Herdr window are still owed: the panel, Arrange beside a
   real Herdr window, a screenshot inline in a chat, and a real SSH machine.
 
+## The look
+
+Bellwether draws in Catppuccin Mocha with a Mauve (`#cba6f7`) accent, in the
+shapes of the Flockbook layout: tabs in a floating capsule, pills for counts
+and states, rounded chips for tool calls, letter tiles for projects, cards
+for menus, dialogs and requests. It stays dark whatever the system
+appearance.
+
+- `shared/palette.js` holds every colour value: the 26 Mocha colours, the
+  role each Herdr theme colour takes, and the terminal's 16 ANSI colours
+  (Ghostty 1.4.0's Catppuccin Mocha port). No other mod file has a colour
+  literal; mods draw with `theme()` roles and take the rest from the palette.
+- `themes/bellwether.json` is the layout's own Herdr theme, written from the
+  palette by `bun scripts/gen-theme.js` (`--check` fails when the two
+  differ). The layout's root names it, so Herdr offers it only in this
+  layout. Text selection in terminals is a quarter of Mauve over Base.
+- `shared/ui.js` draws the shared pieces: status marks, pills, chips,
+  monogram tiles, cards and buttons.
+- Motion follows state and uses Herdr's native animation only: a working
+  agent's mark spins, a blocked one breathes (opacity 0.65 to 1), a done
+  check fades in, menus, dialogs and request cards fade and slide in once,
+  and hover fills fade. An idle window does not move.
+- `bun scripts/verify/contrast.js` lists every colour pair the mods draw and
+  checks WCAG AA: 4.5:1 for text, 3:1 for status marks and meaningful icons.
+  `tests/theme.test.js` runs it with the rest of the tests.
+
 ## Layout of this repository
 
 The folders mirror `~/.config/herdr-app`, so a sync is a plain copy:
 
 ```text
-layouts/bellwether.json   the window, cloned from Herdr's main layout
+layouts/bellwether.json   the window, cloned from Herdr's main layout; bellwether.svg is its preview
+themes/bellwether.json    the layout's Catppuccin Mocha theme, written by scripts/gen-theme.js
 mods/bw-*/                one folder per mod, named bw-* so none clashes with Herdr's
 shared/                   JavaScript used by several mods; scripts/sync.sh copies it in
 keys/bellwether.json      Bellwether's key bindings, merged by scripts/keys-merge.js
-scripts/sync.sh           copy layouts and bw-* mods into ~/.config/herdr-app
+scripts/sync.sh           copy the layout, its theme and bw-* mods into ~/.config/herdr-app
+scripts/gen-theme.js      write themes/bellwether.json from shared/palette.js
 scripts/keys-merge.js     merge keys/bellwether.json into the app home's keys.json
 scripts/check.sh          herdr-app check (or the headless stand-in) on every mod, and shared copies match
 scripts/test.sh           every check that needs no Herdr window
@@ -426,8 +461,9 @@ scripts/check.sh
 ```
 
 `sync.sh` copies real files, because Herdr does not load a mod's SVGs through
-a symlink. It writes only `layouts/bellwether.*` and `mods/bw-*/`, and never
-touches Herdr's shipped layouts and mods or anyone else's. It leaves out each
+a symlink. It writes only `layouts/bellwether.*`, `themes/bellwether.json` and
+`mods/bw-*/`, and never touches Herdr's shipped layouts, themes and mods or
+anyone else's. It leaves out each
 mod's `.shared` list and the type files Herdr writes into mod folders.
 
 Each `mods/bw-*/.shared` names the `shared/` files that mod imports, and
@@ -562,6 +598,13 @@ scripts/verify/browser.sh --machine <name>   # real agents; <name> must be a tem
 
 Mods call `~/.local/share/bellwether/helper/current/bw` on the machine a space
 lives on. `current` links to a version folder, so an update swaps one link.
+On this machine a Herdr app started with `BW_HELPER` set runs that program
+instead; calls on another machine always run its installed helper.
+`scripts/verify/stage.sh up` sets it to a wrapper that appends one line per
+call to the stage's `helper-calls.log` (a timestamp and the command, such as
+`feed` or `browser status`, never its arguments, which can hold chat text) and
+runs the repository's `bw`, so a check can count calls without touching the
+installed helper.
 `shared/helper.js` needs `bw version` to report version 0.4.0 and protocol 4.
 Phase 4's helper adds the `browser` and `agent` commands, so every machine's
 helper reinstalls once. When another machine's helper is missing or

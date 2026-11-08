@@ -80,7 +80,11 @@ describe("bw-tabs", () => {
   test("draws the active space's tabs with their titles", async () => {
     const m = await mount("bw-tabs", { live: live("two-machines") });
     expect(m.el.attrs.h).toBe(32);
-    expect(m.el.attrs.bg).toBe("#chrome");
+    expect(m.el.attrs.bg).toBe("#canvas");
+    expect(byId(m.el, "tab-capsule").attrs).toMatchObject({ bg: "#chrome", rounded: 14, border_color: "#border" });
+    expect(byId(m.el, "tab-tb1").attrs).toMatchObject({ bg: "#selected", text_color: "#foreground", rounded: 12 });
+    expect(byId(m.el, "tab-mark-tb1").attrs.bg).toBe("#accent");
+    expect(byId(m.el, "tab-mark-tb2")).toBe(null);
     expect(["tb1", "tb2", "tb7"].map((id) => textOf(byId(m.el, `tab-${id}`)))).toEqual([
       "Claude Code",
       "fix login",
@@ -171,36 +175,38 @@ describe("bw-tabs", () => {
     expect(m.cx.stopped).toBe(1);
   });
 
-  test("settled tabs are dimmed", async () => {
+  test("settled tabs are italic, never faded", async () => {
     const data = live("two-machines");
     data.spaces[0].tabs[2].settled = true;
     const m = await mount("bw-tabs", { live: data });
-    expect(byId(m.el, "tab-tb7").attrs.opacity).toBe(0.6);
-    expect(byId(m.el, "tab-tb2").attrs.opacity).toBe(undefined);
+    expect(byId(m.el, "tab-tb7").attrs).toMatchObject({ italic: undefined, text_color: "#muted" });
+    expect("italic" in byId(m.el, "tab-tb7").attrs).toBe(true);
+    expect("italic" in byId(m.el, "tab-tb2").attrs).toBe(false);
+    expect(byId(m.el, "tab-tb7").attrs.opacity).toBe(undefined);
   });
 
   test("+ opens bw-new at 232 px with the space", async () => {
     const m = await mount("bw-tabs", { live: live("two-machines") });
     await m.click("tab-new");
-    expect(m.log.overlays).toEqual([{ mod: "bw-new", kind: "popup", width: 232, height: 300, props: { space: "s1" } }]);
+    expect(m.log.overlays).toEqual([
+      { mod: "bw-new", kind: "popup", width: 232, height: 300, frame: "none", props: { space: "s1" } },
+    ]);
     expect(m.log.run).toEqual([]);
   });
 
   test("+ with no space opens bw-new on this Mac's home", async () => {
     const m = await mount("bw-tabs", { live: live("empty") });
-    expect(
-      findAll(
-        m.el,
-        (e) =>
-          typeof e.attrs.id === "string" &&
-          e.attrs.id.startsWith("tab-") &&
-          e.attrs.id !== "tab-new" &&
-          e.attrs.id !== "tab-scroll",
-      ),
-    ).toEqual([]);
+    expect(findAll(m.el, (e) => typeof e.attrs.id === "string" && /^tab-tb/.test(e.attrs.id))).toEqual([]);
     await m.click("tab-new");
     expect(m.log.overlays).toEqual([
-      { mod: "bw-new", kind: "popup", width: 232, height: 300, props: { machine: null, folder: "/home/test" } },
+      {
+        mod: "bw-new",
+        kind: "popup",
+        width: 232,
+        height: 300,
+        frame: "none",
+        props: { machine: null, folder: "/home/test" },
+      },
     ]);
   });
 

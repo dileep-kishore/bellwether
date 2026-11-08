@@ -33,7 +33,7 @@ import { createPoke, runRefresher } from "./refresh-driver.js";
 import { createSchedule } from "./refresh-schedule.js";
 import { machineSection, rail } from "./rows.js";
 import { makeRun, mergeResult } from "./run-git.js";
-import { ICONS, themeColors } from "./ui.js";
+import { ICONS, button, themeColors } from "./ui.js";
 
 const STORE = "bw.projects";
 const FOLDED = "bw-projects.folded";
@@ -331,11 +331,11 @@ export default class Projects extends View {
       .px(narrow ? 4 : 8)
       .gap(4)
       .items_center()
-      .rounded(6)
+      .rounded(12)
       .cursor_pointer()
       .text_size(12)
       .text_color(t.muted)
-      .hover((s) => s.bg(t.hover))
+      .hover((s) => s.bg(t.hover).text_color(t.foreground))
       .on_click(() => d.addProject())
       .child(svg(ICONS.plus).size(12).text_color(t.muted))
       .when(!narrow, (el) => el.child("Add project"));
@@ -363,12 +363,27 @@ export default class Projects extends View {
     body.children(tree.machines.map((m) => machineSection(d, m)));
     if (tree.machines.every((m) => m.projects.length === 0 && m.plain.length === 0)) {
       body.child(
-        div()
+        v_flex()
+          .id("projects-empty")
           .px(16)
-          .pt(8)
-          .text_size(12)
-          .text_color(t.dim)
-          .child("No projects yet. Add one, or open a space in a Git folder."),
+          .pt(10)
+          .gap(10)
+          .items_start()
+          .child(
+            div()
+              .text_size(12.5)
+              .text_color(t.muted)
+              .child("No projects yet. Add one, or open a space in a Git folder."),
+          )
+          .child(
+            button(t, {
+              id: "empty-add-project",
+              kind: "ghost",
+              label: "Add project",
+              icon: svg(ICONS.plus).size(12).text_color(t.accent),
+              onClick: () => d.addProject(),
+            }).text_color(t.accent),
+          ),
       );
     }
     return root.child(body);

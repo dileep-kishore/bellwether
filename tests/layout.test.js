@@ -31,7 +31,7 @@ test("layout sizes and ids follow the spec", () => {
   expect(node(L, "projects").content).toEqual({ mod: "bw-projects" });
   expect(node(L, "tabs")).toMatchObject({ size: { px: 32 }, window_drag: true, content: { mod: "bw-tabs" } });
   expect(node(L, "main").content.tab).toBe("active");
-  expect(node(L, "status").content).toEqual({ mod: "workspace-status" });
+  expect(node(L, "status").content).toEqual({ mod: "bw-status" });
   expect(node(L, "right")).toMatchObject({ size: { px: 360 }, min: 280, max: 900 });
   expect(node(L, "right-strip")).toMatchObject({ size: { px: 36 }, content: { mod: "bw-right" } });
   expect(node(L, "right-body")).toMatchObject({ type: "stack", active: "changes" });
@@ -40,9 +40,7 @@ test("layout sizes and ids follow the spec", () => {
   );
   expect(node(L, "browser").content).toEqual({ mod: "bw-browser" });
   expect(node(L, "right-body").children.map((c) => c.id)).toEqual(["changes", "issues", "browser"]);
-  expect(new Set(allMods(L).filter((m) => !m.startsWith("bw-")))).toEqual(
-    new Set(["workspace-chrome", "workspace-status", "pane"]),
-  );
+  expect(new Set(allMods(L).filter((m) => !m.startsWith("bw-")))).toEqual(new Set(["workspace-chrome"]));
 });
 
 test("root keeps main's window chrome and the three columns in order", () => {
@@ -52,6 +50,8 @@ test("root keeps main's window chrome and the three columns in order", () => {
     type: "row",
     titlebar: "none",
     traffic_lights: [12, 16],
+    theme: "bellwether",
+    preview: "layouts/bellwether.svg",
     background: "canvas",
     terminal_padding: [14, 12],
     divider: { width: 1, color: "border" },
@@ -68,15 +68,15 @@ test("root keeps main's window chrome and the three columns in order", () => {
   expect(node(L, "right").hidden).toBeUndefined();
 });
 
-test("main keeps main.json's pane frame and pane header", () => {
+test("panes are 12 px cards with Bellwether's own header", () => {
   expect(node(readLayout(), "main").content.pane).toEqual({
     gap: 8,
-    radius: 10,
+    radius: 12,
     background: "background",
     lone: true,
     border: { width: 1, color: "border" },
     focus: { width: 1, color: "accent" },
-    header: { content: { mod: "pane" }, height: 30, position: "top", reveal: "always" },
+    header: { content: { mod: "bw-pane" }, height: 30, position: "top", reveal: "always" },
   });
 });
 
@@ -89,4 +89,9 @@ test("node ids are unique and Herdr's dropped blocks are gone", () => {
 test("keys file binds cmd-alt-b to toggle the layout's right column", () => {
   expect(readKeys()["layout:bellwether"]["cmd-alt-b"]).toBe("layout.toggle:right");
   expect(node(readLayout(), "right").type).toBe("column");
+});
+
+test("the preview the root names exists and is an SVG", () => {
+  const svg = readFileSync(join(ROOT, readLayout().preview), "utf8");
+  expect(svg).toStartWith("<svg");
 });

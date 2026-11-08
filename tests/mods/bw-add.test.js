@@ -240,7 +240,8 @@ describe("bw-add", () => {
     expect(byId(m.el, "add-machine-macmini")).not.toBe(null);
     expect(byId(m.el, "add-choose")).toBe(null);
     expect(textOf(m.el)).toContain("macmini is offline");
-    await m.click("add-go");
+    expect(byId(m.el, "add-go").attrs.disabled).toBe(true);
+    expect(byId(m.el, "add-go").handlers.on_click).toBeUndefined();
     findAll(m.el, (e) => e.tag === "Input")[0].attrs.state.handlers.submit({}, m.cx);
     await m.cx.flush();
     expect(m.log.exec).toEqual([]);
@@ -265,7 +266,9 @@ describe("bw-add", () => {
     fake.machines.find((x) => x.name === "macmini").layout = "loading";
     m.render();
     expect(textOf(m.el)).toContain("macmini is connecting…");
-    await m.click("add-go");
+    expect(byId(m.el, "add-go").handlers.on_click).toBeUndefined();
+    findAll(m.el, (e) => e.tag === "Input")[0].attrs.state.handlers.submit({}, m.cx);
+    await m.cx.flush();
     expect(m.log.exec).toEqual([]);
   });
 
