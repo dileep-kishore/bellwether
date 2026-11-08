@@ -154,10 +154,12 @@ export const canStart = (state) => state === "stopped" || state === "no_debug_po
  * @param {Pick<Forward, "kind" | "machine" | "port" | "state">} f
  */
 export function forwardLabel(f) {
-  const state = f.state.replace(/_/g, " ");
-  if (f.kind === "dev") return `localhost:${f.port} ← ${f.machine}${f.state === "ready" ? "" : ` · ${state}`}`;
-  return `${f.machine} · browser :${f.port} · ${state}`;
+  if (f.kind === "dev") return `localhost:${f.port} ← ${f.machine}`;
+  return `${f.machine} · browser :${f.port}`;
 }
+
+/** A forward's state as its pill says it. @param {Pick<Forward, "state">} f */
+export const forwardState = (f) => f.state.replace(/_/g, " ");
 
 /** The unique part of a forward's element ids. @param {Pick<Forward, "kind" | "machine" | "port">} f */
 export const forwardKey = (f) => `${f.machine}-${f.kind}-${f.port}`;

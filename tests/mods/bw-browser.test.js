@@ -6,7 +6,7 @@ import { live, mount, repo } from "../harness/mount.js";
 import { fake } from "../harness/herdr-stub.js";
 import { byId, findAll, fire, textOf } from "../harness/kit-stub.js";
 import { HELPER_SCRIPTS } from "../../shared/helper.js";
-import { canForward, forwardLabel, isShown, viewOf } from "../../mods/bw-browser/model.js";
+import { canForward, forwardLabel, forwardState, isShown, viewOf } from "../../mods/bw-browser/model.js";
 
 const PANEL = live("browser-panel");
 const STATUS = PANEL.exec
@@ -143,11 +143,11 @@ describe("model", () => {
     expect(viewOf([], null).states).toBe("bw browser status printed no chrome line");
   });
 
-  test("forwardLabel names browser and dev forwards", () => {
-    expect(forwardLabel(STATUS[4])).toBe("macmini · browser :52817 · ready");
-    expect(forwardLabel(STATUS[5])).toBe("localhost:3000 ← macmini · reconnecting");
-    expect(forwardLabel({ ...STATUS[5], state: "ready" })).toBe("localhost:3000 ← macmini");
-    expect(forwardLabel({ ...STATUS[5], state: "ready_no_answer" })).toBe("localhost:3000 ← macmini · ready no answer");
+  test("forwardLabel names browser and dev forwards; forwardState is the pill's words", () => {
+    expect(forwardLabel(STATUS[4])).toBe("macmini · browser :52817");
+    expect(forwardLabel(STATUS[5])).toBe("localhost:3000 ← macmini");
+    expect(forwardState({ state: "ready_no_answer" })).toBe("ready no answer");
+    expect(forwardState(STATUS[5])).toBe("reconnecting");
   });
 
   test("canForward needs a space on another machine", () => {
@@ -236,7 +236,9 @@ describe("bw-browser", () => {
     expect(row.attrs.h).toBe(40);
     expect(row.attrs.bg).toBe("#selected");
     expect(byId(row, `browser-tab-bar-${GH.id}`).attrs).toMatchObject({ w: 2, bg: "#accent" });
-    expect(byId(row, `browser-favicon-${GH.id}`)).toMatchObject({
+    const frame = byId(row, `browser-favicon-${GH.id}`);
+    expect(frame.attrs).toMatchObject({ size: 24, rounded: 6, bg: "#raised" });
+    expect(frame.kids[0]).toMatchObject({
       tag: "image",
       attrs: { path: "data/bellwether/favicons/0123456789abcdef.png", w: 16, h: 16 },
     });
@@ -250,9 +252,9 @@ describe("bw-browser", () => {
 
   test("missing favicon shows the globe", async () => {
     const m = await panel();
-    expect(byId(m.el, `browser-favicon-${PAGE.id}`)).toMatchObject({
+    expect(byId(m.el, `browser-favicon-${PAGE.id}`).kids[0]).toMatchObject({
       tag: "svg",
-      attrs: { path: "mods/bw-browser/icons/globe.svg", size: 16 },
+      attrs: { path: "mods/bw-browser/icons/globe.svg", size: 14 },
     });
   });
 
@@ -326,9 +328,9 @@ describe("bw-browser", () => {
     );
     expect(rows.map((r) => r.attrs.h)).toEqual([28, 28]);
     expect(textOf(byId(m.el, "browser-forwards"))).toContain("FORWARDS");
-    expect(textOf(rows[0])).toBe("macmini · browser :52817 · ready Stop");
+    expect(textOf(rows[0])).toBe("macmini · browser :52817 ready Stop");
     expect(textOf(rows[1])).toBe(
-      "localhost:3000 ← macmini · reconnecting ssh: connect to host macmini port 22: Operation timed out Stop",
+      "localhost:3000 ← macmini reconnecting ssh: connect to host macmini port 22: Operation timed out Stop",
     );
     await m.click("browser-forward-stop-macmini-browser-52817");
     expect(browserCalls(m)).toEqual([["forward", "stop", "--machine", "macmini"]]);
@@ -467,4 +469,12 @@ describe("bw-browser", () => {
     expect(m.el.attrs).toMatchObject({ id: "browser-root", text_size: 13 });
     expect("size_full" in m.el.attrs).toBe(true);
   });
+});
+
+test("the header pill is Mauve while running, Peach for a taken port, Red when Chrome failed", async () => {
+  const { stateTone, forwardTone } = await import("../../mods/bw-browser/main.js");
+  expect(
+    ["running", "port_taken", "start_failed", "not_installed", "helper", "stopped", "loading"].map(stateTone),
+  ).toEqual(["accent", "blocked", "failed", "failed", "failed", "machine", "machine"]);
+  expect(["ready", "reconnecting", "failed"].map(forwardTone)).toEqual(["done", "blocked", "failed"]);
 });

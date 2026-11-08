@@ -5,9 +5,19 @@ import { View, div, image, svg } from "gpui-kit";
 import { Input, InputState, h_flex, v_flex } from "gpui-base";
 import { exec, layout, spaces } from "herdr";
 import { createHelper } from "./helper.js";
-import { canForward, canStart, forwardKey, forwardLabel, isShown, portOf, resultText, viewOf } from "./model.js";
+import {
+  canForward,
+  canStart,
+  forwardKey,
+  forwardLabel,
+  forwardState,
+  isShown,
+  portOf,
+  resultText,
+  viewOf,
+} from "./model.js";
 import { createPoke } from "./refresh-driver.js";
-import { ICONS, themeColors } from "./ui.js";
+import { hoverFill, mutedOnSelected, pill, spinner, themeColors } from "./ui.js";
 
 /** @typedef {import("./ui.js").Theme} Theme */
 
@@ -17,6 +27,26 @@ const NOTE_MS = 4000;
 
 /** @param {string} name */
 const icon = (name) => `mods/bw-browser/icons/${name}.svg`;
+
+/**
+ * The header pill's tone for a Chrome state: Mauve while running, Peach when its port is taken,
+ * Red when it failed or is missing, plain otherwise.
+ * @param {string} state @returns {import("./ui.js").PillTone}
+ */
+export function stateTone(state) {
+  if (state === "running") return "accent";
+  if (state === "port_taken") return "blocked";
+  if (state === "start_failed" || state === "not_installed" || state === "helper") return "failed";
+  return "machine";
+}
+
+/** A forward's pill tone: Green when ready, Peach while it waits, Red when it failed. @param {string} state
+ * @returns {import("./ui.js").PillTone} */
+export function forwardTone(state) {
+  if (state === "ready") return "done";
+  if (state === "failed" || state === "error") return "failed";
+  return "blocked";
+}
 
 /** @typedef {import("./model.js").View} PanelView */
 /** @typedef {import("./model.js").Tab} Tab */
@@ -167,16 +197,28 @@ export default class Browser extends View {
       .child(this.header(t, v));
     if (this.note) {
       root.child(
-        div()
+        h_flex()
           .id("browser-note")
           .flex_none()
           .px(12)
-          .py(6)
-          .text_size(11)
-          .text_color(t.muted)
-          .border_b(1)
-          .border_color(t.border)
-          .child(this.note.text),
+          .pt(8)
+          .justify_center()
+          .child(
+            div()
+              .max_w_full()
+              .h(26)
+              .px(12)
+              .flex()
+              .items_center()
+              .rounded(13)
+              .bg(t.raised)
+              .border(1)
+              .border_color(t.border)
+              .text_size(12)
+              .text_color(t.foreground)
+              .truncate()
+              .child(this.note.text),
+          ),
       );
     }
     if (v.states !== null) {
@@ -188,7 +230,7 @@ export default class Browser extends View {
           .justify_center()
           .px(24)
           .text_size(13)
-          .text_color(t.dim)
+          .text_color(t.muted)
           .child(div().text_center().child(v.states)),
       );
     } else {
@@ -198,7 +240,8 @@ export default class Browser extends View {
           .flex_1()
           .min_h(0)
           .overflow_y_scroll()
-          .py(4)
+          .p(6)
+          .gap(2)
           .children(v.tabs.map((tab) => this.tabRow(t, tab))),
       );
     }
@@ -218,15 +261,15 @@ export default class Browser extends View {
       .items_center()
       .border_b(1)
       .border_color(t.border)
-      .child(svg(icon("chrome")).size(16).flex_none().text_color(t.muted))
+      .child(svg(icon("chrome")).size(16).flex_none().text_color(t.accent))
       .child(
         h_flex()
           .flex_1()
           .min_w(0)
-          .gap(6)
+          .gap(8)
           .items_center()
           .child(div().flex_none().text_size(13).font_medium().child("Bellwether Chrome"))
-          .child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(v.chrome.label)),
+          .child(pill(t, v.chrome.label, stateTone(v.chrome.state), "browser-state-pill").min_w(0).truncate()),
       )
       .when(running, (el) =>
         el
@@ -262,15 +305,16 @@ export default class Browser extends View {
       .id(id)
       .flex_none()
       .h(24)
-      .px(8)
-      .gap(4)
+      .px(9)
+      .gap(5)
       .items_center()
-      .rounded(6)
-      .text_size(11)
-      .text_color(idle ? t.foreground : t.dim)
-      .when(idle, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)))
+      .rounded(12)
+      .bg(t.raised)
+      .text_size(11.5)
+      .text_color(idle ? t.foreground : t.muted)
+      .when(idle, (el) => el.cursor_pointer().hover((s) => s.bg(t.selected)))
       .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => onClick(cx))
-      .when(running, (el) => el.child(svg(ICONS["ring-spin"]).size(12).flex_none().text_color(t.muted).spin(900)))
+      .when(running, (el) => el.child(spinner(t, 12)))
       .when(!running && iconName !== null, (el) =>
         el.child(
           svg(icon(/** @type {string} */ (iconName)))
@@ -285,21 +329,28 @@ export default class Browser extends View {
   /** @param {Theme} t @param {Tab} tab */
   tabRow(t, tab) {
     const hovered = this.hovered === tab.id;
-    const picture = tab.favicon
-      ? image(tab.favicon).id(`browser-favicon-${tab.id}`).w(16).h(16).flex_none()
-      : svg(icon("globe")).id(`browser-favicon-${tab.id}`).size(16).flex_none().text_color(t.dim);
+    const picture = div()
+      .id(`browser-favicon-${tab.id}`)
+      .size(24)
+      .flex_none()
+      .rounded(6)
+      .bg(t.raised)
+      .flex()
+      .items_center()
+      .justify_center()
+      .child(tab.favicon ? image(tab.favicon).w(16).h(16).rounded(3) : svg(icon("globe")).size(14).text_color(t.dim));
     return h_flex()
       .id(`browser-tab-${tab.id}`)
       .h(40)
       .flex_none()
       .relative()
-      .pl(12)
-      .pr(8)
+      .pl(10)
+      .pr(6)
       .gap(10)
       .items_center()
+      .rounded(10)
       .cursor_pointer()
       .when(tab.active, (el) => el.bg(t.selected))
-      .when(!tab.active, (el) => el.hover((s) => s.bg(t.hover)))
       .on_hover((/** @type {boolean} */ on, /** @type {any} */ cx) => {
         const next = on ? tab.id : this.hovered === tab.id ? null : this.hovered;
         if (next === this.hovered) return;
@@ -309,8 +360,11 @@ export default class Browser extends View {
       .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) =>
         this.act("focus", ["focus", "--id", tab.id], cx, { key: `browser-tab-${tab.id}`, title: tab.title }),
       )
+      .child(hoverFill(t, `browser-tab-hover-${tab.id}`, !tab.active && hovered, 10))
       .when(tab.active, (el) =>
-        el.child(div().id(`browser-tab-bar-${tab.id}`).absolute().left(0).top(0).bottom(0).w(2).bg(t.accent)),
+        el.child(
+          div().id(`browser-tab-bar-${tab.id}`).absolute().left(0).top(10).bottom(10).w(2).rounded(1).bg(t.accent),
+        ),
       )
       .child(picture)
       .child(
@@ -318,17 +372,23 @@ export default class Browser extends View {
           .flex_1()
           .min_w(0)
           .child(div().truncate().text_size(13).text_color(t.foreground).child(tab.title))
-          .child(div().truncate().text_size(11).text_color(t.dim).child(tab.secondary)),
+          .child(
+            div()
+              .truncate()
+              .text_size(11)
+              .text_color(tab.active ? mutedOnSelected : t.muted)
+              .child(tab.secondary),
+          ),
       )
       .when(hovered, (el) =>
         el.child(
           h_flex()
             .id(`browser-tab-close-${tab.id}`)
             .flex_none()
-            .size(20)
+            .size(22)
             .items_center()
             .justify_center()
-            .rounded(4)
+            .rounded(11)
             .cursor_pointer()
             .hover((s) => s.bg(t.hover))
             .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => {
@@ -357,16 +417,16 @@ export default class Browser extends View {
           .h(24)
           .px(12)
           .items_center()
-          .child(div().flex_1().text_size(11).font_medium().text_color(t.dim).child("FORWARDS"))
+          .child(div().flex_1().text_size(11).font_medium().text_color(t.muted).child("FORWARDS"))
           .child(
             h_flex()
               .id("browser-forward-port")
-              .h(20)
-              .px(6)
+              .h(22)
+              .px(9)
               .items_center()
-              .rounded(4)
+              .rounded(11)
               .text_size(11)
-              .text_color(can.ok ? t.foreground : t.dim)
+              .text_color(can.ok ? t.accent : t.muted)
               .when(can.ok, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)))
               .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => {
                 if (!can.ok) return;
@@ -377,7 +437,8 @@ export default class Browser extends View {
               .child("Forward port"),
           ),
       );
-    if (!can.ok) section.child(div().id("browser-forward-hint").px(12).text_size(11).text_color(t.dim).child(can.hint));
+    if (!can.ok)
+      section.child(div().id("browser-forward-hint").px(12).text_size(11).text_color(t.muted).child(can.hint));
     else if (this.adding) {
       section.child(
         h_flex()
@@ -392,7 +453,7 @@ export default class Browser extends View {
               .h(28)
               .px(8)
               .items_center()
-              .rounded(6)
+              .rounded(10)
               .border(1)
               .border_color(t.input)
               .bg(t.background)
@@ -431,8 +492,9 @@ export default class Browser extends View {
               .text_color(ready ? t.foreground : t.muted)
               .child(forwardLabel(f)),
           )
+          .child(pill(t, forwardState(f), forwardTone(f.state), `browser-forward-state-${key}`))
           .when(!ready && f.reason !== "", (el) =>
-            el.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(f.reason)),
+            el.child(div().min_w(0).truncate().text_size(11).text_color(t.muted).child(f.reason)),
           ),
       )
       .child(
