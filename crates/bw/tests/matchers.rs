@@ -527,3 +527,14 @@ fn rewrap_other_command_changes_the_id() {
     .unwrap();
     assert_ne!(codex_id(&c), codex_id(&d));
 }
+
+#[test]
+fn rewrap_codex_folder_prompt_at_15_columns() {
+    // A chat tab's terminal behind the chat is 15 columns wide: the question breaks inside "conversation".
+    let narrow = folder_box(&screen("screens/codex-new-folder-15.txt")).expect("15 columns");
+    let wide = folder_box(&screen("screens/codex-new-folder-80.txt")).unwrap();
+    assert_eq!(folder_id(&narrow), folder_id(&wide));
+    let p = folder_prompt_on_screen("codex", &screen("screens/codex-new-folder-15.txt"))
+        .expect("a prompt");
+    assert_eq!(p.screen_id, folder_id(&wide));
+}

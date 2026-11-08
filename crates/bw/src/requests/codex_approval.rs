@@ -33,10 +33,11 @@ pub fn plain(line: &str) -> &str {
     t.strip_prefix('›').map(str::trim_start).unwrap_or(t)
 }
 
-/// The index of the line after the last run of non-blank lines whose words, joined with one space, are
-/// `question`: a narrow pane wraps the question over several lines.
+/// The index of the line after the last run of non-blank lines that read `question` once whitespace is dropped: a
+/// narrow pane wraps the question over several lines, between words or inside one.
 pub fn question_end(raw: &[&str], question: &str) -> Option<usize> {
-    let want: Vec<&str> = question.split_whitespace().collect();
+    let squeeze = |s: &str| s.split_whitespace().collect::<String>();
+    let want = squeeze(question);
     let mut end = None;
     let mut i = 0;
     while i < raw.len() {
@@ -48,11 +49,8 @@ pub fn question_end(raw: &[&str], question: &str) -> Option<usize> {
         while i < raw.len() && !plain(raw[i]).is_empty() {
             i += 1;
         }
-        let words: Vec<&str> = raw[start..i]
-            .iter()
-            .flat_map(|l| plain(l).split_whitespace())
-            .collect();
-        if words == want {
+        let text: String = raw[start..i].iter().map(|l| squeeze(plain(l))).collect();
+        if text == want {
             end = Some(i);
         }
     }

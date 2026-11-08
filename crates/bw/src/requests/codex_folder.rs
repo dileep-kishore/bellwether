@@ -4,7 +4,7 @@
 //! `enter select · esc back`. Each option's digit picks it at once, with no Enter. hc says `idle`, never
 //! `blocked`, while it shows, so a reader that waits for `blocked` never sees it.
 
-use herdr_core::approval::hash_id;
+use herdr_core::approval::{hash_id, id_text};
 
 use super::codex_approval::{blocks, footer_is, options, question_end};
 
@@ -56,8 +56,13 @@ pub fn folder_box(screen: &str) -> Option<FolderBox> {
     })
 }
 
-/// The question and the option names: a narrow pane drops the descriptions, so they are not part of the id.
+/// The question and the option names without whitespace: a narrow pane drops the descriptions and can break a
+/// name inside a word, so neither is part of the id.
 pub fn folder_id(b: &FolderBox) -> String {
-    let names: Vec<&str> = b.options.iter().map(|(name, _)| name.as_str()).collect();
+    let names: Vec<String> = b
+        .options
+        .iter()
+        .map(|(name, _)| id_text(std::slice::from_ref(name)))
+        .collect();
     hash_id(&format!("codex-folder\n{QUESTION}\n{}", names.join("\n")))
 }
