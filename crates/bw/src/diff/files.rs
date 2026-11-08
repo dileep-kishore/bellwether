@@ -172,13 +172,15 @@ pub fn run(a: &Args) -> Result<(), Fail> {
             from: from.clone(),
             to: status.oid.clone(),
         };
-        let (d, bytes) = match patch::patch_bytes(top, &spec)? {
-            Some(b) => (digest(&b), json!(b.len())),
-            None => ("too_large".to_string(), Value::Null),
+        // The digest only says when to reload the patch: a file Git cannot read must not fail the lists.
+        let (d, bytes, error) = match patch::patch_bytes(top, &spec) {
+            Ok(Some(b)) => (digest(&b), json!(b.len()), Value::Null),
+            Ok(None) => ("too_large".to_string(), Value::Null, Value::Null),
+            Err(f) => ("unreadable".to_string(), Value::Null, json!(f.message)),
         };
-        emit(
-            json!({"type": "diff-digest", "section": section, "path": file, "digest": d, "bytes": bytes}),
-        );
+        emit(json!({
+            "type": "diff-digest", "section": section, "path": file, "digest": d, "bytes": bytes, "error": error,
+        }));
     }
     if let Some(t) = token {
         emit(json!({"type": "diff-token", "token": t}));

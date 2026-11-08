@@ -477,7 +477,8 @@ bw diff fetch --path <dir> [--remote <name> | --base <ref>]
 `bw diff …` runs on the space's machine and prints JSON lines. `files`
 prints a `diff-place` line, a `diff-base` line, one `diff-file` line per row,
 a `diff-more` line for a section past 2,000 files and, with `--select`, a
-`diff-digest` line. `patch` prints one `diff-patch` line with the page, the
+`diff-digest` line. Its digest is `too_large` past one page, and `unreadable`
+with Git's error when Git cannot read the file; the lists still print. `patch` prints one `diff-patch` line with the page, the
 page count, the patch's size and digest, the text and the lines left out.
 Committed needs `--from` and `--to`, and an untracked file needs
 `--untracked`. `refs` prints up to 200 `diff-ref` lines, or one `diff-ref-ok`

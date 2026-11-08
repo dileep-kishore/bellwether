@@ -896,3 +896,41 @@ fn changes_counts_with_few_or_many_edited_files() {
         assert_eq!(all, reference(repo, &["diff", "--no-renames"]));
     }
 }
+
+#[test]
+fn a_selected_file_git_cannot_read_still_lists_the_rest() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::Builder::new()
+        .prefix("bw-diff-unreadable")
+        .tempdir_in("/private/tmp")
+        .unwrap();
+    let repo = dir.path();
+    git(repo, &["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("ok.txt"), "x\n").unwrap();
+    let locked = repo.join("locked.txt");
+    std::fs::write(&locked, "secret\n").unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let (code, lines) = bw(&[
+        "diff",
+        "files",
+        "--path",
+        repo.to_str().unwrap(),
+        "--select",
+        "changes",
+        "--file",
+        "locked.txt",
+    ]);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(code, 0, "{lines:?}");
+    let listed: BTreeSet<String> = lines
+        .iter()
+        .filter(|l| l["type"] == "diff-file")
+        .map(|l| l["path"].as_str().unwrap().to_string())
+        .collect();
+    assert!(listed.contains("ok.txt") && listed.contains("locked.txt"));
+    let d = lines.iter().find(|l| l["type"] == "diff-digest").unwrap();
+    assert_eq!(d["digest"], "unreadable");
+    assert!(d["error"]
+        .as_str()
+        .is_some_and(|e| e.contains("locked.txt")));
+}
