@@ -74,48 +74,51 @@ export default class PaneHeader extends View {
     if (!p) return div().id("bw-pane").size_full().bg(t.background);
     const pane = p.pane;
     const folder = shortFolder(p.cwd, home());
-    return h_flex()
-      .id("bw-pane")
-      .size_full()
-      .pl(12)
-      .pr(6)
-      .gap(8)
-      .items_center()
-      .bg(t.background)
-      .border_b(1)
-      .border_color(t.border)
-      .text_size(12)
-      .on_hover((/** @type {boolean} */ hovered, /** @type {any} */ cx) => {
-        if (hovered === this.hovered) return;
-        this.hovered = hovered;
-        cx.notify();
-      })
-      .on_click(() => run("pane.focus", { pane }))
-      .when(p.status !== null, (el) => el.child(statusMark(t, p.status, 12, `mark-${pane}`)))
-      .child(programIcon(p.program, t, 14))
-      .child(
-        div()
-          .flex_none()
-          .max_w(260)
-          .truncate()
-          .font_medium()
-          .text_color(p.focused ? t.foreground : t.muted)
-          .child(paneName(p)),
-      )
-      .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(folder))
-      .when(p.status === "blocked", (el) =>
-        el.child(pill(t, "Needs you", "request", `needs-${pane}`).loop("opacity", MOTION.breathe)),
-      )
-      .child(
-        h_flex()
-          .id(`actions-${pane}`)
-          .flex_none()
-          .gap(2)
-          .items_center()
-          .opacity(this.hovered ? 1 : 0)
-          .transition("opacity", MOTION.hover)
-          .children(paneActions(pane, p.zoomed).map((a) => this.action(t, pane, a))),
-      );
+    return (
+      h_flex()
+        .id("bw-pane")
+        .size_full()
+        .pl(12)
+        .pr(6)
+        .gap(8)
+        .items_center()
+        .bg(t.background)
+        .border_b(1)
+        .border_color(t.border)
+        .text_size(12)
+        .on_hover((/** @type {boolean} */ hovered, /** @type {any} */ cx) => {
+          if (hovered === this.hovered) return;
+          this.hovered = hovered;
+          cx.notify();
+        })
+        .on_click(() => run("pane.focus", { pane }))
+        // A mod pane has no status at all (undefined), a plain terminal null.
+        .when(p.status != null, (el) => el.child(statusMark(t, p.status, 12, `mark-${pane}`)))
+        .child(programIcon(p.program, t, 14))
+        .child(
+          div()
+            .flex_none()
+            .max_w(260)
+            .truncate()
+            .font_medium()
+            .text_color(p.focused ? t.foreground : t.muted)
+            .child(paneName(p)),
+        )
+        .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(folder))
+        .when(p.status === "blocked", (el) =>
+          el.child(pill(t, "Needs you", "request", `needs-${pane}`).loop("opacity", MOTION.breathe)),
+        )
+        .child(
+          h_flex()
+            .id(`actions-${pane}`)
+            .flex_none()
+            .gap(2)
+            .items_center()
+            .opacity(this.hovered ? 1 : 0)
+            .transition("opacity", MOTION.hover)
+            .children(paneActions(pane, p.zoomed).map((a) => this.action(t, pane, a))),
+        )
+    );
   }
 
   /** @param {Theme} t @param {string} pane @param {ReturnType<typeof paneActions>[number]} a */

@@ -217,7 +217,7 @@ function card(c, v, h) {
   const tool = c.kind === "approval" ? c.tool.trim() : "";
   const detail = c.detail.trim() && c.detail.trim() !== command ? c.detail.trim() : "";
   // Approval asks in Peach, a question in Blue; an answered card's check fades in over the icon.
-  const answered = c.state === "answered" || c.state === "declined";
+  const answered = c.state === "answered";
   const hue = c.kind === "approval" ? t.blocked : t.working;
   const mark = div()
     .id(`card-icon-${c.id}`)

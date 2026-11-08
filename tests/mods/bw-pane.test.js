@@ -62,3 +62,12 @@ test("a pane that is gone draws an empty header", async () => {
   const m = await mount("bw-pane", { props: { pane: "nope" }, live: withPane() });
   expect(textOf(m.el)).toBe("");
 });
+
+test("a mod pane, whose status is undefined, draws no empty status box", async () => {
+  const data = live("chat-tab");
+  const mod = data.panes.find((/** @type {any} */ p) => p.mod);
+  expect(mod.status).toBeUndefined();
+  const m = await mount("bw-pane", { props: { pane: mod.pane }, live: data });
+  expect(byId(m.el, `mark-${mod.pane}`)).toBeNull();
+  expect(byId(m.el, "bw-pane").kids[0].tag).toBe("svg");
+});

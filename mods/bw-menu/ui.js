@@ -161,26 +161,25 @@ export function machineTag(name, t) {
 }
 
 /**
- * A 28 px fully rounded control with an icon and label on Surface 0. Inside a virtual list pass
- * no handlers: the hover is a plain style swap.
- * @param {Theme} t themeColors()
- * @param {{ id?: string, icon?: any, label: string, color?: Color }} o
+ * A 28 px fully rounded Surface 0 chip, content-wide; add its icon and text as children. Its hover is
+ * a plain style swap, so it works inside a virtual list, whose rows take no handlers. Secondary
+ * text moves to Subtext 1 on the hovered fill to keep 4.5:1; a chip given `color` keeps it.
+ * @param {Theme} t themeColors() @param {{ color?: Color }} [o]
  */
-export function chip(t, o) {
+export function chip(t, o = {}) {
+  const color = o.color;
   return h_flex()
-    .when(Boolean(o.id), (el) => el.id(/** @type {string} */ (o.id)))
-    .flex_none()
     .h(28)
+    .max_w_full()
+    .min_w(0)
     .px(10)
-    .gap(6)
+    .gap(8)
     .items_center()
     .rounded(14)
     .bg(t.raised)
     .text_size(12.5)
-    .text_color(o.color ?? t.muted)
-    .hover((s) => s.bg(raisedHover))
-    .when(Boolean(o.icon), (el) => el.child(o.icon))
-    .child(div().min_w(0).truncate().child(o.label));
+    .text_color(color ?? t.muted)
+    .hover((s) => (color ? s.bg(raisedHover) : s.bg(raisedHover).text_color(mutedOnSelected)));
 }
 
 /** A stable hue per key, so a tile keeps its colour as projects come and go. @param {string} key */

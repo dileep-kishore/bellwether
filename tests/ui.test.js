@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { div } from "gpui-kit";
 import { findAll, textOf } from "./harness/kit-stub.js";
-import { ICONS, ago, appear, button, machineTag, monogram, programIcon, statusMark } from "../shared/ui.js";
+import { ICONS, ago, appear, button, chip, machineTag, monogram, programIcon, statusMark } from "../shared/ui.js";
 
 const ROOT = join(import.meta.dir, "..");
 const t = new Proxy({}, { get: (_o, k) => `#${String(k)}` });
@@ -151,4 +151,13 @@ test("on a Surface 0 card, secondary is Surface 1 and disabled keeps Surface 0 w
     border_color: "#border",
   });
   expect(button(t, { id: "b", label: "Go", kind: "primary", on: "raised" }).attrs.bg).toBe("#solid");
+});
+
+test("a chip lifts muted text to Subtext 1 on hover, and keeps a colour it was given", () => {
+  const plain = chip(t);
+  expect(plain.attrs).toMatchObject({ h: 28, rounded: 14, bg: "#raised", text_color: "#muted" });
+  expect(plain.attrs.hover.text_color).toBe("#bac2de");
+  const failed = chip(t, { color: "#blocked" });
+  expect(failed.attrs.text_color).toBe("#blocked");
+  expect(failed.attrs.hover.text_color).toBeUndefined();
 });

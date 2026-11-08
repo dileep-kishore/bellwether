@@ -7,7 +7,7 @@ import { h_flex, v_flex, Scrollbar, v_virtual_list } from "gpui-base";
 import { BUBBLE, GUTTER, PIC_GAP, PIC_MAX } from "./estimate.js";
 import { markdownView } from "./mdblocks.js";
 import { megabytes } from "./target.js";
-import { ICONS, mutedOnSelected, raisedHover, statusMark } from "./ui.js";
+import { ICONS, chip, statusMark } from "./ui.js";
 
 /** @typedef {import("./ui.js").Theme} Theme */
 
@@ -148,23 +148,6 @@ function calls(row, d) {
     );
 }
 
-/**
- * A 28 px Surface 0 chip, content-wide, inside a full-width row. Rows of a virtual list take no
- * handlers, so its hover is a plain style swap; Subtext 1 keeps secondary text at 4.5:1 on it.
- * @param {Draw} d
- */
-const chipLine = (d) =>
-  h_flex()
-    .h(28)
-    .max_w_full()
-    .min_w(0)
-    .px(10)
-    .gap(8)
-    .items_center()
-    .rounded(14)
-    .bg(d.t.raised)
-    .hover((s) => s.bg(raisedHover).text_color(mutedOnSelected));
-
 /** @param {Row} row @param {Draw} d */
 function tools(row, d) {
   const open = d.open.has(row.id);
@@ -175,9 +158,7 @@ function tools(row, d) {
     .w_full()
     .items_center()
     .child(
-      chipLine(d)
-        .text_size(12.5)
-        .text_color(row.error ? d.t.blocked : d.t.muted)
+      chip(d.t, { color: row.error ? d.t.blocked : undefined })
         .child(
           row.live ? spinner(d) : row.error ? svg(ICONS.close).size(12).flex_none().text_color(d.t.blocked) : check(d),
         )
@@ -200,9 +181,7 @@ function changed(row, d) {
     .w_full()
     .items_center()
     .child(
-      chipLine(d)
-        .text_size(12.5)
-        .text_color(d.t.muted)
+      chip(d.t)
         .child(svg(icon("changes")).size(14).flex_none())
         .child(
           div()

@@ -391,6 +391,8 @@ describe("dock", () => {
     lines = rootWith([{ ...REQUEST, state: "declined", resolved_ms: T0 + 3000 }]);
     await nextPoll(m);
     expect(textOf(byId(m.el, `card-${REQUEST.id}`))).toContain("Denied");
+    // A denied card shows no success check.
+    expect(byId(m.el, `card-done-${REQUEST.id}`).attrs.opacity).toBe(0);
     expect(buttonIds(m, REQUEST.id)).toEqual([]);
     setSystemTime(new Date(T0 + 3000 + 10_000));
     m.render();
