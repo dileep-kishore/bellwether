@@ -20,6 +20,7 @@ import {
   rowFor,
   tabMachine,
   viewFiles,
+  watchAnswer,
   writeBase,
 } from "../../mods/bw-diff/model.js";
 
@@ -251,6 +252,18 @@ describe("model", () => {
       "--old",
       "old-name.txt",
     ]);
+    expect(filesArgs("/w", { ref: null, mode: "merge-base" }, null, { since: null }).slice(-1)).toEqual(["--watch"]);
+    expect(filesArgs("/w", { ref: null, mode: "merge-base" }, null, { since: "a.1.k" }).slice(-3)).toEqual([
+      "--watch",
+      "--since",
+      "a.1.k",
+    ]);
+    expect(watchAnswer([{ type: "diff-unchanged", token: "a.1.k" }])).toEqual({ unchanged: true, token: "a.1.k" });
+    expect(watchAnswer([...FILES, { type: "diff-token", token: "a.2.k" }])).toEqual({
+      unchanged: false,
+      token: "a.2.k",
+    });
+    expect(watchAnswer(FILES)).toEqual({ unchanged: false, token: null });
     expect(patchArgs("/w", { ...sel, section: "committed" }, { from: null, to: "h" }, 0)).toBe(null);
     expect(
       patchArgs("/w", { section: "changes", path: "f", oldPath: null, untracked: true }, { from: null, to: null }, 2),
@@ -588,6 +601,73 @@ describe("polling (done check E)", () => {
     expect(calls(m, "files")).toHaveLength(8);
     expect(starts).toHaveLength(7);
     expect(starts.slice(1).map((s, i) => s - starts[i])).toEqual(Array(6).fill(1500));
+  });
+
+  test("a shown remote panel sends the watcher's token and keeps its rows while nothing changed", async () => {
+    setSystemTime(new Date(1_794_009_600_000));
+    let n = 0;
+    const m = await panel({
+      machine: "macmini",
+      answers: {
+        "diff files": () => {
+          n++;
+          // A full read with a token, three unchanged answers, then an edit and a new token.
+          if (n === 1) return out([...FILES, { type: "diff-token", token: "w.0.k" }]);
+          if (n <= 4) return out([{ type: "diff-unchanged", token: "w.0.k" }]);
+          if (n === 5) return out([...FILES, { type: "diff-token", token: "w.1.k" }]);
+          return out([{ type: "diff-unchanged", token: "w.1.k" }]);
+        },
+        "diff patch": PATCH,
+        "diff refs": REFS,
+      },
+    });
+    await runFor(m, 10000);
+    const sent = calls(m, "files").map((c) => {
+      const i = c.args.indexOf("--since");
+      return [c.args.includes("--watch"), i === -1 ? null : c.args[i + 1]];
+    });
+    expect(sent).toEqual([
+      [true, null],
+      [true, "w.0.k"],
+      [true, "w.0.k"],
+      [true, "w.0.k"],
+      [true, "w.0.k"],
+      [true, "w.1.k"],
+      [true, "w.1.k"],
+    ]);
+    expect(textOf(byId(m.el, "diff-file-changes-notes.txt"))).toBe("M notes.txt +2 −1");
+  });
+
+  test("an unchanged answer with no list makes the next read a full one", async () => {
+    setSystemTime(new Date(1_794_009_600_000));
+    const m = await panel({
+      machine: "macmini",
+      answers: { "diff files": [{ type: "diff-unchanged", token: "w.0.k" }], "diff patch": PATCH, "diff refs": REFS },
+    });
+    await runFor(m, 3000);
+    expect(calls(m, "files").every((c) => !c.args.includes("--since"))).toBe(true);
+    expect(calls(m, "files").length).toBeGreaterThan(1);
+  });
+
+  test("a local panel never asks for the helper's watcher", async () => {
+    setSystemTime(new Date(1_794_009_600_000));
+    /** @type {((paths: string[]) => void)[]} */
+    const waiting = [];
+    const m = await panel({
+      watch: () => new Promise((resolve) => waiting.push(resolve)),
+      answers: {
+        "diff files": [...FILES, { type: "diff-token", token: "w.0.k" }],
+        "diff patch": PATCH,
+        "diff refs": REFS,
+      },
+    });
+    await runFor(m, 3000);
+    for (const w of waiting.splice(0)) w([`${TOP}/notes.txt`]);
+    await m.cx.flush();
+    m.render();
+    await m.cx.flush();
+    expect(calls(m, "files")).toHaveLength(2);
+    expect(calls(m, "files").every((c) => !c.args.includes("--watch"))).toBe(true);
   });
 
   test("shown local panel reads on a watch event and not on a timer", async () => {

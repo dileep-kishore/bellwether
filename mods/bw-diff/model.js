@@ -278,17 +278,36 @@ export function rowFor(view, file) {
 export const selectionOf = (r) => ({ section: r.section, path: r.path, oldPath: r.oldPath, untracked: r.untracked });
 
 /**
- * `bw diff files` arguments.
+ * `bw diff files` arguments. With `watch`, the helper's watcher answers `diff-unchanged` while `since`, the
+ * token of the last read, still holds.
  * @param {string} folder @param {BaseChoice} base @param {Selection | null} selected
+ * @param {{ since: string | null } | null} [watch]
  */
-export function filesArgs(folder, base, selected) {
+export function filesArgs(folder, base, selected, watch = null) {
   const args = ["diff", "files", "--path", folder, "--mode", base.mode];
   if (base.ref !== null) args.push("--base", base.ref);
   if (selected) {
     args.push("--select", selected.section, "--file", selected.path);
     if (selected.oldPath) args.push("--old", selected.oldPath);
   }
+  if (watch) {
+    args.push("--watch");
+    if (watch.since) args.push("--since", watch.since);
+  }
   return args;
+}
+
+/**
+ * What a `bw diff files --watch` answer says about the watcher: nothing changed since the token sent, or
+ * the token for the read it holds (null while no watcher runs).
+ * @param {unknown[]} lines @returns {{ unchanged: boolean, token: string | null }}
+ */
+export function watchAnswer(lines) {
+  const all = /** @type {any[]} */ (lines.filter((l) => l && typeof l === "object"));
+  const u = all.find((l) => l.type === "diff-unchanged" && typeof l.token === "string");
+  if (u) return { unchanged: true, token: u.token };
+  const t = all.find((l) => l.type === "diff-token" && typeof l.token === "string");
+  return { unchanged: false, token: t ? t.token : null };
 }
 
 /**

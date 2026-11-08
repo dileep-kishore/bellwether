@@ -24,6 +24,7 @@ import {
   tabMachine,
   totals,
   viewFiles,
+  watchAnswer,
   writeBase,
 } from "./model.js";
 import { patchView, letterColor, counts } from "./patch.js";
@@ -155,6 +156,9 @@ export default class Changes extends View {
     /** @type {Map<string, string>} */
     this.commonDirs = new Map();
     this.nonce = 0;
+    /** The helper watcher's token for the last remote read, and the target it was read for. */
+    /** @type {{ key: string, value: string } | null} */
+    this.token = null;
     this.shown = false;
     /** Whether the shown folder has had a result; until then a read always runs. */
     this.answered = false;
@@ -221,7 +225,9 @@ export default class Changes extends View {
     }
     const sel = this.selected;
     const started = Date.now();
-    const answer = await this.helper.call(target.machine, filesArgs(target.path, target.base, sel));
+    // A local panel reads on Herdr's watch, which can wake it before the helper's watcher sees the edit.
+    const watch = target.machine === null ? null : { since: this.token?.key === target.key ? this.token.value : null };
+    const answer = await this.helper.call(target.machine, filesArgs(target.path, target.base, sel, watch));
     return { ok: answer.ok, answer, sel, started };
   }
 
@@ -238,6 +244,17 @@ export default class Changes extends View {
     if (answer.ok === false) {
       this.failure = { state: answer.state, message: answer.message };
       if (answer.state === "failed" && /not in a Git worktree|is not a folder/.test(answer.message)) this.view = null;
+      return true;
+    }
+    const watched = watchAnswer(answer.lines);
+    this.token = watched.token ? { key: target.key, value: watched.token } : null;
+    if (watched.unchanged) {
+      // The shown list still holds; without one, the cleared token makes the next read a full one.
+      if (!this.view) this.token = null;
+      else {
+        this.failure = null;
+        this.viewAt = Number(result.started) || 0;
+      }
       return true;
     }
     const view = viewFiles(answer.lines);
