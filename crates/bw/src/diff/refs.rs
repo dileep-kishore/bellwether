@@ -67,13 +67,31 @@ pub fn run(a: &Args) -> Result<(), Fail> {
     Ok(())
 }
 
+/// The remote a base ref tracks: `upstream` for `upstream/main` when that is a remote-tracking ref, else
+/// `origin`.
+fn remote_of(top: &std::path::Path, remotes: &str, base: &str) -> Result<String, Fail> {
+    for r in remotes.lines() {
+        if base.starts_with(&format!("{r}/"))
+            && commit_of(top, &format!("refs/remotes/{base}"))?.is_some()
+        {
+            return Ok(r.to_string());
+        }
+    }
+    Ok("origin".to_string())
+}
+
 pub fn fetch(a: &Args) -> Result<(), Fail> {
     let path = a
         .get("path")
         .ok_or_else(|| fail("usage", "--path is required"))?;
     let top = place(path)?.top;
-    let remote = a.get("remote").unwrap_or("origin");
     let remotes = String::from_utf8_lossy(&git_ok(&top, &["remote"])?).to_string();
+    let remote = match (a.get("remote"), a.get("base")) {
+        (Some(r), _) => r.to_string(),
+        (None, Some(b)) => remote_of(&top, &remotes, b)?,
+        (None, None) => "origin".to_string(),
+    };
+    let remote = remote.as_str();
     if !remotes.lines().any(|r| r == remote) {
         return Err(fail(
             "no_remote",

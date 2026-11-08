@@ -73,7 +73,7 @@ pub fn run(argv: &[String]) -> ExitCode {
         "refs" => args::parse_free(rest, &[], &["path", "verify"], &["verify"])
             .map_err(|e| fail("usage", e))
             .and_then(|a| refs::run(&a)),
-        "fetch" => args::parse(rest, &[], &["path", "remote"])
+        "fetch" => args::parse_free(rest, &[], &["path", "remote", "base"], &["base"])
             .map_err(|e| fail("usage", e))
             .and_then(|a| refs::fetch(&a)),
         other => Err(fail("usage", format!("unknown diff command {other:?}"))),

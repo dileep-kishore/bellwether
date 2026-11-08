@@ -695,6 +695,30 @@ fn fetch_brings_origin_main() {
 }
 
 #[test]
+fn fetch_takes_the_base_remote() {
+    let r = repos();
+    let dir = r.get("changes");
+    let (code, lines) = bw(&[
+        "diff",
+        "fetch",
+        "--path",
+        dir.to_str().unwrap(),
+        "--base",
+        "origin/main",
+    ]);
+    assert_eq!((code, lines[0]["remote"].as_str()), (0, Some("origin")));
+    let (code, lines) = bw(&[
+        "diff",
+        "fetch",
+        "--path",
+        dir.to_str().unwrap(),
+        "--base",
+        "v1",
+    ]);
+    assert_eq!((code, lines[0]["remote"].as_str()), (0, Some("origin")));
+}
+
+#[test]
 fn fetch_unknown_remote() {
     let r = repos();
     let (code, lines) = bw(&[
