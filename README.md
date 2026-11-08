@@ -768,8 +768,8 @@ call to the stage's `helper-calls.log` (a timestamp and the command, such as
 `feed` or `browser status`, never its arguments, which can hold chat text) and
 runs the repository's `bw`, so a check can count calls without touching the
 installed helper.
-`shared/helper.js` needs `bw version` to report version 0.5.0 and protocol 5;
-0.5.0 adds phase 5's `bw diff` commands, so a machine with 0.4.1 reinstalls
+`shared/helper.js` needs `bw version` to report version 0.6.0 and protocol 6;
+0.6.0 adds phase 6's `bw linear` commands, so a machine with 0.5.0 reinstalls
 once.
 Phase 4's helper adds the `browser` and `agent` commands, so every machine's
 helper reinstalls once. When another machine's helper is missing or

@@ -149,7 +149,7 @@ describe("call", () => {
     expect(HELPER_SCRIPT).toBe('exec "$HOME"/.local/share/bellwether/helper/current/bw "$@"');
   });
 
-  test("an error line is failed with its message", async () => {
+  test("an error line is failed with its message and bw's code", async () => {
     const w = fakeWorld(
       new Map([
         [
@@ -165,6 +165,7 @@ describe("call", () => {
       ok: false,
       state: "failed",
       message: "no session abc",
+      code: "no_session",
     });
   });
 
@@ -180,7 +181,7 @@ describe("call", () => {
         ],
       ]),
     );
-    expect(await w.helper.call("tsuki", ["x"])).toEqual({ ok: false, state: "failed", message: "late" });
+    expect(await w.helper.call("tsuki", ["x"])).toEqual({ ok: false, state: "failed", message: "late", code: "x" });
   });
 
   test("a nonzero exit without an error line is failed with stderr", async () => {
@@ -267,9 +268,9 @@ describe("ensure", () => {
     });
   });
 
-  test("this window needs helper 0.5.0, protocol 5", () => {
-    expect(PROTOCOL).toBe(5);
-    expect(HELPER_VERSION).toBe("0.5.0");
+  test("this window needs helper 0.6.0, protocol 6", () => {
+    expect(PROTOCOL).toBe(6);
+    expect(HELPER_VERSION).toBe("0.6.0");
   });
 
   test("a phase 3 helper (protocol 3, 0.3.0) is outdated", async () => {
@@ -280,7 +281,7 @@ describe("ensure", () => {
     expect(r).toEqual({
       ok: false,
       state: "outdated",
-      message: "bw on tsuki is protocol 3 version 0.3.0; this window needs protocol 5 version 0.5.0",
+      message: "bw on tsuki is protocol 3 version 0.3.0; this window needs protocol 6 version 0.6.0",
     });
   });
 
@@ -292,7 +293,7 @@ describe("ensure", () => {
     expect(r).toEqual({
       ok: false,
       state: "outdated",
-      message: "bw on tsuki is protocol 2 version 0.2.0; this window needs protocol 5 version 0.5.0",
+      message: "bw on tsuki is protocol 2 version 0.2.0; this window needs protocol 6 version 0.6.0",
     });
   });
 
@@ -304,7 +305,7 @@ describe("ensure", () => {
     expect(r).toEqual({
       ok: false,
       state: "outdated",
-      message: "bw on tsuki is protocol 1 version 0.1.0; this window needs protocol 5 version 0.5.0",
+      message: "bw on tsuki is protocol 1 version 0.1.0; this window needs protocol 6 version 0.6.0",
     });
   });
 

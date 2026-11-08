@@ -4,7 +4,7 @@
 //   bun git-run.js --root <dir> [--bw <path> | --machine <name> --install-bw <path>]
 // Prints PASS <check> or FAIL <check>: <why>; exits 1 on any FAIL.
 import { parseArgs } from "node:util";
-import { createHelper, HELPER_SCRIPT } from "../../shared/helper.js";
+import { createHelper, HELPER_SCRIPT, HELPER_VERSION, PROTOCOL } from "../../shared/helper.js";
 import { viewFiles } from "../../mods/bw-diff/model.js";
 import { lines, reporter, spawn, viaHc } from "./live.js";
 
@@ -102,7 +102,7 @@ async function main() {
       fail("helper", `${M}: ${ready.message}`);
       return;
     }
-    pass("helper", `bw on ${M} is current (protocol 5, 0.5.0)`);
+    pass("helper", `bw on ${M} is current (protocol ${PROTOCOL}, ${HELPER_VERSION})`);
   }
   const C = `${ROOT}/changes`;
   const files = await bw(["files", "--path", C]);

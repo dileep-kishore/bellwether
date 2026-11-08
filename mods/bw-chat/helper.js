@@ -1,7 +1,7 @@
 // Runs the `bw` helper on the machine a space lives on. Imports nothing, so mods copy it and `bun test` runs it.
 
-export const PROTOCOL = 5;
-export const HELPER_VERSION = "0.5.0";
+export const PROTOCOL = 6;
+export const HELPER_VERSION = "0.6.0";
 // Arguments reach bw as "$@", never through the shell's parser. Another machine always runs its installed helper.
 export const HELPER_SCRIPT = 'exec "$HOME"/.local/share/bellwether/helper/current/bw "$@"';
 // This machine runs $BW_HELPER when the app was started with it (the stage window counts calls this way).
@@ -37,6 +37,7 @@ const CACHE_MS = 60_000;
  * @property {false} ok
  * @property {FailState} state
  * @property {string} message
+ * @property {string} [code] bw's own error code, when bw reported the error
  */
 
 /**
@@ -124,7 +125,10 @@ export function createHelper({ exec, localInstall, now = Date.now }) {
       return fail("bad_output", e instanceof Error ? e.message : String(e));
     }
     const err = lines.find((l) => l.type === "error");
-    if (err) return fail("failed", String(err.message ?? err.code ?? "bw reported an error"));
+    if (err) {
+      const f = fail("failed", String(err.message ?? err.code ?? "bw reported an error"));
+      return typeof err.code === "string" ? { ...f, code: err.code } : f;
+    }
     if (r.code !== 0) return fail("failed", `bw exited ${r.code}: ${r.stderr.trim().slice(0, 200)}`);
     return { ok: true, lines };
   }
