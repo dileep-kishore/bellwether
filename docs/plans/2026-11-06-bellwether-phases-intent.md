@@ -347,3 +347,18 @@ Answer:
   Evidence: `crates/bw/tests/diff.rs` (3 new tests) and
   `tests/mods/bw-diff.test.js` "review fixes" (11 new tests), each
   failing on 837431b.
+- 2026-11-08: phase 6 build notes, not plan changes. Mine reads as open
+  issues assigned to the viewer in any project and All as every open
+  issue, since the spec makes Mine the default for an unlinked
+  repository; open leaves out the completed, canceled and duplicate
+  state types. `bw linear` calls Linear through `/usr/bin/curl` with
+  the key in curl's config on standard input, since the workspace has
+  no HTTPS client. Chips are kept in `shared("bw.chat.attach")` by the
+  chat's tab id, and "text built at Send" is `bw linear issue --text`
+  on the window machine for each chip.
+- 2026-11-08: phase 6 step 1's secure prompt was not needed: a
+  `bellwether.linear` Keychain item already existed on the Mac mini
+  (created 2026-11-07 05:41 UTC), and done check D's list half ran
+  against Linear with it. The T3 prompt the build sent timed out
+  unanswered. Evidence:
+  `docs/drafts/phase5-onward/phase6/linear-1.log`.
