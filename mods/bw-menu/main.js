@@ -79,7 +79,7 @@ export default class Menu extends View {
       },
       {
         id: "menu-linear",
-        icon: null,
+        icon: "mods/bw-right/icons/issues.svg",
         label: "Link Linear project",
         hint: "coming in phase 6",
         enabled: false,

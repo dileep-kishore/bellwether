@@ -111,14 +111,15 @@ function questionBody(c, v, h) {
               .justify_center()
               .rounded(3)
               .border(1)
-              .border_color(on ? t.accent : t.border)
+              // Overlay 2 keeps an empty box at 3:1 on the Surface 0 card; Surface 1 would be 1.4:1.
+              .border_color(on ? t.accent : t.dim)
               .when(on, (el) => el.bg(t.accent).child(svg(ICONS.check).size(10).text_color(t.background)))
           : div()
               .size(14)
               .flex_none()
               .rounded(7)
               .border(on ? 4 : 1)
-              .border_color(on ? t.accent : t.border);
+              .border_color(on ? t.accent : t.dim);
         return h_flex()
           .id(`qopt-${c.id}-${step}-${i}`)
           .w_full()

@@ -380,3 +380,11 @@ describe("threads card", () => {
     expect(textOf(byId(n.el, "view-note"))).toBe("This conversation ended; showing the new one");
   });
 });
+
+test("the threads card keeps 12 px each side in a narrow pane and is 312 px otherwise", async () => {
+  const { cardWidth, CARD_W } = await import("../../mods/bw-chat/threads.js");
+  expect(cardWidth(0)).toBe(CARD_W);
+  expect(cardWidth(900)).toBe(312);
+  expect(cardWidth(250)).toBe(226);
+  expect(cardWidth(100)).toBe(160);
+});

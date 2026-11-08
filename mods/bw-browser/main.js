@@ -268,8 +268,8 @@ export default class Browser extends View {
           .min_w(0)
           .gap(8)
           .items_center()
-          .child(div().flex_none().text_size(13).font_medium().child("Bellwether Chrome"))
-          .child(pill(t, v.chrome.label, stateTone(v.chrome.state), "browser-state-pill").flex_shrink_1().min_w(0)),
+          .child(div().min_w(0).truncate().text_size(13).font_medium().child("Bellwether Chrome"))
+          .child(pill(t, v.chrome.label, stateTone(v.chrome.state), "browser-state-pill")),
       )
       .when(running, (el) =>
         el

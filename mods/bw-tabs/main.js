@@ -178,7 +178,8 @@ export default class Tabs extends View {
             el.child(div().id(`tab-drop-${c.id}`).absolute().left(-3).top(2).bottom(2).w(2).rounded(1).bg(t.accent)),
           )
           .when(c.active, (el) =>
-            el.child(div().id(`tab-mark-${c.id}`).absolute().left(10).bottom(2).w(12).h(2).rounded(1).bg(t.accent)),
+            // Under the title: the 10 px inset, the 13 px icon and the 6 px gap come first.
+            el.child(div().id(`tab-mark-${c.id}`).absolute().left(29).bottom(2).w(14).h(2).rounded(1).bg(t.accent)),
           )
           .child(programIcon(c.program, t, 13))
           .child(div().max_w(170).truncate().child(c.title))

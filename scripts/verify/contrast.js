@@ -59,6 +59,7 @@ export function pairs() {
   for (const [n, c] of Object.entries({ Peach: M.peach, Blue: M.blue, Green: M.green, Red: M.red }))
     text(`Crust on ${n} pill`, M.crust, c);
   for (const hue of TILE_HUES) text(`Crust on monogram ${hue}`, M.crust, hue);
+  mark("empty option box (Overlay 2) on a Surface 0 card", R.dim, M.surface0);
   mark("Mauve focus border on Base", R.accent, M.base);
   mark("Mauve focus border on Crust", R.accent, M.crust);
   mark("Mauve insertion line on Mantle", R.accent, M.mantle);
@@ -68,11 +69,11 @@ export function pairs() {
 /** Disabled controls are exempt from the text minimum but must look different from enabled ones. */
 export function disabledDiffers() {
   const enabled = [`${R.solid}/${R.solid_foreground}`, `${M.surface0}/${R.foreground}`, `none/${R.muted}`];
-  // On a Surface 0 card secondary is Surface 1 and disabled Mantle.
+  // On a Surface 0 card secondary is Surface 1; disabled keeps Surface 0 and adds a Surface 1 border.
   const onCard = [`${R.solid}/${R.solid_foreground}`, `${M.surface1}/${R.foreground}`];
   return (
     enabled.every((look) => look !== `${M.surface0}/${R.dim}`) &&
-    onCard.every((look) => look !== `${M.mantle}/${R.dim}`)
+    onCard.every((look) => look !== `${M.surface0}/${R.dim}`)
   );
 }
 

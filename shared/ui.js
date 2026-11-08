@@ -262,7 +262,8 @@ export function hoverFill(t, id, hovered, radius = 8) {
 /**
  * A button: primary is Mauve with Crust text, secondary Surface 0 with Text, ghost no fill with
  * Subtext 0. Disabled is Surface 0 with Overlay 2 text and no hover, for every kind. On a Surface 0
- * card (`on: "raised"`) secondary is Surface 1 and disabled Mantle, so neither melts into the card.
+ * card (`on: "raised"`) secondary is Surface 1 and disabled keeps Surface 0 with a Surface 1 border,
+ * so neither melts into the card.
  * @param {Theme} t themeColors()
  * @param {{ id: string, label?: string, icon?: any, kind?: ButtonKind, enabled?: boolean, h?: number,
  *   on?: "raised", onClick?: (e: unknown, cx: any) => void }} o
@@ -275,7 +276,7 @@ export function button(t, o) {
   const onCard = o.on === "raised";
   /** @type {[Color | null, Color, Color | null]} fill, text, hover */
   const look = !enabled
-    ? [onCard ? t.chrome : t.raised, t.dim, null]
+    ? [t.raised, t.dim, null]
     : kind === "primary"
       ? [t.solid, t.solid_foreground, /** @type {Color} */ (mix(MOCHA.text, MOCHA.mauve, 0.15))]
       : kind === "secondary"
@@ -297,6 +298,7 @@ export function button(t, o) {
     .font_medium()
     .text_color(fg)
     .when(fill !== null, (el) => el.bg(/** @type {Color} */ (fill)))
+    .when(!enabled && onCard, (el) => el.border(1).border_color(t.border))
     .disabled(!enabled)
     .when(enabled && hover !== null, (el) => el.cursor_pointer().hover((s) => s.bg(/** @type {Color} */ (hover))))
     .when(enabled && Boolean(o.onClick), (el) => el.on_click(/** @type {any} */ (o.onClick)))

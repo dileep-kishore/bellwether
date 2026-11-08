@@ -14,6 +14,7 @@ test("names the agent or shell by program and spells home as ~", () => {
   expect(paneName({ program: { shell: true, name: "zsh" }, title: "vim x" })).toBe("zsh");
   expect(paneName({ program: { name: "Neovim" }, title: "main.rs" })).toBe("main.rs");
   expect(paneName({ program: null, title: "" })).toBe("shell");
+  expect(paneName({ mod: "bw-chat", title: "bw-chat", program: { name: "program" } })).toBe("Chat");
   expect(shortFolder("/home/test", "/home/test")).toBe("~");
   expect(shortFolder("/home/test/r/a", "/home/test")).toBe("~/r/a");
   expect(shortFolder("/home/tester", "/home/test")).toBe("/home/tester");

@@ -74,6 +74,7 @@ export default class Right extends View {
       .child(
         h_flex()
           .id("right-track")
+          .flex_1()
           .h(28)
           .p(2)
           .gap(2)
@@ -85,6 +86,8 @@ export default class Right extends View {
               const on = p.id === shown;
               return h_flex()
                 .id(`right-tab-${p.id}`)
+                .flex_1()
+                .justify_center()
                 .h(24)
                 .px(10)
                 .gap(6)

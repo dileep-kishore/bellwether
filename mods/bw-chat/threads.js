@@ -73,7 +73,7 @@ function threadRow(row, t, current, hovered, h) {
  * Herdr drops an absolute element's insets when that element scrolls, and a percentage cap collapses
  * the scrolling box, so the card only places itself and an inner box capped in pixels scrolls.
  * @param {Row[]} rows
- * @param {{ t: Theme, current: string | null, onRow: (row: Row, cx: any) => void, paneHeight: number,
+ * @param {{ t: Theme, current: string | null, onRow: (row: Row, cx: any) => void, paneHeight: number, paneWidth?: number,
  *   hovered?: string | null, onHover?: (id: string, on: boolean, cx: any) => void }} o
  *   `current` is the row id the view shows; null for the parent. `paneHeight` is 0 before the first layout.
  *   `hovered` is the element id of the row under the pointer.
@@ -85,7 +85,7 @@ export function threadsCard(rows, o) {
     .absolute()
     .top(EDGE)
     .right(EDGE)
-    .w(CARD_W)
+    .w(cardWidth(o.paneWidth ?? 0))
     .rounded(12)
     .bg(t.popover)
     .border(1)
@@ -107,6 +107,12 @@ export function threadsCard(rows, o) {
           ),
         ),
     );
+}
+
+/** CARD_W, narrowed to keep 12 px on each side in a narrow pane; CARD_W before the pane is measured.
+ * @param {number} paneWidth */
+export function cardWidth(paneWidth) {
+  return paneWidth > 0 ? Math.max(160, Math.min(CARD_W, paneWidth - 2 * EDGE)) : CARD_W;
 }
 
 /** Half the pane, or 320 px before the pane has been measured. @param {number} paneHeight */

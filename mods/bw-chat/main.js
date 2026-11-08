@@ -932,7 +932,7 @@ export default class Chat extends View {
       .border_b(1)
       .border_color(t.border)
       .child(programIcon(term?.program ?? null, t, 14))
-      .child(div().flex_none().text_size(13).font_semibold().text_color(t.foreground).child(this.name))
+      .child(div().min_w(0).truncate().text_size(13).font_semibold().text_color(t.foreground).child(this.name))
       .when(Boolean(term?.branch), (el) =>
         el.child(
           h_flex()
@@ -1150,6 +1150,7 @@ export default class Chat extends View {
               current,
               onRow: (row, cx) => this.openRow(row, cx),
               paneHeight: this.paneHeight,
+              paneWidth: this.width,
               hovered: this.threadHover,
               onHover: (id, on, cx) => {
                 // Leaving one row and entering the next arrive in either order.

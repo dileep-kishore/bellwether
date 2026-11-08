@@ -142,11 +142,13 @@ test("every icon is a 16x16 one-colour svg in mods/bw-projects/icons", () => {
   }
 });
 
-test("on a Surface 0 card, secondary is Surface 1 and disabled is Mantle", () => {
+test("on a Surface 0 card, secondary is Surface 1 and disabled keeps Surface 0 with a border", () => {
   expect(button(t, { id: "b", label: "Deny", on: "raised" }).attrs).toMatchObject({ bg: "#selected" });
   expect(button(t, { id: "b", label: "Deny", on: "raised", enabled: false }).attrs).toMatchObject({
-    bg: "#chrome",
+    bg: "#raised",
     text_color: "#dim",
+    border: 1,
+    border_color: "#border",
   });
   expect(button(t, { id: "b", label: "Go", kind: "primary", on: "raised" }).attrs.bg).toBe("#solid");
 });

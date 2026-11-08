@@ -22,6 +22,9 @@ export function shortFolder(cwd, h) {
  * @param {any} p PaneInfo
  */
 export function paneName(p) {
+  // A mod pane's title is its folder name; "bw-chat" reads as "Chat".
+  if (p.mod && p.title === p.mod)
+    return p.mod.replace(/^bw-/, "").replace(/^./, (/** @type {string} */ c) => c.toUpperCase());
   if ((p.program?.agent || p.program?.shell) && p.program?.name) return String(p.program.name);
   return String(p.title || p.program?.name || "shell");
 }
