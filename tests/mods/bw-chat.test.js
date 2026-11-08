@@ -348,6 +348,32 @@ describe("bw-chat", () => {
     expect(m.log.run).toEqual([["layout.select", { stack: "right-body", child: "changes" }]]);
   });
 
+  test("a bubble's text wraps afresh after its pane narrows and widens", async () => {
+    // A bubble has no width of its own: Herdr sizes it from its TextView, whose state keeps the width it
+    // last wrapped at. Under the same id, a bubble drawn narrow stayed narrow when the pane widened,
+    // while its row took the wide height, so its text was cut.
+    const m = await mount("bw-chat", { props: CODEX_REMOTE, live: live("chat-tab") });
+    const bubbleAt = async (/** @type {number} */ width) => {
+      await fire(byId(m.el, "chat-root"), "on_size_change", { width, height: 900 }, m.cx);
+      const bubble = findAll(
+        m.render(),
+        (e) => e.attrs.rounded === 16 && textOf(e).includes("Call request_user_input once"),
+      );
+      expect(bubble).toHaveLength(1);
+      const views = findAll(bubble[0], (e) => e.tag === "TextView");
+      expect(views.length).toBeGreaterThan(0);
+      return { w: bubble[0].attrs.max_w, ids: views.map((v) => v.attrs.id) };
+    };
+    const wide = await bubbleAt(800);
+    const narrow = await bubbleAt(420);
+    const again = await bubbleAt(800);
+    expect([wide.w, narrow.w]).toEqual([Math.floor(columnWidth(800) * 0.8), Math.floor(columnWidth(420) * 0.8)]);
+    expect(narrow.ids.some((id) => wide.ids.includes(id))).toBe(false);
+    expect(again.ids.some((id) => narrow.ids.includes(id))).toBe(false);
+    // The same width keeps the same view, so a re-render (a poll) keeps its selection.
+    expect(again).toEqual(wide);
+  });
+
   test("Open in Changes keeps Changes chosen when the space had Browser stored", async () => {
     const data = live("chat-tab");
     data.shared["bw.right.tab"] = { s1: "browser" };
