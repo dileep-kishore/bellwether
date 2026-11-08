@@ -488,10 +488,17 @@ export default class Issues extends View {
       )
       .child(
         h_flex()
+          .id("issues-search")
+          .h(28)
+          .px(8)
           .gap(6)
           .items_center()
+          .rounded(8)
+          .border(1)
+          .border_color(t.input)
+          .bg(t.background)
           .child(svg(icon("search")).size(13).flex_none().text_color(t.muted))
-          .child(Input.new(this.search).flex_1()),
+          .child(Input.new(this.search).flex_1().text_size(12.5).text_color(t.foreground)),
       );
   }
 
@@ -730,7 +737,20 @@ export default class Issues extends View {
               : "This repository has no origin; the link is kept for this machine's copy and moves to the origin once it has one.",
           ),
       )
-      .child(Input.new(this.search).w_full())
+      .child(
+        Input.new(this.search)
+          .id("pick-search")
+          .w_full()
+          .h(28)
+          .px(8)
+          .items_center()
+          .rounded(8)
+          .border(1)
+          .border_color(t.input)
+          .bg(t.background)
+          .text_size(12.5)
+          .text_color(t.foreground),
+      )
       .child(list)
       .child(
         h_flex()
