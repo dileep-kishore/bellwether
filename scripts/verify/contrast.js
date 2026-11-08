@@ -3,7 +3,7 @@
 // (SC 1.4.11). Translucent fills are composited over what they sit on, and a breathing mark is
 // measured at its dimmest opacity.
 //   bun scripts/verify/contrast.js   prints each pair and exits 1 when any falls short
-import { MOCHA as M, MUTED_ON_SELECTED, ROLES as R, TILE_HUES, contrast, mix } from "../../shared/palette.js";
+import { MOCHA as M, MUTED_ON_SELECTED, ROLES as R, TERMINAL, TILE_HUES, contrast, mix } from "../../shared/palette.js";
 
 const HOVER = 0x14 / 255;
 const BREATHE_MIN = 0.65;
@@ -48,6 +48,8 @@ export function pairs() {
     const name = bg === M.surface1 ? "Surface 1" : "hovered Surface 0";
     text(`text on ${name}`, R.foreground, bg);
     text(`muted-on-selected (Subtext 1) on ${name}`, MUTED_ON_SELECTED, bg);
+    text(`removed on a selected row (bright Red) on ${name}`, TERMINAL.ansi[9], bg);
+    text(`added (Green) on ${name}`, M.green, bg);
     for (const s of ["working", "done", "idle"]) mark(`${s} mark on ${name}`, R[/** @type {"working"} */ (s)], bg);
     mark(`blocked mark at ${BREATHE_MIN} on ${name}`, mix(R.blocked, bg, BREATHE_MIN), bg);
     mark(`Mauve marker on ${name}`, R.accent, bg);
@@ -60,6 +62,12 @@ export function pairs() {
     text(`Crust on ${n} pill`, M.crust, c);
   for (const hue of TILE_HUES) text(`Crust on monogram ${hue}`, M.crust, hue);
   mark("empty option box (Overlay 2) on a Surface 0 card", R.dim, M.surface0);
+  for (const [n, bg] of [
+    ["Base", M.base],
+    ["Mantle", M.mantle],
+    ["Surface 0", M.surface0],
+  ])
+    mark(`input field border on ${n}`, R.input, bg);
   mark("Mauve focus border on Base", R.accent, M.base);
   mark("Mauve focus border on Crust", R.accent, M.crust);
   mark("Mauve insertion line on Mantle", R.accent, M.mantle);

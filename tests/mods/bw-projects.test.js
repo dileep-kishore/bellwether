@@ -168,6 +168,10 @@ describe("bw-projects", () => {
     expect(row.attrs.bg).toBe("#selected");
     expect(byId(m.el, `bar-worktree-${main}`).attrs.bg).toBe("#accent");
     expect(byId(m.el, `bar-worktree-${FEAT}`)).toBeNull();
+    // Red counts on the selected row's Surface 1 use the bright red, which keeps 4.5:1 there.
+    const reds = (/** @type {any} */ el) =>
+      findAll(el, (e) => /^[−↓]/.test(textOf(e)) && e.kids.length === 1).map((e) => e.attrs.text_color);
+    expect(reds(byId(m.el, `worktree-${FEAT}`))).toEqual(["#ansi1"]);
     const fill = () => byId(m.el, `hover-worktree-${FEAT}`);
     expect(fill().attrs).toMatchObject({ opacity: 0, transition: ["opacity", 120], bg: "#hover" });
     await fire(byId(m.el, `worktree-${FEAT}`), "on_hover", true, m.cx);
@@ -176,6 +180,10 @@ describe("bw-projects", () => {
     await fire(byId(m.el, `worktree-${FEAT}`), "on_hover", false, m.cx);
     m.render();
     expect(fill().attrs.opacity).toBe(0);
+    fake.spaces = fake.spaces.map((/** @type {any} */ s) => ({ ...s, active: s.id === "s2" }));
+    m.render();
+    expect(byId(m.el, `worktree-${FEAT}`).attrs.bg).toBe("#selected");
+    expect(reds(byId(m.el, `worktree-${FEAT}`))).toEqual(["#ansi9"]);
   });
 
   test("clicking an open row selects its space; an agent line focuses that agent", async () => {

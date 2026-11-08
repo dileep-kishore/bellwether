@@ -87,7 +87,8 @@ export const ROLES = Object.freeze({
   popover: M.mantle,
   raised: M.surface0,
   border: M.surface1,
-  input: M.surface1,
+  // An editable field's edge carries meaning, so it needs 3:1 on Base, Mantle and Surface 0.
+  input: M.overlay1,
   hover: alpha(M.text, 0x14 / 255),
   selected: M.surface1,
   foreground: M.text,

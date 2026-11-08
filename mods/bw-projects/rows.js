@@ -184,7 +184,8 @@ function worktreeCounts(d, w, selected) {
   // Counts from an earlier read keep their place in Subtext until the next one lands.
   const stale = w.stale;
   const add = stale ? quiet : t.ansi2;
-  const del = stale ? quiet : t.ansi1;
+  // Red on a selected row's Surface 1 is 3.9:1; the bright red keeps 4.5:1 there.
+  const del = stale ? quiet : selected ? t.ansi9 : t.ansi1;
   if (c.ahead > 0) out.child(div().text_color(add).child(`↑${c.ahead}`));
   if (c.behind > 0) out.child(div().text_color(del).child(`↓${c.behind}`));
   if (c.added > 0 || c.removed > 0) {
