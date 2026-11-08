@@ -49,6 +49,9 @@ export const mutedOnSelected = /** @type {Color} */ (MUTED_ON_SELECTED);
 /** A Surface 0 fill under the pointer: the hover tint composited, so it lightens rather than replaces. */
 export const raisedHover = /** @type {Color} */ (mix(MOCHA.text, MOCHA.surface0, 0x14 / 255));
 
+/** A Surface 1 fill under the pointer, the hover tint composited. */
+export const selectedHover = /** @type {Color} */ (mix(MOCHA.text, MOCHA.surface1, 0x14 / 255));
+
 /** @param {unknown} status @returns {status is Status} */
 const isStatus = (status) => status === "working" || status === "blocked" || status === "done" || status === "idle";
 
@@ -145,7 +148,7 @@ export function pill(t, text, tone = "count", id = null) {
     .text_color(fg)
     .text_size(11)
     .font_medium()
-    .child(text);
+    .child(div().min_w(0).truncate().child(text));
 }
 
 /**
@@ -258,23 +261,27 @@ export function hoverFill(t, id, hovered, radius = 8) {
 
 /**
  * A button: primary is Mauve with Crust text, secondary Surface 0 with Text, ghost no fill with
- * Subtext 0. Disabled is Surface 0 with Overlay 2 text and no hover, for every kind.
+ * Subtext 0. Disabled is Surface 0 with Overlay 2 text and no hover, for every kind. On a Surface 0
+ * card (`on: "raised"`) secondary is Surface 1 and disabled Mantle, so neither melts into the card.
  * @param {Theme} t themeColors()
  * @param {{ id: string, label?: string, icon?: any, kind?: ButtonKind, enabled?: boolean, h?: number,
- *   onClick?: (e: unknown, cx: any) => void }} o
+ *   on?: "raised", onClick?: (e: unknown, cx: any) => void }} o
  */
 export function button(t, o) {
   const kind = o.kind ?? "secondary";
   const enabled = o.enabled !== false;
   const h = o.h ?? 28;
   const round = !o.label;
+  const onCard = o.on === "raised";
   /** @type {[Color | null, Color, Color | null]} fill, text, hover */
   const look = !enabled
-    ? [t.raised, t.dim, null]
+    ? [onCard ? t.chrome : t.raised, t.dim, null]
     : kind === "primary"
       ? [t.solid, t.solid_foreground, /** @type {Color} */ (mix(MOCHA.text, MOCHA.mauve, 0.15))]
       : kind === "secondary"
-        ? [t.raised, t.foreground, raisedHover]
+        ? onCard
+          ? [t.selected, t.foreground, selectedHover]
+          : [t.raised, t.foreground, raisedHover]
         : [null, t.muted, t.hover];
   const [fill, fg, hover] = look;
   return h_flex()

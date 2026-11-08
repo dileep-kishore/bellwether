@@ -269,18 +269,28 @@ export default class Browser extends View {
           .gap(8)
           .items_center()
           .child(div().flex_none().text_size(13).font_medium().child("Bellwether Chrome"))
-          .child(pill(t, v.chrome.label, stateTone(v.chrome.state), "browser-state-pill").min_w(0).truncate()),
+          .child(pill(t, v.chrome.label, stateTone(v.chrome.state), "browser-state-pill").flex_shrink_1().min_w(0)),
       )
       .when(running, (el) =>
         el
           .child(
-            this.button(t, "browser-new-tab", "plus", "New tab", (cx) =>
-              this.act("new", ["new"], cx, { key: "browser-new-tab" }),
+            this.button(
+              t,
+              "browser-new-tab",
+              "plus",
+              "New tab",
+              (cx) => this.act("new", ["new"], cx, { key: "browser-new-tab" }),
+              true,
             ),
           )
           .child(
-            this.button(t, "browser-arrange", "arrange", "Arrange", (cx) =>
-              this.act("arrange", ["arrange"], cx, { key: "browser-arrange" }),
+            this.button(
+              t,
+              "browser-arrange",
+              "arrange",
+              "Arrange",
+              (cx) => this.act("arrange", ["arrange"], cx, { key: "browser-arrange" }),
+              true,
             ),
           ),
       )
@@ -294,18 +304,20 @@ export default class Browser extends View {
   }
 
   /**
-   * A small header or row button; it shows a spinner while its own action runs.
+   * A small header or row button; it shows a spinner while its own action runs. A round one shows
+   * only its icon and names itself for screen readers.
    * @param {Theme} t @param {string} id @param {string | null} iconName @param {string} label
-   * @param {(cx: any) => void} onClick
+   * @param {(cx: any) => void} onClick @param {boolean} [round]
    */
-  button(t, id, iconName, label, onClick) {
+  button(t, id, iconName, label, onClick, round = false) {
     const running = this.busy === id;
     const idle = this.busy === null;
     return h_flex()
       .id(id)
       .flex_none()
       .h(24)
-      .px(9)
+      .when(round, (el) => el.w(24).justify_center().accessibility_label(label))
+      .when(!round, (el) => el.px(9))
       .gap(5)
       .items_center()
       .rounded(12)
@@ -323,7 +335,7 @@ export default class Browser extends View {
             .text_color(t.muted),
         ),
       )
-      .child(label);
+      .when(!round, (el) => el.child(label));
   }
 
   /** @param {Theme} t @param {Tab} tab */

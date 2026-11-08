@@ -52,6 +52,7 @@ export function pairs() {
     mark(`blocked mark at ${BREATHE_MIN} on ${name}`, mix(R.blocked, bg, BREATHE_MIN), bg);
     mark(`Mauve marker on ${name}`, R.accent, bg);
   }
+  text("text on hovered Surface 1 button", R.foreground, mix(M.text, M.surface1, HOVER));
   text("text on terminal selection", R.foreground, mix(M.mauve, M.base, 0.25));
   text("Crust on Mauve (primary button, accent pill)", M.crust, M.mauve);
   text("Crust on hovered primary button", M.crust, primaryHover);
@@ -66,9 +67,12 @@ export function pairs() {
 
 /** Disabled controls are exempt from the text minimum but must look different from enabled ones. */
 export function disabledDiffers() {
-  const disabled = `${M.surface0}/${R.dim}`;
-  return [`${R.solid}/${R.solid_foreground}`, `${M.surface0}/${R.foreground}`, `none/${R.muted}`].every(
-    (look) => look !== disabled,
+  const enabled = [`${R.solid}/${R.solid_foreground}`, `${M.surface0}/${R.foreground}`, `none/${R.muted}`];
+  // On a Surface 0 card secondary is Surface 1 and disabled Mantle.
+  const onCard = [`${R.solid}/${R.solid_foreground}`, `${M.surface1}/${R.foreground}`];
+  return (
+    enabled.every((look) => look !== `${M.surface0}/${R.dim}`) &&
+    onCard.every((look) => look !== `${M.mantle}/${R.dim}`)
   );
 }
 

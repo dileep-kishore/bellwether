@@ -61,7 +61,7 @@ const MONO = "Menlo";
  * @param {(cx: any) => void} act
  */
 function pushButton(id, label, enabled, primary, t, act) {
-  return button(t, { id, label, kind: primary ? "primary" : "secondary", enabled }).on_click(
+  return button(t, { id, label, kind: primary ? "primary" : "secondary", enabled, on: "raised" }).on_click(
     (/** @type {unknown} */ _e, /** @type {any} */ cx) => act(cx),
   );
 }
@@ -188,7 +188,22 @@ function questionBody(c, v, h) {
       ),
     )
     .child(keys)
-    .when(active && pending, (el) => el.child(Input.new(v.other).id(`qother-${c.id}`).w_full()));
+    .when(active && pending, (el) =>
+      el.child(
+        Input.new(v.other)
+          .id(`qother-${c.id}`)
+          .w_full()
+          .h(30)
+          .px(10)
+          .items_center()
+          .rounded(8)
+          .border(1)
+          .border_color(t.input)
+          .bg(t.chrome)
+          .text_size(13)
+          .text_color(t.foreground),
+      ),
+    );
 }
 
 /** @param {Card} c @param {DockView} v @param {DockHandlers} h */

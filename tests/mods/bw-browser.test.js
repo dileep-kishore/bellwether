@@ -246,7 +246,7 @@ describe("bw-browser", () => {
     const page = byId(m.el, `browser-tab-${PAGE.id}`);
     expect(page.attrs.bg).not.toBe("#selected");
     expect(byId(page, `browser-tab-bar-${PAGE.id}`)).toBe(null);
-    expect(textOf(byId(m.el, "browser-header"))).toBe("Bellwether Chrome Running · 3 tabs New tab Arrange");
+    expect(textOf(byId(m.el, "browser-header"))).toBe("Bellwether Chrome Running · 3 tabs");
     expect(byId(m.el, "browser-header").attrs.h).toBe(36);
   });
 
@@ -461,7 +461,7 @@ describe("bw-browser", () => {
   test("no tabs open says so", async () => {
     const m = await panel({ answers: { "browser status": [CHROME] } });
     expect(textOf(byId(m.el, "browser-state"))).toBe("No tabs open");
-    expect(textOf(byId(m.el, "browser-header"))).toBe("Bellwether Chrome Running · 0 tabs New tab Arrange");
+    expect(textOf(byId(m.el, "browser-header"))).toBe("Bellwether Chrome Running · 0 tabs");
   });
 
   test("the panel fills its block in 13 px text", async () => {
@@ -477,4 +477,13 @@ test("the header pill is Mauve while running, Peach for a taken port, Red when C
     ["running", "port_taken", "start_failed", "not_installed", "helper", "stopped", "loading"].map(stateTone),
   ).toEqual(["accent", "blocked", "failed", "failed", "failed", "machine", "machine"]);
   expect(["ready", "reconnecting", "failed"].map(forwardTone)).toEqual(["done", "blocked", "failed"]);
+});
+
+test("New tab and Arrange are round icon buttons that name themselves", async () => {
+  const m = await panel();
+  expect(["browser-new-tab", "browser-arrange"].map((id) => byId(m.el, id)?.attrs.accessibility_label)).toEqual([
+    "New tab",
+    "Arrange",
+  ]);
+  for (const id of ["browser-new-tab", "browser-arrange"]) expect(byId(m.el, id).attrs).toMatchObject({ w: 24, h: 24 });
 });

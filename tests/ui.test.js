@@ -141,3 +141,12 @@ test("every icon is a 16x16 one-colour svg in mods/bw-projects/icons", () => {
     expect(src).not.toMatch(/#[0-9a-f]{3,6}\b/i);
   }
 });
+
+test("on a Surface 0 card, secondary is Surface 1 and disabled is Mantle", () => {
+  expect(button(t, { id: "b", label: "Deny", on: "raised" }).attrs).toMatchObject({ bg: "#selected" });
+  expect(button(t, { id: "b", label: "Deny", on: "raised", enabled: false }).attrs).toMatchObject({
+    bg: "#chrome",
+    text_color: "#dim",
+  });
+  expect(button(t, { id: "b", label: "Go", kind: "primary", on: "raised" }).attrs.bg).toBe("#solid");
+});
