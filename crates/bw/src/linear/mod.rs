@@ -288,14 +288,14 @@ fn put(address: &str, identifier: &str, description: &str) -> Result<String, Fai
         ));
     }
     let dir = cache::dir().join("attach");
-    std::fs::create_dir_all(&dir).map_err(|e| {
+    cache::private_dir(&dir).map_err(|e| {
         fail(
             "linear_failed",
             format!("could not make {}: {e}", dir.display()),
         )
     })?;
     let file = dir.join(format!("{identifier}-description.md"));
-    std::fs::write(&file, description).map_err(|e| {
+    cache::write_private(&file, description.as_bytes()).map_err(|e| {
         fail(
             "linear_failed",
             format!("could not write {}: {e}", file.display()),

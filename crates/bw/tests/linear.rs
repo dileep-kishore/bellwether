@@ -487,3 +487,37 @@ fn only_linear_or_loopback_gets_the_key() {
     assert_eq!(error_code(&out), "usage");
     assert!(!env.path().join("curl-argv.log").exists());
 }
+
+#[test]
+fn the_cache_is_private_to_this_account() {
+    use std::os::unix::fs::PermissionsExt;
+    let fake = serve(Arc::new(linear));
+    let env = Env::new();
+    // A cache root that does not exist yet, as on first use.
+    assert!(!env.cache().exists());
+    let out = env.bw(
+        fake.port,
+        &["issue", "--id", "PLA-2", "--text", "--put", "t1"],
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    let linear = env.cache().join("linear");
+    for dir in [env.cache(), linear.clone(), linear.join("attach")] {
+        assert_eq!(mode(&dir), 0o700, "{}", dir.display());
+    }
+    let mut files = 0;
+    for dir in [linear.clone(), linear.join("attach")] {
+        for e in std::fs::read_dir(&dir).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_file() {
+                files += 1;
+                assert_eq!(mode(&p), 0o600, "{}", p.display());
+            }
+        }
+    }
+    assert!(files >= 2);
+}
