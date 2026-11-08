@@ -278,17 +278,13 @@ pub fn screen_box(screen: &str) -> Option<ScreenBox> {
     Some(ScreenBox { header, tool, command: command.iter().map(ungutter).collect::<Vec<_>>().join("\n"), lines: bx, clipped: false })
 }
 
-/// Id of the permission prompt on screen: a hash of the tool name, the command and the question with its options,
-/// as `id_text` gives them, so a rewrap at another pane width keeps the id. The description and tips above the
-/// command are left out: they wrap into lines no filter can tell apart. A clipped box hashes every line. None: no
-/// prompt.
+/// Id of the permission prompt on screen: a hash of the tool name and the command as `id_text` gives them, so a
+/// rewrap at another pane width keeps the id. The description, tips, question and options are left out: they wrap
+/// into lines no filter can tell apart, and Claude cuts option text short in a narrow pane. A clipped box hashes
+/// every line. None: no prompt.
 pub fn screen_prompt(screen: &str) -> Option<String> {
     let b = screen_box(screen)?;
-    let ask = b.lines.iter().rposition(|l| l.contains(PROMPT_MARKER));
-    let text = match ask {
-        Some(at) if !b.clipped => format!("{}\n{}", id_text(&[b.command.clone()]), id_text(&b.lines[at..])),
-        _ => id_text(&b.lines),
-    };
+    let text = if b.clipped { id_text(&b.lines) } else { id_text(&[b.command.clone()]) };
     Some(hash_id(&format!("tool:{}\n{}", b.tool, text)))
 }
 

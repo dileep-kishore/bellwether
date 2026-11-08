@@ -219,8 +219,10 @@ fn notice_screen_request() {
     );
     let edit = prompt.replace(" Bash command", " Edit file");
     assert_ne!(screen_prompt(&edit), screen_prompt(&prompt), "notice: screen id includes the tool name");
+    // Bellwether: the id leaves the options out, since Claude cuts option text short in a narrow pane
+    // (crates/bw/tests/matchers.rs rewrap_claude_approval_at_16_columns); the command still decides it.
     let opts = prompt.replace("access to /repo", "access to /other");
-    assert_ne!(screen_prompt(&opts), screen_prompt(&prompt), "notice: screen id includes the whole box (options too)");
+    assert_eq!(screen_prompt(&opts), screen_prompt(&prompt), "notice: screen id leaves the option text out");
     let moved = prompt.replace(" ❯ 1. Yes\n   2.", "   1. Yes\n ❯ 2.");
     assert_ne!(moved, prompt, "(setup) the cursor moved");
     assert_eq!(screen_prompt(&moved), screen_prompt(&prompt), "notice: the option cursor does not change the screen id");

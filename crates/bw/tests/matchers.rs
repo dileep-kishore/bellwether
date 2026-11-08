@@ -538,3 +538,23 @@ fn rewrap_codex_folder_prompt_at_15_columns() {
         .expect("a prompt");
     assert_eq!(p.screen_id, folder_id(&wide));
 }
+
+#[test]
+fn rewrap_claude_approval_at_16_columns() {
+    // One prompt read at 34 columns, then after its pane narrowed to 16 in the window: the question wraps, option 2
+    // reads "2.Yes, and" and loses "this project".
+    let wide = approval_on_screen("claude", &screen("screens/claude-approval-pair-34.txt"))
+        .expect("34 columns");
+    let narrow = approval_on_screen("claude", &screen("screens/claude-approval-pair-16.txt"))
+        .expect("16 columns");
+    assert_eq!(narrow.screen_id, wide.screen_id);
+    assert_eq!(unwrapped(&narrow.command), "touchpair-wrapped-file.txt");
+    let ids = |p: &ScreenPrompt| {
+        actions(p)
+            .iter()
+            .map(|a| a.0.to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(&narrow), ["approve", "always", "deny"]);
+    assert_eq!(ids(&narrow), ids(&wide));
+}

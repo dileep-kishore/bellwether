@@ -8,7 +8,7 @@ use herdr_core::approval::{
 };
 use herdr_core::question;
 
-use super::codex_approval::{codex_box, codex_id, numbered, plain, FOOTER};
+use super::codex_approval::{codex_box, codex_id, plain, FOOTER};
 use super::codex_folder::{folder_box, folder_id};
 
 /// Task 1 case (e): a Codex sub-agent's box shows on the parent's screen, the matcher reads it
@@ -37,6 +37,16 @@ pub struct ScreenPrompt {
     /// Who the box says asks: Claude's agent type (`from the toucher agent`), Codex's thread path. It names no id,
     /// so it only confirms who asked.
     pub from: Option<String>,
+}
+
+/// `N. text` as `(N, text)`; a narrow pane draws `2.Yes` with no space after the number.
+fn option_number(line: &str) -> Option<(usize, &str)> {
+    let digits = line.bytes().take_while(u8::is_ascii_digit).count();
+    let rest = line[digits..].strip_prefix('.')?;
+    if digits == 0 || rest.is_empty() {
+        return None;
+    }
+    Some((line[..digits].parse().ok()?, rest.trim()))
 }
 
 fn action(id: &str, label: &str, keys: &[&'static str]) -> Action {
@@ -69,9 +79,11 @@ fn claude_box(screen: &str) -> Option<ScreenPrompt> {
     }
     let mut opts: Vec<String> = vec![];
     for l in &b.lines[ask + 1..] {
-        match numbered(l) {
+        match option_number(l) {
             Some((n, text)) if n == opts.len() + 1 => opts.push(text.to_string()),
             Some(_) => return None,
+            // The question's own wrapped tail ("proceed?") comes before option 1.
+            None if opts.is_empty() => {}
             None => {
                 let last = opts.last_mut()?;
                 last.push(' ');

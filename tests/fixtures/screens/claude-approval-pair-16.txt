@@ -1,0 +1,40 @@
+
+
+────────────────
+ Bash command
+ Tip: auto mode
+ handles these
+ prompts for
+ you — choose
+ "switch to
+ auto mode"
+ below
+ Create empty
+ file pair-wrap
+ ped-file.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ touch pair-wra
+ pped-file.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to
+ proceed?
+ ❯ 1. Yes
+   2.Yes, and
+     always
+     allow
+     access to
+     /private/tm
+     p/bw-wc/alp
+     ha from
+   3.Yes, and
+     switch to
+     auto mode ·
+     auto mode
+     handles
+     these
+     prompts for
+     you
+   4. No
+
+ Esc to cancel
+ · Tab to amend

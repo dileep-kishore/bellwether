@@ -102,3 +102,11 @@ Changes:
   crates/bw/tests/matchers.rs `rewrap_claude_approval_keeps_its_id`,
   `rewrap_other_command_changes_the_id`; upstream tests in
   src/approval/tests.rs still pass.
+- 2026-11-07, src/approval.rs: `screen_prompt` hashes the tool name and
+  the command only (a clipped box still hashes every line). At 16
+  columns Claude 2.1.319 cuts option text short and wraps the
+  question, so an id that read the options changed when a pane
+  narrowed. src/approval/tests.rs `notice_screen_request` now asserts
+  that the option text is left out of the id (it asserted the
+  opposite). Test: crates/bw/tests/matchers.rs
+  `rewrap_claude_approval_at_16_columns`.
