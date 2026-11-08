@@ -549,9 +549,11 @@ unstarted, backlog and triage; "Load more" reads the next 50.
 
 The panel reads the list when it is shown, every 60 s while it stays shown,
 and when you click its refresh button. A hidden panel makes no call.
-Each answer is kept in `~/.cache/bellwether/linear/` for 30 days. When Linear
-cannot be reached, the panel shows the kept list and says how old it is. A
-missing or refused key clears the list and says what to run.
+Each answer is kept in `~/.cache/bellwether/linear/`, readable by your
+account only, for 30 days. When Linear cannot be reached, the panel shows the
+kept list and says how old it is. A missing or refused key clears the list
+and any open issue, and says what to run. A space outside Git, or on a
+machine that does not answer, reads nothing from Linear and says why.
 
 Clicking an issue opens it inline: identifier, state, labels, title and
 description as markdown, with three buttons. Attach to chat puts the issue on
@@ -573,8 +575,9 @@ line, then what you typed. The chips clear once the message went. A
 description over 8 KB needs a choice on its chip first: Trim to 8 KB sends
 the first 8 KB and a note that the rest is at the URL, and Send as a file
 places the description beside the chat's terminal with `hc put` and sends
-its path. When a text cannot be built, the chat names the issue and sends
-nothing.
+its path. When a description grew past 8 KB after Attach, Send stops, the
+chip shows its new size and the choice, and the typed message stays. When a
+text cannot be built, the chat names the issue and sends nothing.
 
 ### Commands
 
