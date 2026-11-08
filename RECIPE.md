@@ -270,8 +270,9 @@ ring-spin, check and question live in `mods/bw-projects/icons/`), and `layouts/b
 - A covered window stops drawing, so `herdr-app shot` returns the last frame drawn. Bring the window
   to the front first.
 - The in-window checks for the sidebar, tabs, chats, requests, browser, Changes and Issues ran on
-  one Mac, and the repository's README lists what they found under Known limits. The in-window
-  checks on a space on a second machine are still owed.
+  one Mac and on a space on a second machine, and `docs/usage.md` lists what they found under Known
+  limits. Two in-window checks are still owed: a second machine's heading while that machine is offline, and
+  a Claude chat on a second machine.
 
 ## Done when
 

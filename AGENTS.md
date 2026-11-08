@@ -8,6 +8,12 @@ Guidance for coding agents. `CLAUDE.md` is a symlink to this file.
   `~/.config/herdr-app/AGENTS.md`. Its type files, `herdr.d.ts` and
   `gpui-kit.d.ts` in the same folder, are the API. Read them before writing a
   layout or mod; they change between Herdr versions.
+- `docs/development.md` is the reference for changing this repository: the
+  repository map, tests, CI, the headless harness, fixtures, verify scripts,
+  the stage window and version bumps. `docs/architecture.md` explains the
+  pieces, where each call runs and how they talk. `docs/helper.md` lists every
+  `bw` command, and `docs/usage.md` covers set-up and use. Update the matching
+  doc in the same commit as the change it describes.
 - `docs/brief/` holds the user's requests verbatim. Never edit the quoted words.
 - `docs/research/` records what Flockbook, Shepherdr, herdr-t3 and Herdr's
   example layouts do, with file paths, so a plan can cite them.
