@@ -834,3 +834,15 @@ fn prune_drops_files_older_than_7_days() {
     assert!(!old.exists());
     assert!(fresh.exists());
 }
+
+#[test]
+fn fallback_beats_one_background_tab_while_herdr_is_in_front() {
+    let _serial = serial();
+    // One agent opened one tab in the background: it alone reports focus while Herdr is in front.
+    let chrome = Chrome::start(three_pages(), &["A"]);
+    let scratch = Scratch::new();
+    let out = scratch.bw(chrome.port, &["focus", "--id", "B"]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let out = scratch.bw_with(chrome.port, &["tabs"], &[("BW_FRONT_PID", "1")]);
+    assert_eq!(active_ids(&out), ["B"]);
+}

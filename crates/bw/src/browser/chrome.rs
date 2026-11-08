@@ -505,8 +505,12 @@ pub fn focus_to_return(before: Option<i32>, now: Option<i32>, chrome: Option<i32
     (before != chrome && now == Some(chrome)).then_some(before)
 }
 
-/// Watches the front app for `FOCUS_WATCH` after a background start and gives the front back to `before`.
+/// Watches the front app for `FOCUS_WATCH` after a background start and gives the front back to `before`. Returns
+/// at once when there is nothing to give back, and as soon as the front has gone back.
 fn give_focus_back(before: Option<i32>, chrome: Option<i32>) {
+    if before.is_none() || chrome.is_none() || before == chrome {
+        return;
+    }
     let deadline = Instant::now() + FOCUS_WATCH;
     while Instant::now() < deadline {
         if let Some(pid) = focus_to_return(before, super::arrange::front_pid(), chrome) {
