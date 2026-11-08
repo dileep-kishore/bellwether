@@ -203,7 +203,10 @@ Bellwether never uses or touches your own Chrome or its default profile.
 arguments from the kernel (`KERN_PROCARGS2` on macOS, `/proc/<pid>/cmdline`
 on Linux) and refuses a process whose arguments it cannot read. When the port
 is free and the profile is not running, it starts Chrome with `open -n`.
-`--background` adds `-g`, which keeps focus where it is. Otherwise it starts
+`--background` adds `-g`, which asks macOS to keep focus where it is; a
+window manager such as OmniWM can still bring the new window forward, so for
+3 s `bw` watches the front app and hands it back to the app that was in front
+before the start. Otherwise it starts
 nothing and names the state: `port_taken` with the pid and command of the
 program on the port, or `no_debug_port` when the profile runs without the
 port. It reports `not_installed` when it finds no Google Chrome and
@@ -384,6 +387,11 @@ that folder removes its history and sign-ins.
 - Claude started on another machine by a core that SSH started cannot read
   that machine's login keychain, so it runs unlogged ("Not logged in" or API
   billing). Start that machine's core from its own login session.
+- A chat tab's terminal keeps its share of the tab's split while the chat is
+  zoomed: about 15 columns in a window under 1000 px wide. A prompt that
+  wraps there still keeps one card, but Codex scrolls a long approval's
+  options out of view at that width, so a Codex sub-agent's approval falls
+  back to "Answer in terminal". Herdr offers no command to size a pane.
 - The checks in a Herdr window are still owed: the panel, Arrange beside a
   real Herdr window, a screenshot inline in a chat, and a real SSH machine.
 
@@ -561,9 +569,10 @@ scripts/verify/requests.sh                    # also real agents here
 scripts/verify/requests.sh --machine <name>   # also Codex on <name>; <name> must be a temporary hc machine (bwloop)
 ```
 
-A prompt's id ignores how the pane wraps it: it hashes the prompt's text
-without whitespace or rule lines, so narrowing or widening a chat's pane
-keeps one card. `scripts/verify/record-wrap.sh` records the screens the
+A prompt's id ignores how the pane wraps it, so narrowing or widening a
+chat's pane keeps one card: a Claude approval's id hashes its tool and
+command, a Codex approval's its text without whitespace or rule lines, and
+Codex's folder prompt's its question and option names. `scripts/verify/record-wrap.sh` records the screens the
 `rewrap` tests read: a Claude approval, a Codex approval and Codex's `/new`
 folder prompt at 80 columns, then again after an `hc attach` viewer narrows
 the same terminal. It runs Claude haiku and Codex in a private core
