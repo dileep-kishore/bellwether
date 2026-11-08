@@ -380,3 +380,16 @@ Answer:
   recover the 8 KB choice when a description grows after Attach, keep
   the Linear cache private, and make the key scan fail when it
   searched nothing (93021d7, ac87941, c8a450a, b397911).
+- 2026-11-08: phase 7's reruns found the design check 3 FAIL again. A
+  Claude sub-agent's approval box, taller than the 15-column hidden
+  terminal, lost its top rule off screen. Its card read the tool from a
+  fragment of the header and sat under the root. The fix matches a box
+  whose top rule is off screen by its command alone, and the card takes
+  its tool from the matched call. This changes no done check. It
+  replaces README's Known limits sentences about the Claude box, which
+  phase 7 added to the limit in the 2026-11-07 build note. That note's
+  Codex sentence still holds. Evidence:
+  `docs/drafts/phase5-onward/phase7/final-run.md`,
+  `crates/bw/tests/matchers.rs` `rewrap_claude_box_with_its_header_off_screen`
+  and `crates/bw/tests/cards.rs`
+  `child_approval_with_its_header_off_screen_sits_under_its_child`.

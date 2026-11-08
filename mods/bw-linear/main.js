@@ -55,19 +55,25 @@ const message = (e) => (e instanceof Error ? e.message : String(e));
 async function readRepo(machine, folder) {
   const place = await readPlace(exec, machine, folder);
   if (place.ok === false) return place;
-  return { ok: true, repo: await withOrigin(machine, place.place.commonDir) };
+  const repo = await withOrigin(machine, place.place.commonDir);
+  return repo.ok === true ? repo : { ok: false, state: "unreachable", message: repo.message };
 }
 
-/** @param {string | null} machine @param {string} commonDir @returns {Promise<RepoInfo>} */
+/**
+ * The repository with its origin. Only exit 1 means no origin: a transport failure must not key a link by place.
+ * @param {string | null} machine @param {string} commonDir
+ * @returns {Promise<{ ok: true, repo: RepoInfo } | { ok: false, message: string }>}
+ */
 async function withOrigin(machine, commonDir) {
-  let origin = null;
+  let r;
   try {
-    const r = await exec("git", originArgs(commonDir), { on: machine });
-    if (r.code === 0 && r.stdout.trim()) origin = r.stdout.trim();
-  } catch {
-    // An unreachable machine shows its error on the next read; the repository is still keyed by place.
+    r = await exec("git", originArgs(commonDir), { on: machine });
+  } catch (e) {
+    return { ok: false, message: message(e) };
   }
-  return { machine, commonDir, origin, name: repoName(commonDir) };
+  if (r.code !== 0 && r.code !== 1) return { ok: false, message: r.stderr.trim() || `git config exit ${r.code}` };
+  const origin = (r.code === 0 && r.stdout.trim()) || null;
+  return { ok: true, repo: { machine, commonDir, origin, name: repoName(commonDir) } };
 }
 
 export default class Issues extends View {
@@ -110,8 +116,6 @@ export default class Issues extends View {
 
     /** @type {{ id: string, machine: string | null, folder: string } | null} the active space, as render read it */
     this.want = null;
-    /** @type {string | null} the space the repository was read for */
-    this.repoFor = null;
     /** @type {RepoInfo | null} */
     this.repo = null;
     /** @type {string | null} why the space has no repository */
@@ -126,7 +130,6 @@ export default class Issues extends View {
     this.failure = null;
     this.loading = false;
     this.moreWanted = false;
-    this.repoWanted = false;
     /** @type {{ identifier: string, issue: Issue | null, loading: boolean, error: string | null } | null} */
     this.open = null;
     /** The chat tab Attach would add to, and every live tab id, as render read them. */
@@ -180,7 +183,6 @@ export default class Issues extends View {
 
   /** Reads again now: a refresh click, a filter, a search, or a new link. @param {any} cx */
   refresh(cx) {
-    this.repoWanted = true;
     this.note = null;
     this.poke.poke();
     if (this.open && cx) this.openIssue(this.open.identifier, cx);
@@ -199,7 +201,7 @@ export default class Issues extends View {
     ]);
   }
 
-  /** One read: the repository when the space changed or a refresh asked, then the list. @param {any} cx */
+  /** One read: the repository and its origin every cycle, so a failed lookup or a new origin recovers, then the list. @param {any} cx */
   async cycle(cx) {
     const want = this.want;
     if (!want) {
@@ -209,29 +211,26 @@ export default class Issues extends View {
       return;
     }
     const spaceKey = JSON.stringify([want.id, want.machine, want.folder]);
-    if (this.repoFor !== spaceKey || this.repoWanted) {
-      this.repoWanted = false;
-      const r = await readRepo(want.machine, want.folder);
-      // The space changed while Git answered: this answer is another space's, and the next read is due.
-      const now = this.want;
-      if (!now || JSON.stringify([now.id, now.machine, now.folder]) !== spaceKey) {
-        this.poke.poke();
-        return;
-      }
-      if (r.ok === true) {
-        this.repo = r.repo;
-        this.repoError = null;
-        this.notGit = false;
-      } else if (this.repoFor !== spaceKey) {
-        this.repo = null;
-        this.notGit = r.state === "not_git";
-        this.repoError = this.notGit ? "This space is not in a Git repository." : r.message;
-      }
-      this.repoFor = spaceKey;
-      if (this.repo) {
-        const moved = moveLink(shared(LINKS), this.repo);
-        if (moved) setShared(LINKS, moved);
-      }
+    const r = await readRepo(want.machine, want.folder);
+    // The space changed while Git answered: this answer is another space's, and the next read is due.
+    const now = this.want;
+    if (!now || JSON.stringify([now.id, now.machine, now.folder]) !== spaceKey) {
+      this.poke.poke();
+      return;
+    }
+    if (r.ok === true) {
+      this.repo = r.repo;
+      this.repoError = null;
+      this.notGit = false;
+    } else if (r.state === "not_git" || !this.repo) {
+      // render clears the repository on a space switch, so one still here is this space's and survives a failed lookup.
+      this.repo = null;
+      this.notGit = r.state === "not_git";
+      this.repoError = this.notGit ? "This space is not in a Git repository." : r.message;
+    }
+    if (this.repo) {
+      const moved = moveLink(shared(LINKS), this.repo);
+      if (moved) setShared(LINKS, moved);
     }
     // Linear is read only for a repository; a space outside Git, or on a machine that did not answer, shows why.
     if (!this.repo) {
@@ -328,7 +327,13 @@ export default class Issues extends View {
   /** The picker's projects and the repository's origin. @param {any} cx */
   async loadPicker(cx) {
     const pick = /** @type {NonNullable<typeof this.pick>} */ (this.pick);
-    this.pickRepo = await withOrigin(pick.machine ?? null, pick.commonDir);
+    const repo = await withOrigin(pick.machine ?? null, pick.commonDir);
+    if (repo.ok === false) {
+      this.projectsError = `Could not read the repository's origin: ${repo.message}`;
+      cx.notify();
+      return;
+    }
+    this.pickRepo = repo.repo;
     const answer = await this.helper.call(null, ["linear", "projects"]);
     if (answer.ok === false) this.projectsError = failureText(answer);
     else
@@ -371,7 +376,8 @@ export default class Issues extends View {
       this.failure = null;
     }
     // A link made in the picker, here or in another window, reads the new project's list.
-    const repoId = this.repo ? JSON.stringify([this.repo.machine, this.repo.commonDir]) : null;
+    // The origin is part of it: a cycle that learns a new origin has already read the list for its link.
+    const repoId = this.repo ? JSON.stringify([this.repo.machine, this.repo.commonDir, this.repo.origin]) : null;
     const linkNow = JSON.stringify(this.link());
     const was = this.linkSeen;
     const relinked = repoId !== null && was?.repo === repoId && was.link !== linkNow;
@@ -564,7 +570,9 @@ export default class Issues extends View {
         div().id("issues-error").px(8).py(4).text_size(12).text_color(t.blocked).child(failureText(this.failure)),
       );
     const groups = groupByState(this.list.issues);
-    if (!groups.length)
+    // A page can hold only closed issues, which bw drops, and still have a next page.
+    if (!groups.length && this.list.next) center("No open issue on the pages read so far.", "issues-none");
+    else if (!groups.length)
       return center(this.query ? `No open issue matches "${this.query}".` : "No open issues.", "issues-none");
     for (const g of groups) {
       box.child(
@@ -772,9 +780,11 @@ export default class Issues extends View {
           .text_size(12)
           .text_color(t.muted)
           .child(
-            this.pickRepo?.origin
-              ? "Kept by its origin, so its clones on other machines share the link."
-              : "This repository has no origin; the link is kept for this machine's copy and moves to the origin once it has one.",
+            !this.pickRepo
+              ? ""
+              : this.pickRepo.origin
+                ? "Kept by its origin, so its clones on other machines share the link."
+                : "This repository has no origin; the link is kept for this machine's copy and moves to the origin once it has one.",
           ),
       )
       .child(

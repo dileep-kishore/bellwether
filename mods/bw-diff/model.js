@@ -278,17 +278,36 @@ export function rowFor(view, file) {
 export const selectionOf = (r) => ({ section: r.section, path: r.path, oldPath: r.oldPath, untracked: r.untracked });
 
 /**
- * `bw diff files` arguments.
+ * `bw diff files` arguments. With `watch`, the helper's watcher answers `diff-unchanged` while `since`, the
+ * token of the last read, still holds.
  * @param {string} folder @param {BaseChoice} base @param {Selection | null} selected
+ * @param {{ since: string | null } | null} [watch]
  */
-export function filesArgs(folder, base, selected) {
+export function filesArgs(folder, base, selected, watch = null) {
   const args = ["diff", "files", "--path", folder, "--mode", base.mode];
   if (base.ref !== null) args.push("--base", base.ref);
   if (selected) {
     args.push("--select", selected.section, "--file", selected.path);
     if (selected.oldPath) args.push("--old", selected.oldPath);
   }
+  if (watch) {
+    args.push("--watch");
+    if (watch.since) args.push("--since", watch.since);
+  }
   return args;
+}
+
+/**
+ * What a `bw diff files --watch` answer says about the watcher: nothing changed since the token sent, or
+ * the token for the read it holds (null while no watcher runs).
+ * @param {unknown[]} lines @returns {{ unchanged: boolean, token: string | null }}
+ */
+export function watchAnswer(lines) {
+  const all = /** @type {any[]} */ (lines.filter((l) => l && typeof l === "object"));
+  const u = all.find((l) => l.type === "diff-unchanged" && typeof l.token === "string");
+  if (u) return { unchanged: true, token: u.token };
+  const t = all.find((l) => l.type === "diff-token" && typeof l.token === "string");
+  return { unchanged: false, token: t ? t.token : null };
 }
 
 /**
@@ -369,19 +388,17 @@ export function readTab(p) {
 }
 
 /**
- * The machine a diff tab reads from: its own props in the window that opened it; elsewhere the space with
- * the same id, else the one space whose id matches past its machine prefix (another window writes
- * `macmini/sp1` where this one writes `sp1`). Several such spaces resolve to none.
+ * The machine a diff tab reads from: its own props in the window that opened it; elsewhere the one space
+ * whose id matches past its machine prefix (another window writes `macmini/sp1` where this one writes
+ * `sp1`). Several such spaces, an exact id among them, resolve to none.
  * @param {TabProps} t @param {string | null} windowId this window's `bw.window-id`
  * @param {{ id: string, machine?: string | null }[]} spaces
  * @returns {{ ok: true, machine: string | null } | { ok: false }}
  */
 export function tabMachine(t, windowId, spaces) {
   if (t.window !== null && t.window === windowId) return { ok: true, machine: t.machine };
-  const exact = spaces.find((s) => s.id === t.space);
-  if (exact) return { ok: true, machine: exact.machine ?? null };
   const local = (/** @type {string} */ id) => id.slice(id.lastIndexOf("/") + 1);
   const hits = spaces.filter((s) => local(s.id) === local(t.space));
-  // Two machines can number a space alike; guessing would read the wrong machine's checkout.
+  // Bare ids are per-core counters, so an exact id from another window can name another machine's space.
   return hits.length === 1 ? { ok: true, machine: hits[0].machine ?? null } : { ok: false };
 }

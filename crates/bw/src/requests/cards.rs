@@ -246,6 +246,10 @@ struct Asked {
     reason: Option<&'static str>,
     question: Option<Value>,
     unread: usize,
+    /// The box's question as drawn (`ScreenPrompt::question`).
+    drawn_question: String,
+    /// Option 2's label as drawn (`Action::drawn`).
+    drawn_always: Option<String>,
 }
 
 struct Pass<'a> {
@@ -426,6 +430,13 @@ fn actions_of(p: &ScreenPrompt) -> Vec<(String, String)> {
         .collect()
 }
 
+fn drawn_always(p: &ScreenPrompt) -> Option<String> {
+    p.actions
+        .iter()
+        .find(|a| a.id == "always")
+        .map(|a| a.drawn.clone())
+}
+
 /// The `cards` line and one `request` line per pending request and per request resolved in the last 10 s.
 /// Updates `store`, which starts afresh for a new root.
 pub fn build(input: &CardsInput, store: &mut Store, now_ms: i64) -> (Value, Vec<Value>) {
@@ -469,6 +480,8 @@ pub fn build(input: &CardsInput, store: &mut Store, now_ms: i64) -> (Value, Vec<
                 reason: pass.ambiguity(),
                 question: None,
                 unread: 0,
+                drawn_question: p.question.clone(),
+                drawn_always: drawn_always(&p),
             };
             live.push(on_screen(&pass, store, asked, None, Vec::new()));
         }
@@ -556,21 +569,32 @@ fn on_screen(
     on_screen_with(pass, store, asked, who, events, None, |_| false)
 }
 
-/// The command and option 2's label of `asked`, kept on its occurrence when first seen.
+/// The command, the question and option 2's label of `asked` as drawn, kept on its occurrence when first seen.
 fn first_of(asked: &Asked) -> Value {
-    let always = asked
-        .actions
-        .iter()
-        .find(|(id, _)| id == "always")
-        .map(|(_, label)| label.as_str());
-    json!({"command": asked.command, "always": always})
+    json!({"command": asked.command, "question": asked.drawn_question, "always": asked.drawn_always})
 }
 
-/// Whether `asked` shows the command its occurrence first showed, line breaks aside.
+/// Whether `asked` shows the command and the question its occurrence first showed, line breaks aside.
 fn same_first(o: &Occurrence, asked: &Asked) -> bool {
-    o.first
-        .as_ref()
-        .is_none_or(|f| matchers::same_drawn(f["command"].as_str().unwrap_or(""), &asked.command))
+    o.first.as_ref().is_none_or(|f| {
+        let text = |k: &str| f[k].as_str().unwrap_or("").to_string();
+        matchers::same_drawn(&text("command"), &asked.command)
+            && matchers::same_drawn(&text("question"), &asked.drawn_question)
+    })
+}
+
+/// A wider pane draws more of option 2's label than the first read's cut: keep the longer one, so a later label
+/// that only extends the cut is refused.
+fn widen_always(o: &mut Occurrence, asked: &Asked) {
+    let Some(first) = o.first.as_mut() else {
+        return;
+    };
+    let (Some(was), Some(now)) = (first["always"].as_str(), asked.drawn_always.as_deref()) else {
+        return;
+    };
+    if matchers::cut_of(was, now) && !matchers::cut_of(now, was) {
+        first["always"] = json!(now);
+    }
 }
 
 fn on_screen_with(
@@ -601,7 +625,10 @@ fn on_screen_with(
     };
     let (children, _) = who.clone().unwrap_or_default();
     let i = match existing {
-        Some(i) => i,
+        Some(i) => {
+            widen_always(&mut store.occurrences[i], &asked);
+            i
+        }
         None => {
             let preferred = events
                 .last()
@@ -773,11 +800,26 @@ fn approval(pass: &Pass, store: &mut Store, p: &ScreenPrompt) -> String {
         (None, true) => (false, Some("clipped")),
         (None, false) => (true, None),
     };
+    // A box whose header is cut off names no tool; the call it matched does.
+    let tool = if p.header_cut {
+        bound
+            .iter()
+            .rev()
+            .find_map(|a| a.event.tool.clone())
+            .or_else(|| {
+                pass.open_call(first)
+                    .filter(|o| matchers::same_call(&o.tool_name, &o.command, p))
+                    .map(|o| o.tool_name.clone())
+            })
+            .unwrap_or_default()
+    } else {
+        p.tool.clone()
+    };
     let asked = Asked {
         kind: "approval",
         screen_id: Some(p.screen_id.clone()),
         title: p.title.clone(),
-        tool: p.tool.clone(),
+        tool,
         command: p.command.clone(),
         detail: p.detail.clone(),
         actions: actions_of(p),
@@ -785,6 +827,8 @@ fn approval(pass: &Pass, store: &mut Store, p: &ScreenPrompt) -> String {
         reason,
         question: None,
         unread: 0,
+        drawn_question: p.question.clone(),
+        drawn_always: drawn_always(p),
     };
     let events: Vec<String> = bound.iter().map(|a| a.event.id.clone()).collect();
     on_screen_with(
@@ -818,6 +862,8 @@ fn picker(pass: &Pass, store: &mut Store, text: &str) -> Option<String> {
             reason,
             question: Some(json!(rows::question(&req))),
             unread,
+            drawn_question: String::new(),
+            drawn_always: None,
         };
         return Some(on_screen(pass, store, asked, None, Vec::new()));
     }
@@ -844,6 +890,8 @@ fn picker(pass: &Pass, store: &mut Store, text: &str) -> Option<String> {
         reason: ambiguous,
         question: Some(json!(rows::question(q))),
         unread: 0,
+        drawn_question: String::new(),
+        drawn_always: None,
     };
     let who = (child.into_iter().collect(), Some(q.tool_use_id.clone()));
     Some(on_screen_with(
@@ -899,6 +947,8 @@ fn other(pass: &Pass, store: &mut Store, text: &str) -> String {
         reason: Some(pass.ambiguity().unwrap_or("no_match")),
         question: None,
         unread: 0,
+        drawn_question: String::new(),
+        drawn_always: None,
     };
     on_screen(pass, store, asked, None, Vec::new())
 }
@@ -935,6 +985,8 @@ fn async_questions(pass: &Pass, store: &mut Store) -> Vec<String> {
             reason: ambiguous,
             question: Some(json!(rows::question(q))),
             unread: 0,
+            drawn_question: String::new(),
+            drawn_always: None,
         };
         let id = q.tool_use_id.clone();
         if !store.occurrences.iter().any(|o| o.id == id) {

@@ -45,7 +45,7 @@ fn program(var: &str, default: &str) -> String {
 }
 
 /// The key, or `no_key`. The Keychain item is written by `scripts/linear-key.sh`.
-fn read_key() -> Result<String, Fail> {
+pub fn read_key() -> Result<String, Fail> {
     let out = Command::new(program("BW_SECURITY", "/usr/bin/security"))
         .args(["find-generic-password", "-s", SERVICE, "-w"])
         .stdin(Stdio::null())
@@ -85,7 +85,9 @@ struct Reply {
 
 fn send(url: &str, key: &str, body: &str) -> Result<Reply, Fail> {
     let mut child = Command::new(program("BW_CURL", "/usr/bin/curl"))
+        // -q must come first: it stops curl reading ~/.curlrc, where a trace option would write the key.
         .args([
+            "-q",
             "-sS",
             "--max-time",
             "20",
@@ -148,11 +150,10 @@ fn send(url: &str, key: &str, body: &str) -> Result<Reply, Fail> {
     Ok(Reply { status, body: out })
 }
 
-/// Posts a GraphQL request and returns its `data`, or a named failure.
-pub fn post(body: &Value) -> Result<Value, Fail> {
+/// Posts a GraphQL request with `key` and returns its `data`, or a named failure.
+pub fn post(key: &str, body: &Value) -> Result<Value, Fail> {
     let url = endpoint()?;
-    let key = read_key()?;
-    let reply = send(&url, &key, &body.to_string())?;
+    let reply = send(&url, key, &body.to_string())?;
     classify(reply.status, &reply.body)
 }
 

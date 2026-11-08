@@ -254,6 +254,9 @@ pub struct ScreenBox {
     pub lines: Vec<String>,
     /// The top of the box is off screen: no header, tool or command.
     pub clipped: bool,
+    /// The top rule is off screen but the command is whole: the first line may be any line of a wrapped header, so
+    /// no header or tool is read from it.
+    pub header_cut: bool,
 }
 
 /// "⚠ Claude Code will automatically deny this request in 1:23, …": its time changes every second.
@@ -309,10 +312,14 @@ pub fn screen_box(screen: &str) -> Option<ScreenBox> {
     };
     // The box is taller than the pane and its top scrolled off into the command: neither header nor command is read.
     if rule.is_none() && (header.starts_with('│') || body.iter().filter(|l| is_rule(l)).count() == 1) {
-        return Some(ScreenBox { header: String::new(), tool: String::new(), command: String::new(), lines: bx, clipped: true });
+        return Some(ScreenBox { header: String::new(), tool: String::new(), command: String::new(), lines: bx, clipped: true, header_cut: false });
+    }
+    let command = command.iter().map(ungutter).collect::<Vec<_>>().join("\n");
+    if rule.is_none() {
+        return Some(ScreenBox { header: String::new(), tool: String::new(), command, lines: bx, clipped: false, header_cut: true });
     }
     let tool = header.split(' ').find(|w| !w.is_empty()).unwrap_or("").to_string();
-    Some(ScreenBox { header, tool, command: command.iter().map(ungutter).collect::<Vec<_>>().join("\n"), lines: bx, clipped: false })
+    Some(ScreenBox { header, tool, command, lines: bx, clipped: false, header_cut: false })
 }
 
 /// Id of the permission prompt on screen: a hash of the tool name and the box from its header to the end of its
@@ -408,7 +415,7 @@ pub fn agy_box(screen: &str) -> Option<ScreenBox> {
     ls.extend(command.iter().cloned());
     ls.push("Run this command?".into());
     ls.extend(rows);
-    Some(ScreenBox { header: "Run this command?".into(), tool: "Bash".into(), command: command.join("\n"), lines: ls, clipped: false })
+    Some(ScreenBox { header: "Run this command?".into(), tool: "Bash".into(), command: command.join("\n"), lines: ls, clipped: false, header_cut: false })
 }
 
 pub fn agy_id(b: &ScreenBox) -> String {

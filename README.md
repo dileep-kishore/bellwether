@@ -7,13 +7,37 @@ view of each agent built from its session log, a Git diff viewer against
 Linear issues that can be attached to the current chat. Rust helpers do the
 heavy work; the mods draw the window.
 
-Status: phases 1 (window and project sidebar), 2 (chat tabs), 3 (sub-agents
-and requests) and 4 (a shared browser) are built and their headless checks
-pass; their checks in a Herdr window are still owed. Phase 5 (the Changes
-panel) is built, and its headless checks and its checks in a Herdr window
-pass, except "Open in Changes" from a chat, which only the headless tests
-cover. Phase 6 (the Issues panel and Attach) is built, and its headless
-checks and its check against Linear pass.
+Status: phases 1 to 7 are built. They are 1 (window and project sidebar), 2
+(chat tabs), 3 (sub-agents and requests), 4 (a shared browser), 5 (the
+Changes panel), 6 (the Issues panel and Attach) and 7 (measure and finish).
+Phase 4b ran the phase 1 to 4 checks in a Herdr window on the Mac mini, and
+each has a result with a shot or log (done check B in
+`docs/plans/2026-11-06-bellwether-phases.md`). Phase 7 timed each poll
+(`docs/research/2026-11-08-phase7-poll-cost.md`) and added the watcher
+behind `bw diff files --watch`, so a remote Changes panel's unchanged poll
+runs no Git. It also added `RECIPE.md` and `preview.png`. Then every done
+check ran from empty state on the Mac mini. All passed except one window
+check: a Claude sub-agent's approval card at 15 columns.
+
+On 2026-11-08 the window checks that run left owed ran on the Mac mini and
+on the second machine, `macbook`. The 15-column card failed again, so
+Bellwether now matches a Claude approval box whose top rule is off screen by
+its command. After that fix, design check 3's approval click at 15 columns
+passed. Codex's `/new` folder prompt in a narrowed pane showed one pending
+card, and its first option started a new conversation. A Claude approval in
+a narrowed pane passed, and so did the Issues and Changes panels after the
+review fixes. On `macbook`, the Changes panel equalled Git, a remote
+Changes panel polled through the watcher, "+" started a Codex chat that runs
+on `macbook`, counts followed an edit within 2 s, and a Codex browser chat
+passed.
+
+One window check is still owed: the `macbook` heading while `macbook` is
+offline. Ending the core's SSH session to `macbook` did not show it, because
+the core reconnected within 0.5 s. Keeping `macbook` offline would need a
+change to `~/.ssh/config` or a firewall rule. The scripted check
+`scripts/verify/projects.sh --machine macbook` ("an unreachable machine
+keeps its rows") still covers it. A Claude chat on another machine is owed
+for the keychain reason in phase 4's Known limits.
 
 ## What phase 1 delivers
 
@@ -396,9 +420,19 @@ that folder removes its history and sign-ins.
   zoomed: about 15 columns in a window under 1000 px wide. A prompt that
   wraps there still keeps one card, but Codex scrolls a long approval's
   options out of view at that width, so a Codex sub-agent's approval falls
-  back to "Answer in terminal". Herdr offers no command to size a pane.
-- The checks in a Herdr window are still owed: the panel, Arrange beside a
-  real Herdr window, a screenshot inline in a chat, and a real SSH machine.
+  back to "Answer in terminal". A Claude approval box taller than that
+  terminal can lose its header off the top while both dashed rules stay on
+  screen. Bellwether matches that box to its call by command, so its card
+  sits under its sub-agent. The card's detail can begin with a fragment of
+  the cut header, such as "agent". Herdr offers no command to size a pane.
+- `bw answer` refuses as `stale` when the command, the question (an Edit's
+  target included) or the Always label differs in any whitespace inside a
+  line. A card pending when its machine's helper is replaced by one with
+  this check comes back under a new id, and the old id presses nothing.
+- Arrange's left-gap and half-screen placements are unchecked in a window.
+  OmniWM tiles every window on the Mac mini, so only the right-gap placement
+  was seen. A browser agent on a space on another machine is checked by
+  script only.
 
 ## What phase 5 delivers
 
@@ -448,12 +482,15 @@ helper sends the patch in pages under 4 MiB, and a "Show more" button loads
 the next page. A line too large for a page shows as "Line too large to show"
 with its size. "Open as tab" opens the patch as a middle tab named after the
 file, such as `notes.txt · diff`. That tab loads once, and again when you
-click its Refresh button.
+click its Refresh button. A Committed on branch tab keeps the commit range it
+opened with, named by short hashes in its header, and Refresh reads that range
+again.
 
 While the panel is shown, it reads a worktree on this Mac when `watchFolder`
 reports a change in the worktree or its common dir, at most once a second,
 and every 30 s without a change. It reads a worktree on another machine every
-1.5 s. Each read also returns a digest of the selected file's patch, and the
+1.5 s, through the helper's watcher there (below), so a poll that finds no
+change runs no Git. Each read also returns a digest of the selected file's patch, and the
 panel reloads the patch only when that digest changes. A hidden panel makes
 no helper call, and showing the panel again reads at once.
 
@@ -467,7 +504,7 @@ that writes to the repository.
 ### Commands
 
 ```sh
-bw diff files --path <dir> [--base <ref>] [--mode merge-base|tip] [--select staged|changes|committed --file <path> [--old <path>]]
+bw diff files --path <dir> [--base <ref>] [--mode merge-base|tip] [--select staged|changes|committed --file <path> [--old <path>]] [--watch [--since <token>]]
 bw diff patch --path <dir> --section staged|changes|committed --file <path> [--old <path>] [--untracked] [--from <rev> --to <rev>] [--page <n>]
 bw diff refs --path <dir> [--verify <ref>]
 bw diff fetch --path <dir> [--remote <name> | --base <ref>]
@@ -475,17 +512,38 @@ bw diff fetch --path <dir> [--remote <name> | --base <ref>]
 
 `bw diff …` runs on the space's machine and prints JSON lines. `files`
 prints a `diff-place` line, a `diff-base` line, one `diff-file` line per row,
-a `diff-more` line for a section past 2,000 files and, with `--select`, a
-`diff-digest` line. `patch` prints one `diff-patch` line with the page, the
+and a `diff-more` line with the count left out for a section past 2,000
+files or past the 4 MiB all three lists share. With `--select` it adds a
+`diff-digest` line. Its digest is `too_large` for a patch over 256 MiB, and
+`unreadable` with Git's error when Git cannot read the file; the lists still
+print. `patch` prints one `diff-patch` line with the page, the
 page count, the patch's size and digest, the text and the lines left out.
 Committed needs `--from` and `--to`, and an untracked file needs
 `--untracked`. `refs` prints up to 200 `diff-ref` lines, or one `diff-ref-ok`
 line with `--verify`. `fetch` prints a `diff-fetched` line naming the remote.
 A failure prints one `error` line and exits 1.
 
+`files --watch` starts a watcher for the worktree when none runs: a detached
+`bw diff watch` that counts file events in the worktree and its common dir,
+keeps its state under `~/.cache/bellwether/git-watch/`, and exits after 60 s
+with no `files --watch` call. It also exits when its event stream fails, and
+a watcher that failed to start is not started again for 5 minutes. A full
+read made while the watcher runs ends with a `diff-token` line; the read
+that starts it has none. A call that sends that token back with `--since`
+prints one `diff-unchanged` line instead of the lists while the watcher saw
+no event, the arguments are the same, and the watcher's process is alive and
+wrote its state in the last 15 s. Any other call reads Git. The watcher
+starts in its own process group and without `HC_SCOPE`, the variable
+herdr-core uses to end what an `hc exec` call started, so it outlives the
+call. Only a remote panel uses it: a local panel already reads when
+`watchFolder` fires.
+
 Every Git call runs with
 `--no-optional-locks -c core.fsmonitor=false -c diff.autoRefreshIndex=false`,
-so a read never refreshes the index or starts fsmonitor. Every diff adds
+so a read never refreshes the index or starts fsmonitor. It also sets
+`core.preloadIndex=false`: Git's parallel stat costs four to five times the
+CPU of one thread at the same wall time. Changes' `git diff --numstat` names
+only the paths `git status` listed, up to 1,000. Every diff adds
 `--no-ext-diff --no-textconv --no-color`, so a repository's own config never
 runs a diff program. The helper also clears `GIT_DIR`, `GIT_WORK_TREE`,
 `GIT_INDEX_FILE`, `GIT_COMMON_DIR` and `GIT_EXTERNAL_DIFF`, and reads a
@@ -497,6 +555,14 @@ ref.
 - An untracked file over 64 MiB is listed without counts.
 - A diff opened as a tab does not refresh by itself; its Refresh button reads
   it again.
+- A read after an edit is a full read: about 156 ms of CPU on a
+  40,000-file checkout. Only a remote poll that finds no change is cheap,
+  about 10 ms.
+- A remote panel keeps one `bw diff watch` process per worktree on the
+  space's machine while the panel is shown and for 60 s after.
+- The project sidebar's Git counts have no watcher. For a selected worktree
+  on another machine they run every 1.5 s, about 175 ms of CPU per poll on a
+  40,000-file checkout.
 
 ## What phase 6 delivers
 
@@ -789,13 +855,31 @@ header through the question without whitespace, tips or options, a Codex
 approval's its text without whitespace or rule lines, and Codex's folder
 prompt's its question and option names. Because spacing and options are
 left out, `bw answer` presses a key only while the box still shows the
-command the card first showed, line breaks aside, and for Always the same
-option 2 label; otherwise it reports the card as changed. `scripts/verify/record-wrap.sh` records the screens the
+command and the question the card first showed, an Edit's target included,
+and for Always the same option 2 label or a narrow pane's cut of it.
+Whitespace inside a line must match, and a line break may stand for one
+space or none. Otherwise it answers `stale` ("Changed on screen; nothing was
+pressed"). `scripts/verify/record-wrap.sh` records the screens the
 `rewrap` tests read: a Claude approval, a Codex approval and Codex's `/new`
 folder prompt at 80 columns, then again after an `hc attach` viewer narrows
 the same terminal. It runs Claude haiku and Codex in a private core
 (`HC_SESSION=bw-wrap`) in scratch repositories, scrubs the screens into
 `tests/fixtures/screens/`, and removes the core and the folders.
+
+`scripts/verify/poll-cost.sh [--machine <name>] [--bw <path>] [runs]` is done
+check E's cost half. It times `bw feed` on a scratch copy of the largest
+Claude log and Codex rollout: a first read, an unchanged cursor and one
+appended line. It times `bw diff files` on the largest Git checkout under
+the home folder (by index size): a full read and a watcher's unchanged poll.
+Each case runs `runs` times (default 5) under `/usr/bin/time -l`, and the
+table gives the median and largest user plus system milliseconds from
+`getrusage`, Git's calls included. A last row gives the watcher's own CPU
+from `ps`. Without `--machine` it builds this checkout's release `bw`
+unless `--bw` names one. With `--machine` it feeds `poll-cost-probe.sh` to
+`hc exec -i` and runs the helper installed there. It skips Desktop,
+Documents and Downloads, which macOS guards with a prompt on that machine's
+display. Its table names the files it read, never their text.
+`docs/research/2026-11-08-phase7-poll-cost.md` holds the results.
 
 `scripts/verify/feed-cost.sh [runs]` times `bw feed --log … --pictures` on
 the largest Claude and Codex logs on this Mac: a first read, an unchanged
@@ -907,9 +991,9 @@ call to the stage's `helper-calls.log` (a timestamp and the command, such as
 `feed` or `browser status`, never its arguments, which can hold chat text) and
 runs the repository's `bw`, so a check can count calls without touching the
 installed helper.
-`shared/helper.js` needs `bw version` to report version 0.6.0 and protocol 6;
-0.6.0 adds phase 6's `bw linear` commands, so a machine with 0.5.0 reinstalls
-once.
+`shared/helper.js` needs `bw version` to report version 0.7.0 and protocol 7;
+0.7.0 adds phase 7's `bw diff files --watch` and its watcher, so a machine with
+0.6.0 reinstalls once.
 Phase 4's helper adds the `browser` and `agent` commands, so every machine's
 helper reinstalls once. When another machine's helper is missing or
 outdated, a mod runs this Mac's `bw machine install <machine>` and checks

@@ -407,6 +407,29 @@ fn child_approval_sits_under_its_child() {
 }
 
 #[test]
+fn child_approval_with_its_header_off_screen_sits_under_its_child() {
+    // The same call drawn in a 15-column terminal whose box lost its header off the top: the hook's call and the
+    // child's log still match it by command, and the card names the tool they give.
+    let x = Scratch::new();
+    case_a(&x, None);
+    let pr = case_a_events(&x);
+    x.screen(
+        "t1",
+        Some(&read(
+            &fixtures().join("screens/claude-approval-headcut-15.txt"),
+        )),
+    );
+    let lines = x.cards("t1");
+    let r = one(&lines, "request");
+    assert_eq!(r["state"], "pending", "{r}");
+    assert_eq!(*who_child(r), CHILD_A, "{r}");
+    assert_eq!(r["event"], pr.as_str());
+    assert_eq!(r["tool_use_id"], "toolu_01CFkjgfQawSc7F4S41cVRMf");
+    assert_eq!(r["tool"], "Bash");
+    assert_eq!(r["answerable"], true);
+}
+
+#[test]
 fn child_found_from_its_log_without_hooks() {
     let x = Scratch::new();
     case_a(&x, None);
@@ -1270,4 +1293,66 @@ fn rewrap_keeps_the_codex_folder_card_pending() {
     assert_eq!(r["state"], "pending");
     assert_eq!(action_ids(r), ["option-1", "option-2"]);
     assert_eq!(r["actions"][0]["label"], "Use current Git worktree");
+}
+
+#[test]
+fn respaced_box_on_the_same_screen_id_is_another_card() {
+    // The screen id drops whitespace; a space added or removed inside a line names another file.
+    let s = read(&sessions("claude-approval").join("screen-approval.txt"));
+    let question = |file: &str| {
+        s.replace(
+            " Do you want to proceed?",
+            &format!(" Do you want to make this edit to {file}?"),
+        )
+    };
+    for (first, other) in [
+        (question("a b.rs"), question("ab.rs")),
+        (
+            s.clone(),
+            s.replace(" touch approved.txt\n", " touch  approved.txt\n"),
+        ),
+    ] {
+        assert_ne!(first, other, "(setup) the box changed");
+        let x = Scratch::new();
+        claude_approval(&x);
+        x.screen("t1", Some(&first));
+        let was = one(&x.cards("t1"), "request").clone();
+        x.screen("t1", Some(&other));
+        let lines = x.cards("t1");
+        let pending: Vec<&Value> = lines_of(&lines, "request")
+            .into_iter()
+            .filter(|r| r["state"] == "pending")
+            .collect();
+        assert_eq!(pending.len(), 1, "{lines:#?}");
+        assert_eq!(
+            pending[0]["screen_id"], was["screen_id"],
+            "(setup) the id is the same"
+        );
+        assert_ne!(pending[0]["id"], was["id"], "{lines:#?}");
+    }
+}
+
+#[test]
+fn rewrap_keeps_the_claude_card_with_a_spaced_question() {
+    // Breaking the question's line between words or inside one is the same prompt.
+    let s = read(&sessions("claude-approval").join("screen-approval.txt"));
+    let first = s.replace(
+        " Do you want to proceed?",
+        " Do you want to make this edit to a b.rs?",
+    );
+    let narrow = s.replace(
+        " Do you want to proceed?",
+        " Do you want to make this\n edit to a\n b.r\n s?",
+    );
+    let x = Scratch::new();
+    claude_approval(&x);
+    x.screen("t1", Some(&first));
+    let was = one(&x.cards("t1"), "request").clone();
+    x.screen("t1", Some(&narrow));
+    let r = one(&x.cards("t1"), "request").clone();
+    assert_eq!(
+        (&r["id"], &r["state"]),
+        (&was["id"], &json!("pending")),
+        "{r}"
+    );
 }

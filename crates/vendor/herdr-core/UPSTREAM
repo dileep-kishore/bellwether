@@ -125,3 +125,14 @@ Changes:
   `rewrap_claude_approval_at_16_columns`; crates/bw/tests/answer.rs
   `second_read_*`.
 
+- 2026-11-08, src/approval.rs: `ScreenBox` gains `header_cut`. When a
+  Claude box's top rule is off screen but the command is whole,
+  `screen_box` reads no header or tool from its first line, since that
+  line may be any line of a header that wrapped: in a 15-column chat
+  terminal a sub-agent's box read its tool as "rpose", the tail of
+  "general-purpose". bw matches such a box by its command
+  (crates/bw/src/requests/matchers.rs `same_call`). Tests:
+  crates/bw/tests/matchers.rs
+  `rewrap_claude_box_with_its_header_off_screen`; crates/bw/tests/cards.rs
+  `child_approval_with_its_header_off_screen_sits_under_its_child`;
+  upstream tests in src/approval/tests.rs still pass.

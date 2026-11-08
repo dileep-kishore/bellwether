@@ -21,14 +21,17 @@ import { parseCounts, parsePlace, parseWorktrees, SEP } from "./git-parse.js";
 // and would wake the folder watch that asked for the call.
 const READ_ONLY = ["--no-optional-locks", "-c", "core.fsmonitor=false"];
 
-/** Takes the folder as $1; prints status, then SEP, then numstat. Exit 3: the folder is gone. */
+/**
+ * Takes the folder as $1; prints status, then SEP, then numstat. Exit 3: the folder is gone. Git's parallel
+ * stat is off: on a 40,000-file checkout it spends five times the CPU of one thread at the same wall time.
+ */
 export const COUNTS_SCRIPT = [
   'cd "$1" || exit 3',
-  "git --no-optional-locks -c core.fsmonitor=false status --porcelain=v2 --branch -z || exit",
+  "git --no-optional-locks -c core.fsmonitor=false -c core.preloadIndex=false status --porcelain=v2 --branch -z || exit",
   "printf '\\036'",
   // Porcelain `git diff` rewrites a stat-dirty index despite --no-optional-locks; diff-index never does.
   // An unborn HEAD makes it fail, which means zero lines, not a failed read.
-  "git --no-optional-locks -c core.fsmonitor=false diff-index -M --no-textconv --no-ext-diff --numstat -z HEAD 2>/dev/null",
+  "git --no-optional-locks -c core.fsmonitor=false -c core.preloadIndex=false diff-index -M --no-textconv --no-ext-diff --numstat -z HEAD 2>/dev/null",
   "exit 0",
 ].join("\n");
 

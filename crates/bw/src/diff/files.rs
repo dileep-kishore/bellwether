@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 use super::parse::{raw_numstat, status_v2, Counts, StatusEntry};
 use super::{
-    commit_of, describe, digest, emit, fail, git, git_ok, patch, place, str_or_null, Fail,
+    commit_of, describe, digest, emit, fail, git, git_ok, patch, place, str_or_null, watch, Fail,
     DIFF_FLAGS,
 };
 use crate::chat::args::Args;
@@ -23,6 +23,10 @@ pub const LIST_BYTES: usize = 4 * 1024 * 1024;
 const COUNT_LIMIT: u64 = 64 * 1024 * 1024;
 /// Git calls a file binary when its first 8000 bytes hold a NUL.
 const BINARY_PROBE: usize = 8000;
+/// Changes' `git diff` names the paths status listed, so Git stats only those; past these the argument
+/// list could pass the system's limit, and the whole index is compared instead.
+const PATHSPEC_PATHS: usize = 1000;
+const PATHSPEC_BYTES: usize = 128 * 1024;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -78,6 +82,27 @@ pub fn run(a: &Args) -> Result<(), Fail> {
     }
     let p = place(path)?;
     let top = p.top.as_path();
+
+    // Taken before Git runs, so an edit during the read changes the next token.
+    let token = if a.has("watch") {
+        let key = watch::args_key(&[
+            Some(path),
+            a.get("base"),
+            a.get("mode"),
+            select,
+            a.get("file"),
+            a.get("old"),
+        ]);
+        match watch::before_read(top, &p.common_dir, &key, a.get("since")) {
+            watch::Seen::Unchanged(t) => {
+                emit(json!({"type": "diff-unchanged", "token": t}));
+                return Ok(());
+            }
+            watch::Seen::Read(t) => t,
+        }
+    } else {
+        None
+    };
 
     let status = status_v2(&git_ok(
         top,
@@ -147,13 +172,18 @@ pub fn run(a: &Args) -> Result<(), Fail> {
             from: from.clone(),
             to: status.oid.clone(),
         };
-        let (d, bytes) = match patch::patch_bytes(top, &spec)? {
-            Some(b) => (digest(&b), json!(b.len())),
-            None => ("too_large".to_string(), Value::Null),
+        // The digest only says when to reload the patch: a file Git cannot read must not fail the lists.
+        let (d, bytes, error) = match patch::patch_bytes(top, &spec) {
+            Ok(Some(b)) => (digest(&b), json!(b.len()), Value::Null),
+            Ok(None) => ("too_large".to_string(), Value::Null, Value::Null),
+            Err(f) => ("unreadable".to_string(), Value::Null, json!(f.message)),
         };
-        emit(
-            json!({"type": "diff-digest", "section": section, "path": file, "digest": d, "bytes": bytes}),
-        );
+        emit(json!({
+            "type": "diff-digest", "section": section, "path": file, "digest": d, "bytes": bytes, "error": error,
+        }));
+    }
+    if let Some(t) = token {
+        emit(json!({"type": "diff-token", "token": t}));
     }
     Ok(())
 }
@@ -230,10 +260,25 @@ fn diff_rows(top: &Path, args: &[&str]) -> Result<Vec<Row>, Fail> {
 /// the index in memory only) lists them, with `git diff`'s counts; then untracked files. Also returns the
 /// untracked paths.
 fn change_rows(top: &Path, entries: &[StatusEntry]) -> Result<(Vec<Row>, Vec<String>), Fail> {
-    let mut args = vec!["diff"];
-    args.extend(DIFF_FLAGS);
-    args.extend(["--raw", "--numstat", "-z", "--no-renames", "--"]);
-    let (raw, counts) = raw_numstat(&git_ok(top, &args)?);
+    let changed: Vec<&str> = entries
+        .iter()
+        .filter_map(|e| match e {
+            StatusEntry::Tracked { worktree, path } if *worktree != '.' => Some(path.as_str()),
+            _ => None,
+        })
+        .collect();
+    let (raw, counts) = if changed.is_empty() {
+        (Vec::new(), std::collections::HashMap::new())
+    } else {
+        let mut args = vec!["diff"];
+        args.extend(DIFF_FLAGS);
+        args.extend(["--raw", "--numstat", "-z", "--no-renames", "--"]);
+        let bytes: usize = changed.iter().map(|p| p.len() + 1).sum();
+        if changed.len() <= PATHSPEC_PATHS && bytes <= PATHSPEC_BYTES {
+            args.extend(&changed);
+        }
+        raw_numstat(&git_ok(top, &args)?)
+    };
     let mut rows = Vec::new();
     let mut untracked = Vec::new();
     for e in entries {

@@ -268,9 +268,9 @@ describe("ensure", () => {
     });
   });
 
-  test("this window needs helper 0.6.0, protocol 6", () => {
-    expect(PROTOCOL).toBe(6);
-    expect(HELPER_VERSION).toBe("0.6.0");
+  test("this window needs helper 0.7.0, protocol 7", () => {
+    expect(PROTOCOL).toBe(7);
+    expect(HELPER_VERSION).toBe("0.7.0");
   });
 
   test("a phase 3 helper (protocol 3, 0.3.0) is outdated", async () => {
@@ -281,7 +281,7 @@ describe("ensure", () => {
     expect(r).toEqual({
       ok: false,
       state: "outdated",
-      message: "bw on tsuki is protocol 3 version 0.3.0; this window needs protocol 6 version 0.6.0",
+      message: "bw on tsuki is protocol 3 version 0.3.0; this window needs protocol 7 version 0.7.0",
     });
   });
 
@@ -293,7 +293,7 @@ describe("ensure", () => {
     expect(r).toEqual({
       ok: false,
       state: "outdated",
-      message: "bw on tsuki is protocol 2 version 0.2.0; this window needs protocol 6 version 0.6.0",
+      message: "bw on tsuki is protocol 2 version 0.2.0; this window needs protocol 7 version 0.7.0",
     });
   });
 
@@ -305,7 +305,7 @@ describe("ensure", () => {
     expect(r).toEqual({
       ok: false,
       state: "outdated",
-      message: "bw on tsuki is protocol 1 version 0.1.0; this window needs protocol 6 version 0.6.0",
+      message: "bw on tsuki is protocol 1 version 0.1.0; this window needs protocol 7 version 0.7.0",
     });
   });
 

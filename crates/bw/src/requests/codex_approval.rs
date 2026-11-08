@@ -22,6 +22,10 @@ pub struct CodexBox {
     pub lines: Vec<String>,
     /// Option 2's text without its ` (p)` key hint, when the box offers it.
     pub always: Option<String>,
+    /// `always` as drawn, its wrapped lines joined with `\n`.
+    pub always_drawn: Option<String>,
+    /// The question and the labelled lines under it (`Thread:`, `Environment:`, `Reason:`) as drawn.
+    pub question: String,
     /// The `Thread:` line's agent path (`/root/<path>`), only on a sub-agent's box.
     pub thread: Option<String>,
 }
@@ -88,6 +92,11 @@ pub fn blocks(raw: &[&str]) -> Vec<Vec<String>> {
 
 /// Numbered options, each continued by the lines under it until the next number; numbered 1, 2, 3… or None.
 pub fn options(lines: &[String]) -> Option<Vec<String>> {
+    options_joined(lines, ' ')
+}
+
+/// `options` with each option's lines joined by `sep`.
+fn options_joined(lines: &[String], sep: char) -> Option<Vec<String>> {
     let mut out: Vec<String> = vec![];
     for l in lines {
         match numbered(l) {
@@ -95,7 +104,7 @@ pub fn options(lines: &[String]) -> Option<Vec<String>> {
             Some(_) => return None,
             None => {
                 let last = out.last_mut()?;
-                last.push(' ');
+                last.push(sep);
                 last.push_str(l);
             }
         }
@@ -122,6 +131,7 @@ pub fn codex_box(screen: &str) -> Option<CodexBox> {
     let after = question_end(&raw, QUESTION)?;
     let mut rest = blocks(&raw[after..]).into_iter();
     let (mut thread, mut reason, mut seen) = (None, String::new(), None::<Label>);
+    let mut question = vec![QUESTION.to_string()];
     let command_block = loop {
         let b = rest.next()?;
         let first = b[0].as_str();
@@ -151,6 +161,7 @@ pub fn codex_box(screen: &str) -> Option<CodexBox> {
             _ => return None,
         }
         seen = Some(label);
+        question.extend(b);
     };
     // The command runs until a blank line or the first option.
     let split = command_block
@@ -186,6 +197,15 @@ pub fn codex_box(screen: &str) -> Option<CodexBox> {
         }
         _ => return None,
     };
+    let always_drawn = match always {
+        Some(_) => Some(
+            options_joined(&option_lines, '\n')?[1]
+                .strip_suffix("(p)")?
+                .trim_end()
+                .to_string(),
+        ),
+        None => None,
+    };
     let first = command[0].strip_prefix("$ ")?.trim();
     let command: Vec<&str> = std::iter::once(first)
         .chain(command[1..].iter().map(String::as_str))
@@ -201,6 +221,8 @@ pub fn codex_box(screen: &str) -> Option<CodexBox> {
         reason,
         lines,
         always,
+        always_drawn,
+        question: question.join("\n"),
         thread,
     })
 }

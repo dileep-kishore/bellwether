@@ -22,8 +22,15 @@ pub fn now_ms() -> i64 {
         .map_or(0, |d| d.as_millis() as i64)
 }
 
-fn file_for(body: &Value) -> PathBuf {
-    let hex: String = Sha256::digest(body.to_string().as_bytes())
+/// Named by the key and the request together, so another key (another workspace) never reads this answer;
+/// the name is a one-way hash, so it holds no part of the key.
+fn file_for(key: &str, body: &Value) -> PathBuf {
+    let mut h = Sha256::new();
+    h.update(key.as_bytes());
+    h.update(b"\0");
+    h.update(body.to_string().as_bytes());
+    let hex: String = h
+        .finalize()
         .iter()
         .take(8)
         .map(|b| format!("{b:02x}"))
@@ -60,19 +67,19 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     result
 }
 
-/// Stores `data` as the answer to `body` now, and removes answers older than 30 days.
-pub fn store(body: &Value, data: &Value) {
+/// Stores `data` as the answer to `body` read with `key` now, and removes answers older than 30 days.
+pub fn store(key: &str, body: &Value, data: &Value) {
     if private_dir(&dir()).is_err() {
         return;
     }
     prune();
     let text = json!({"at": now_ms(), "data": data}).to_string();
-    let _ = write_private(&file_for(body), text.as_bytes());
+    let _ = write_private(&file_for(key, body), text.as_bytes());
 }
 
-/// The stored answer to `body` and when it was stored (ms), when there is one younger than 30 days.
-pub fn load(body: &Value) -> Option<(Value, i64)> {
-    let text = std::fs::read_to_string(file_for(body)).ok()?;
+/// The stored answer to `body` for `key` and when it was stored (ms), when there is one younger than 30 days.
+pub fn load(key: &str, body: &Value) -> Option<(Value, i64)> {
+    let text = std::fs::read_to_string(file_for(key, body)).ok()?;
     let v: Value = serde_json::from_str(&text).ok()?;
     let at = v["at"].as_i64()?;
     if now_ms() - at > KEEP.as_millis() as i64 {

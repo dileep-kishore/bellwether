@@ -170,6 +170,8 @@ test("every call names its machine, never uses cwd, and carries the read-only fl
   expect(seen[2]).toEqual({ cmd: "sh", args: ["-c", COUNTS_SCRIPT, "sh", "/home/u/gamma"], opts: { on: "macmini" } });
   for (const git of COUNTS_SCRIPT.split("\n").filter((l) => /\bgit\b/.test(l))) {
     expect(git).toContain("--no-optional-locks -c core.fsmonitor=false");
+    // Both commands stat every tracked file; one thread costs a fifth of the CPU at the same wall time.
+    expect(git).toContain("-c core.preloadIndex=false");
     if (/ diff/.test(git)) expect(git).toContain("--no-textconv --no-ext-diff");
   }
   expect(calls.every((c) => !("cwd" in c.opts))).toBe(true);

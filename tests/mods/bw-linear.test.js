@@ -587,4 +587,161 @@ describe("review fixes", () => {
     expect(linearCalls(m)).toEqual([]);
     expect(textOf(byId(m.render(), "issues-empty"))).toContain("ssh: Could not resolve hostname tsuki");
   });
+
+  test("F04: back to A before B's lookup answers reads A again", async () => {
+    const [holdB, openB] = gate();
+    const m = await mount("bw-linear", { live: twoSpaces({ hold: { b: holdB } }) });
+    showInLayout("issues");
+    await settle(m);
+    expect(shown(m.render())).toEqual(["A-1"]);
+    activate("sB");
+    await settle(m);
+    activate("sA");
+    await settle(m);
+    openB();
+    await settle(m);
+    expect(textOf(byId(m.render(), "issues-project"))).toContain("Project A");
+    expect(shown(m.render())).toEqual(["A-1"]);
+    // B's late answer is still dropped: nothing read B's project.
+    expect(linearCalls(m).filter((a) => a.includes("PB"))).toEqual([]);
+  });
+});
+
+describe("repository re-read", () => {
+  test("F02.1: a failed lookup is read again on the 60 s poll", async () => {
+    let fail = true;
+    const base = world();
+    const exec = async (/** @type {string} */ cmd, /** @type {string[]} */ args, /** @type {any} */ opts) => {
+      if (cmd === "git" && args.includes("rev-parse") && fail) throw new Error("SSH unreachable");
+      return base(cmd, args, opts);
+    };
+    const m = await panel({ machine: "tsuki", exec });
+    expect(textOf(byId(m.render(), "issues-project"))).toContain("SSH unreachable");
+    expect(linearCalls(m)).toEqual([]);
+    fail = false;
+    await runFor(m, 61_000);
+    expect(textOf(byId(m.render(), "issues-project"))).toContain("Link a Linear project");
+    expect(linearCalls(m)).toEqual([["issues", "--scope", "mine"]]);
+  });
+
+  test("F02.1: a known repository survives a failed lookup; leaving Git clears it", async () => {
+    let mode = "ok";
+    const base = world();
+    const exec = async (/** @type {string} */ cmd, /** @type {string[]} */ args, /** @type {any} */ opts) => {
+      if (cmd === "git" && args.includes("rev-parse")) {
+        if (mode === "ssh") return { code: 255, stdout: "", stderr: "ssh: connect to host tsuki: timed out" };
+        if (mode === "notgit") return { code: 128, stdout: "", stderr: "fatal: not a git repository" };
+      }
+      return base(cmd, args, opts);
+    };
+    const m = await panel({ machine: "tsuki", exec, shared: linkedP1() });
+    expect(byId(m.render(), "issue-PLA-1")).not.toBe(null);
+    mode = "ssh";
+    await m.click("issues-refresh");
+    await m.cx.flush();
+    expect(byId(m.render(), "issue-PLA-1")).not.toBe(null);
+    expect(linearCalls(m).length).toBe(2);
+    mode = "notgit";
+    await m.click("issues-refresh");
+    await m.cx.flush();
+    expect(textOf(byId(m.render(), "issues-empty"))).toContain("Open a space in a Git repository");
+    expect(linearCalls(m).length).toBe(2);
+  });
+
+  test("F02.2: an origin added later is read on the next poll, with the link kept under it", async () => {
+    let origin = /** @type {string | null} */ (null);
+    const m = await panel({ exec: world({ origin: () => origin }) });
+    expect(textOf(byId(m.render(), "issues-project"))).toContain("Link a Linear project");
+    origin = "git@github.com:me/scratch.git";
+    // The picker, another copy of the mod, re-reads the origin and writes the link under it.
+    fake.shared[LINKS] = writeLink(
+      fake.shared[LINKS],
+      { machine: null, commonDir: COMMON, origin },
+      { projectId: "P1", name: "Bellwether", at: 2 },
+    );
+    m.render();
+    await m.cx.flush();
+    await runFor(m, 61_000);
+    expect(textOf(byId(m.render(), "issues-project"))).toContain("Bellwether");
+    // One read for the new link: learning the origin is not a second relink.
+    expect(linearCalls(m)).toEqual([
+      ["issues", "--scope", "mine"],
+      ["issues", "--scope", "project", "--project", "P1"],
+    ]);
+  });
+
+  test("F02.2: a place link relinked under a new origin shows the new project", async () => {
+    let origin = /** @type {string | null} */ (null);
+    const m = await panel({ exec: world({ origin: () => origin }), shared: linkedP1() });
+    expect(textOf(byId(m.render(), "issues-project"))).toContain("Bellwether");
+    origin = "git@github.com:me/scratch.git";
+    fake.shared[LINKS] = writeLink(
+      fake.shared[LINKS],
+      { machine: null, commonDir: COMMON, origin },
+      { projectId: "P2", name: "Bellwether scratch", at: 2 },
+    );
+    m.render();
+    await m.cx.flush();
+    m.render();
+    await m.cx.flush();
+    expect(textOf(byId(m.render(), "issues-project"))).toContain("Bellwether scratch");
+    expect(linearCalls(m).at(-1)).toEqual(["issues", "--scope", "project", "--project", "P2"]);
+    expect(linearCalls(m).filter((a) => a.includes("P2")).length).toBe(1);
+  });
+
+  for (const [what, fail] of /** @type {const} */ ([
+    ["exit 255", { code: 255, stdout: "", stderr: "ssh: connect to host tsuki port 22: Operation timed out" }],
+    ["a throw", null],
+  ])) {
+    test(`F02.3: the picker shows an origin read that fails (${what}) and writes no link`, async () => {
+      const ORIGIN = "git@github.com:me/scratch.git";
+      const base = world({ origin: () => ORIGIN });
+      const exec = async (/** @type {string} */ cmd, /** @type {string[]} */ args, /** @type {any} */ opts) => {
+        if (cmd === "git" && args.includes("remote.origin.url")) {
+          if (!fail) throw new Error("hc exec: tsuki is unreachable");
+          return fail;
+        }
+        return base(cmd, args, opts);
+      };
+      const before = writeLink(
+        undefined,
+        { machine: "tsuki", commonDir: COMMON, origin: ORIGIN },
+        { projectId: "P1", name: "Bellwether", at: 1 },
+      );
+      const m = await mount("bw-linear", {
+        props: { pick: { machine: "tsuki", commonDir: COMMON, name: "repo" }, overlay: "o1" },
+        live: { ...live("tsuki"), exec, shared: { [LINKS]: before } },
+      });
+      await m.cx.flush();
+      const el = m.render();
+      expect(textOf(byId(el, "pick-error"))).toContain(fail ? "Operation timed out" : "tsuki is unreachable");
+      expect(byId(el, "pick-P2")).toBe(null);
+      expect(byId(el, "pick-unlink")).toBe(null);
+      expect(fake.shared[LINKS]).toEqual(before);
+      expect(m.log.closed).toEqual([]);
+    });
+  }
+});
+
+describe("pages", () => {
+  test("F08: a page with no open issue but a next cursor keeps Load more", async () => {
+    const exec = world({
+      linear: (a) => {
+        if (a[1] !== "search") return null;
+        return a.includes("--after") ? out([issue("PLA-7"), PAGE]) : out([{ ...PAGE, next: "c2" }]);
+      },
+    });
+    const m = await panel({ exec });
+    const state = m.view.search;
+    state.set_value("needle");
+    await state.handlers.submit({}, m.cx);
+    await m.cx.flush();
+    expect(byId(m.render(), "issues-more")).not.toBe(null);
+    await m.click("issues-more");
+    await m.cx.flush();
+    expect(linearCalls(m).at(-1)).toEqual(["search", "--text", "needle", "--scope", "mine", "--after", "c2"]);
+    const el = m.render();
+    expect(byId(el, "issue-PLA-7")).not.toBe(null);
+    expect(byId(el, "issues-more")).toBe(null);
+  });
 });

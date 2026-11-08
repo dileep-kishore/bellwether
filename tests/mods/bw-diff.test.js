@@ -20,6 +20,7 @@ import {
   rowFor,
   tabMachine,
   viewFiles,
+  watchAnswer,
   writeBase,
 } from "../../mods/bw-diff/model.js";
 
@@ -251,6 +252,18 @@ describe("model", () => {
       "--old",
       "old-name.txt",
     ]);
+    expect(filesArgs("/w", { ref: null, mode: "merge-base" }, null, { since: null }).slice(-1)).toEqual(["--watch"]);
+    expect(filesArgs("/w", { ref: null, mode: "merge-base" }, null, { since: "a.1.k" }).slice(-3)).toEqual([
+      "--watch",
+      "--since",
+      "a.1.k",
+    ]);
+    expect(watchAnswer([{ type: "diff-unchanged", token: "a.1.k" }])).toEqual({ unchanged: true, token: "a.1.k" });
+    expect(watchAnswer([...FILES, { type: "diff-token", token: "a.2.k" }])).toEqual({
+      unchanged: false,
+      token: "a.2.k",
+    });
+    expect(watchAnswer(FILES)).toEqual({ unchanged: false, token: null });
     expect(patchArgs("/w", { ...sel, section: "committed" }, { from: null, to: "h" }, 0)).toBe(null);
     expect(
       patchArgs("/w", { section: "changes", path: "f", oldPath: null, untracked: true }, { from: null, to: null }, 2),
@@ -590,6 +603,73 @@ describe("polling (done check E)", () => {
     expect(starts.slice(1).map((s, i) => s - starts[i])).toEqual(Array(6).fill(1500));
   });
 
+  test("a shown remote panel sends the watcher's token and keeps its rows while nothing changed", async () => {
+    setSystemTime(new Date(1_794_009_600_000));
+    let n = 0;
+    const m = await panel({
+      machine: "macmini",
+      answers: {
+        "diff files": () => {
+          n++;
+          // A full read with a token, three unchanged answers, then an edit and a new token.
+          if (n === 1) return out([...FILES, { type: "diff-token", token: "w.0.k" }]);
+          if (n <= 4) return out([{ type: "diff-unchanged", token: "w.0.k" }]);
+          if (n === 5) return out([...FILES, { type: "diff-token", token: "w.1.k" }]);
+          return out([{ type: "diff-unchanged", token: "w.1.k" }]);
+        },
+        "diff patch": PATCH,
+        "diff refs": REFS,
+      },
+    });
+    await runFor(m, 10000);
+    const sent = calls(m, "files").map((c) => {
+      const i = c.args.indexOf("--since");
+      return [c.args.includes("--watch"), i === -1 ? null : c.args[i + 1]];
+    });
+    expect(sent).toEqual([
+      [true, null],
+      [true, "w.0.k"],
+      [true, "w.0.k"],
+      [true, "w.0.k"],
+      [true, "w.0.k"],
+      [true, "w.1.k"],
+      [true, "w.1.k"],
+    ]);
+    expect(textOf(byId(m.el, "diff-file-changes-notes.txt"))).toBe("M notes.txt +2 −1");
+  });
+
+  test("an unchanged answer with no list makes the next read a full one", async () => {
+    setSystemTime(new Date(1_794_009_600_000));
+    const m = await panel({
+      machine: "macmini",
+      answers: { "diff files": [{ type: "diff-unchanged", token: "w.0.k" }], "diff patch": PATCH, "diff refs": REFS },
+    });
+    await runFor(m, 3000);
+    expect(calls(m, "files").every((c) => !c.args.includes("--since"))).toBe(true);
+    expect(calls(m, "files").length).toBeGreaterThan(1);
+  });
+
+  test("a local panel never asks for the helper's watcher", async () => {
+    setSystemTime(new Date(1_794_009_600_000));
+    /** @type {((paths: string[]) => void)[]} */
+    const waiting = [];
+    const m = await panel({
+      watch: () => new Promise((resolve) => waiting.push(resolve)),
+      answers: {
+        "diff files": [...FILES, { type: "diff-token", token: "w.0.k" }],
+        "diff patch": PATCH,
+        "diff refs": REFS,
+      },
+    });
+    await runFor(m, 3000);
+    for (const w of waiting.splice(0)) w([`${TOP}/notes.txt`]);
+    await m.cx.flush();
+    m.render();
+    await m.cx.flush();
+    expect(calls(m, "files")).toHaveLength(2);
+    expect(calls(m, "files").every((c) => !c.args.includes("--watch"))).toBe(true);
+  });
+
   test("shown local panel reads on a watch event and not on a timer", async () => {
     setSystemTime(new Date(1_794_009_600_000));
     /** @type {((paths: string[]) => void)[]} */
@@ -654,7 +734,7 @@ describe("tab", () => {
         on: "macmini",
       },
     ]);
-    expect(textOf(m.el)).toContain("Committed on branch · tip of origin/main · macmini");
+    expect(textOf(m.el)).toContain("Committed on branch · tip of origin/main · aaa..bbb · macmini");
     m.render();
     await m.cx.flush();
     expect(calls(m, "patch")).toHaveLength(1);
@@ -889,7 +969,7 @@ describe("review fixes", () => {
     });
   });
 
-  test("tabMachine takes the exact space id, then one suffix match, and refuses two", () => {
+  test("tabMachine in another window takes the one space matching past the machine prefix, and refuses two", () => {
     const t = /** @type {any} */ (
       readTab({
         tab: true,
@@ -905,12 +985,91 @@ describe("review fixes", () => {
       { id: "sp9", machine: null },
       { id: "macmini/sp9", machine: "macmini" },
     ];
-    expect(tabMachine(t, null, both)).toEqual({ ok: true, machine: "macmini" });
+    expect(tabMachine(t, null, both.slice(1))).toEqual({ ok: true, machine: "macmini" });
+    expect(tabMachine(t, null, both)).toEqual({ ok: false });
     expect(
       tabMachine({ ...t, space: "sp9", window: "w1" }, "w2", [
         { id: "macbook/sp9", machine: "macbook" },
         ...both.slice(1),
       ]),
     ).toEqual({ ok: false });
+    // macmini's own sp9, opened there, rendered in a window whose local sp9 is another space.
+    const fromMini = { ...t, space: "sp9", machine: null, window: "w-mini" };
+    expect(tabMachine(fromMini, "w-book", both)).toEqual({ ok: false });
+    expect(tabMachine(fromMini, "w-book", both.slice(1))).toEqual({ ok: true, machine: "macmini" });
+  });
+
+  test("picking A, B, then A while A's next page loads drops that page and loads A again", async () => {
+    const page1 = held();
+    /** @param {string[]} a */
+    const patch = (a) => {
+      const file = a[a.indexOf("--file") + 1];
+      const page = a.includes("--page") ? Number(a[a.indexOf("--page") + 1]) : 0;
+      if (file === "notes.txt" && page === 1) return page1.p;
+      return out([
+        {
+          type: "diff-patch",
+          page,
+          pages: 2,
+          bytes: 9,
+          digest: `d-${file}`,
+          text: `@@ -1 +1 @@\n+${file} p${page}\n`,
+          cut: [],
+        },
+      ]);
+    };
+    const m = await panel({ machine: "macmini", answers: { "diff files": FILES, "diff patch": patch } });
+    await m.click("diff-file-changes-notes.txt");
+    await m.click("diff-patch-more");
+    await m.click("diff-file-changes-gone.txt");
+    await m.click("diff-file-changes-notes.txt");
+    page1.release(
+      out([{ type: "diff-patch", page: 1, pages: 2, bytes: 9, digest: "d-notes.txt", text: "+late\n", cut: [] }]),
+    );
+    await m.cx.flush();
+    m.render();
+    const text = textOf(byId(m.el, "diff-patch"));
+    expect(text).toContain("notes.txt p0");
+    expect(text).not.toContain("late");
+    expect(byId(m.el, "diff-note")).toBe(null);
+    await m.click("diff-file-changes-fresh.txt");
+    expect(textOf(byId(m.el, "diff-patch"))).toContain("fresh.txt p0");
+  });
+
+  test("the work loop keeps serving patches after one task throws", async () => {
+    const m = await panel({ answers: { "diff files": FILES, "diff patch": PATCH } });
+    const view = /** @type {any} */ (m.view);
+    const load = view.loadPatch;
+    view.loadPatch = async () => {
+      view.loadPatch = load;
+      throw new Error("boom");
+    };
+    await m.click("diff-file-changes-notes.txt");
+    expect(calls(m, "patch")).toHaveLength(0);
+    expect(textOf(byId(m.el, "diff-note"))).toContain("boom");
+    await m.click("diff-file-changes-fresh.txt");
+    expect(calls(m, "patch").at(-1)?.args).toContain("fresh.txt");
+  });
+
+  test("clicking the selected file again retries a failed patch read", async () => {
+    let fail = false;
+    const patch = () =>
+      fail
+        ? {
+            ...out([{ type: "error", code: "ssh", message: "ssh: connect to host tsuki: Connection refused" }]),
+            code: 1,
+          }
+        : out(PATCH);
+    const m = await panel({ machine: "macmini", answers: { "diff files": FILES, "diff patch": patch } });
+    fail = true;
+    await m.click("diff-file-changes-notes.txt");
+    expect(textOf(byId(m.el, "diff-patch"))).toContain("Connection refused");
+    fail = false;
+    await m.click("diff-file-changes-notes.txt");
+    expect(calls(m, "patch")).toHaveLength(2);
+    expect(textOf(byId(m.el, "diff-patch"))).toContain("two changed");
+    expect(textOf(byId(m.el, "diff-patch"))).not.toContain("Connection refused");
+    await m.click("diff-file-changes-notes.txt");
+    expect(calls(m, "patch")).toHaveLength(2);
   });
 });
