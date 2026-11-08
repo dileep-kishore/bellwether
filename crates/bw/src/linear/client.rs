@@ -85,7 +85,9 @@ struct Reply {
 
 fn send(url: &str, key: &str, body: &str) -> Result<Reply, Fail> {
     let mut child = Command::new(program("BW_CURL", "/usr/bin/curl"))
+        // -q must come first: it stops curl reading ~/.curlrc, where a trace option would write the key.
         .args([
+            "-q",
             "-sS",
             "--max-time",
             "20",

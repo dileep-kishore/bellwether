@@ -388,6 +388,28 @@ fn offline_serves_the_cache_with_its_age() {
 }
 
 #[test]
+fn a_default_curl_config_cannot_trace_the_key() {
+    let fake = serve(Arc::new(linear));
+    let env = Env::new();
+    let trace = env.path().join("trace.log");
+    std::fs::write(
+        env.path().join(".curlrc"),
+        format!("trace-ascii = \"{}\"\n", trace.display()),
+    )
+    .unwrap();
+    let out = env.bw(fake.port, &["issues", "--scope", "mine"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert!(
+        !trace.exists(),
+        "curl read ~/.curlrc and traced the request"
+    );
+}
+
+#[test]
 fn issue_text_and_the_8_kb_rule() {
     let fake = serve(Arc::new(linear));
     let env = Env::new();

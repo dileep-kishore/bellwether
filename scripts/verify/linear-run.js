@@ -71,7 +71,7 @@ async function graphql(query, variables = {}) {
   writeFileSync(body, JSON.stringify({ query, variables }));
   const script = [
     'key=$("$1" find-generic-password -s bellwether.linear -w) || exit 3',
-    'printf \'header = "Authorization: %s"\\n\' "$key" | curl -sS --max-time 20 -K - -H "Content-Type: application/json" --data-binary @"$2" "$3"',
+    'printf \'header = "Authorization: %s"\\n\' "$key" | curl -q -sS --max-time 20 -K - -H "Content-Type: application/json" --data-binary @"$2" "$3"',
   ].join("\n");
   const r = await spawn(["sh", "-c", script, "sh", security, body, ENDPOINT]);
   if (r.code !== 0) throw new Error(`reference query failed (${r.code}): ${r.stderr.trim()}`);
