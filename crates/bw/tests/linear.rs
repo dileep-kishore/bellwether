@@ -186,7 +186,8 @@ impl Env {
             &d.join("security"),
             &format!(
                 "#!/bin/sh\n[ -f \"{0}/nokey\" ] && {{ echo 'could not be found' >&2; exit 44; }}\n\
-                 [ \"$*\" = 'find-generic-password -s bellwether.linear -w' ] || exit 9\necho {KEY}\n",
+                 [ \"$*\" = 'find-generic-password -s bellwether.linear -w' ] || exit 9\n\
+                 [ -f \"{0}/key\" ] && exec cat \"{0}/key\"\necho {KEY}\n",
                 d.display()
             ),
         );
@@ -385,6 +386,26 @@ fn offline_serves_the_cache_with_its_age() {
     // A list never read before has nothing to show.
     let other = env.bw(closed_port(), &["issues", "--scope", "mine"]);
     assert_eq!(error_code(&other), "offline");
+}
+
+#[test]
+fn another_key_never_reads_the_first_keys_cache() {
+    let fake = serve(Arc::new(linear));
+    let env = Env::new();
+    let args = ["issues", "--scope", "project", "--project", "P1"];
+    assert!(env.bw(fake.port, &args).status.success());
+    // The person stores a key for another workspace; offline, the first key's list must not answer for it.
+    std::fs::write(
+        env.path().join("key"),
+        "lin_api_OTHERKEYabcdefghijklmnopqrstuvwxyz01\n",
+    )
+    .unwrap();
+    assert_eq!(error_code(&env.bw(closed_port(), &args)), "offline");
+    std::fs::remove_file(env.path().join("key")).unwrap();
+    assert_eq!(
+        ids(&env.bw(closed_port(), &args)),
+        ["PLA-1", "PLA-2", "PLA-3"]
+    );
 }
 
 #[test]

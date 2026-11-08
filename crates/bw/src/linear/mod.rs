@@ -75,12 +75,13 @@ pub fn run(argv: &[String]) -> ExitCode {
 
 /// The answer to `body`, from Linear or, when Linear cannot be reached, from the cache with its time.
 fn read(body: &Value) -> Result<(Value, Option<i64>), Fail> {
-    match client::post(body) {
+    let key = client::read_key()?;
+    match client::post(&key, body) {
         Ok(data) => {
-            cache::store(body, &data);
+            cache::store(&key, body, &data);
             Ok((data, None))
         }
-        Err(f) if f.code == "offline" => match cache::load(body) {
+        Err(f) if f.code == "offline" => match cache::load(&key, body) {
             Some((data, at)) => Ok((data, Some(at))),
             None => Err(fail(
                 "offline",
