@@ -17,6 +17,7 @@ import {
   readTab,
   rowFor,
   SECTIONS,
+  shortRef,
   SECTION_TITLE,
   selectionOf,
   splitPath,
@@ -44,8 +45,9 @@ const icon = (name) => `mods/bw-diff/icons/${name}.svg`;
 
 /**
  * @typedef {object} PatchState
- * @property {string} key the selection it belongs to
+ * @property {string} key the machine, worktree, selection and range it belongs to
  * @property {string | null} digest
+ * @property {string | null} failed the listed digest whose load failed, so a refresh does not retry it
  * @property {{ text: string, cut: { line: number, bytes: number }[] }[]} pages
  * @property {number} total
  * @property {number} bytes
@@ -54,7 +56,7 @@ const icon = (name) => `mods/bw-diff/icons/${name}.svg`;
  */
 
 /** @param {Selection | null} s */
-const selKey = (s) => (s ? JSON.stringify([s.section, s.path, s.oldPath]) : "");
+const selKey = (s) => (s ? JSON.stringify([s.section, s.path, s.oldPath, s.untracked]) : "");
 
 /** @returns {Set<string>} */
 function loadFolded() {
@@ -118,11 +120,14 @@ export default class Changes extends View {
     cx.spawn(async (/** @type {any} */ cx) => {
       while (this.alive) {
         await this.work.wait();
-        if (this.alive && this.refsWanted) {
+        // A hidden panel calls nothing, and a job may wait on another's call; update() pokes again once
+        // Changes is shown.
+        const may = () => this.alive && (this.tab !== null || isShown(layout()));
+        if (may() && this.refsWanted) {
           this.refsWanted = false;
           await this.loadRefs(cx);
         }
-        if (this.alive && this.patchWanted) {
+        if (may() && this.patchWanted) {
           this.patchWanted = false;
           await this.loadPatch(cx);
         }
@@ -163,6 +168,10 @@ export default class Changes extends View {
     this.autoPicked = new Set();
     /** @type {number | null} the reveal last applied */
     this.revealed = null;
+    /** @type {number | null} the reveal that asked for a fresh read */
+    this.revealAsked = null;
+    /** When the shown list's read started, to tell whether it can hold a file a chat just named. */
+    this.viewAt = 0;
     this.filter = InputState.new({ placeholder: "Filter, or type a ref and press Enter" });
     this.filter.on("change", (/** @type {unknown} */ _e, /** @type {any} */ cx) => cx.notify());
     this.filter.on("submit", (/** @type {unknown} */ _e, /** @type {any} */ cx) => this.submitRef(cx));
@@ -211,8 +220,9 @@ export default class Changes extends View {
       return { ok: true, skipped: true };
     }
     const sel = this.selected;
+    const started = Date.now();
     const answer = await this.helper.call(target.machine, filesArgs(target.path, target.base, sel));
-    return { ok: answer.ok, answer, sel };
+    return { ok: answer.ok, answer, sel, started };
   }
 
   /** @param {any} target @param {any} result @returns {boolean} */
@@ -237,6 +247,7 @@ export default class Changes extends View {
     }
     this.failure = null;
     this.view = view;
+    this.viewAt = Number(result.started) || 0;
     this.commonDirs.set(/** @type {string} */ (this.folderKey), view.place.commonDir);
     const sel = this.selected;
     if (sel) {
@@ -245,12 +256,19 @@ export default class Changes extends View {
         this.note = `${splitPath(sel.path).name} has no ${SECTION_TITLE[sel.section].toLowerCase()} now`;
         this.selected = null;
         this.patch = null;
+      } else if (selKey(selectionOf(still)) !== selKey(sel)) {
+        // Staged, unstaged or renamed in place: the patch needs the row's new flags.
+        this.selected = selectionOf(still);
+        this.patch = null;
+        this.wantPatch(0);
+      } else if (this.patch && this.patch.key !== this.patchSource()?.key) {
+        this.wantPatch(0);
       } else if (
         selKey(result.sel) === selKey(sel) &&
         view.digest &&
         this.patch &&
-        !this.patch.loading &&
-        view.digest.digest !== this.patch.digest
+        view.digest.digest !== this.patch.digest &&
+        view.digest.digest !== this.patch.failed
       ) {
         this.wantPatch(0);
       }
@@ -258,47 +276,72 @@ export default class Changes extends View {
     return true;
   }
 
+  /**
+   * Where the selected patch comes from. `key` names the machine, worktree, selection and, for Committed,
+   * the range, so an answer for any other is never shown.
+   */
+  patchSource() {
+    const sel = this.selected;
+    const top = this.tab ? this.tab.top : (this.view?.place.top ?? null);
+    if (!sel || !top) return null;
+    const range =
+      sel.section !== "committed"
+        ? { from: null, to: null }
+        : this.tab
+          ? { from: this.tab.from, to: this.tab.to }
+          : { from: this.view?.base.from ?? null, to: this.view?.place.head ?? null };
+    const machine = this.machine();
+    return { sel, top, range, machine, key: JSON.stringify([machine, top, selKey(sel), range.from, range.to]) };
+  }
+
   /** Loads `this.patchPage` of the selected file's patch. @param {any} cx */
   async loadPatch(cx) {
-    const sel = this.selected;
-    const top = this.tab ? this.tab.top : this.view?.place.top;
-    if (!sel || !top) return;
-    const key = selKey(sel);
-    const page = this.patch?.key === key ? this.patchPage : 0;
-    const range = this.tab
-      ? { from: this.tab.from, to: this.tab.to }
-      : { from: this.view?.base.from ?? null, to: this.view?.place.head ?? null };
-    const args = patchArgs(top, sel, range, page);
-    const keep = page > 0 && this.patch?.key === key ? this.patch : null;
+    const src = this.patchSource();
+    if (!src) return;
+    const same = this.patch?.key === src.key ? this.patch : null;
+    const page = same ? this.patchPage : 0;
+    const args = patchArgs(src.top, src.sel, src.range, page);
     if (!args) {
-      this.patch = { key, digest: null, pages: [], total: 0, bytes: 0, loading: false, error: "Pick a base first" };
+      this.patch = {
+        key: src.key,
+        digest: null,
+        failed: null,
+        pages: [],
+        total: 0,
+        bytes: 0,
+        loading: false,
+        error: "Pick a base first",
+      };
       cx.notify();
       return;
     }
-    this.patch = keep
-      ? { ...keep, loading: true }
-      : {
-          key,
-          digest: this.patch?.key === key ? this.patch.digest : null,
-          pages: this.patch?.key === key ? this.patch.pages : [],
-          total: 0,
-          bytes: 0,
-          loading: true,
-          error: null,
-        };
+    this.patch = same
+      ? { ...same, loading: true, error: null }
+      : { key: src.key, digest: null, failed: null, pages: [], total: 0, bytes: 0, loading: true, error: null };
+    // The listed digest this load answers, so a failure is not retried on every refresh.
+    const listed = this.view?.digest?.digest ?? null;
     cx.notify();
-    const answer = await this.helper.call(this.machine(), args);
-    if (selKey(this.selected) !== key) return;
+    const answer = await this.helper.call(src.machine, args);
+    if (this.patchSource()?.key !== src.key) {
+      if (this.selected) this.wantPatch(0);
+      return;
+    }
+    const now = /** @type {PatchState} */ (this.patch);
     const line = answer.ok ? /** @type {any} */ (answer.lines.find((l) => l.type === "diff-patch")) : null;
     if (!line) {
       const message = answer.ok === false ? answer.message : "bw diff patch printed no page";
-      this.patch = { .../** @type {PatchState} */ (this.patch), loading: false, error: message };
+      this.patch = { ...now, loading: false, error: message, failed: listed };
+    } else if (page > 0 && line.digest !== now.digest) {
+      // The file changed since the first page: start over rather than join two versions.
+      this.patch = { ...now, pages: [], loading: false };
+      this.wantPatch(0);
     } else {
       const got = { text: String(line.text ?? ""), cut: Array.isArray(line.cut) ? line.cut : [] };
       this.patch = {
-        key,
+        key: src.key,
         digest: typeof line.digest === "string" ? line.digest : null,
-        pages: keep ? [...keep.pages, got] : [got],
+        failed: null,
+        pages: page > 0 ? [...now.pages, got] : [got],
         total: Number(line.pages) || 1,
         bytes: Number(line.bytes) || 0,
         loading: false,
@@ -348,6 +391,8 @@ export default class Changes extends View {
       async () => {
         const r = await this.helper.call(this.machine(), args);
         this.nonce++;
+        this.picker.refs = null;
+        if (this.picker.open) this.wantRefs();
         if (r.ok === false) return `Fetch failed: ${r.message}`;
         const done = /** @type {any} */ (r.lines.find((l) => l.type === "diff-fetched"));
         return `Fetched ${done?.remote ?? "origin"}`;
@@ -356,9 +401,8 @@ export default class Changes extends View {
     );
   }
 
-  /** @param {BaseChoice} choice */
-  storeBase(choice) {
-    const project = this.want?.project;
+  /** @param {BaseChoice} choice @param {string | null | undefined} [project] the shown project's by default */
+  storeBase(choice, project = this.want?.project) {
     if (!project) return;
     setShared(BASE_KEY, writeBase(shared(BASE_KEY), project, choice));
   }
@@ -369,7 +413,7 @@ export default class Changes extends View {
     this.picker.error = null;
     if (this.picker.open) {
       this.filter.focus();
-      if (this.picker.refs === null) this.wantRefs();
+      this.wantRefs();
     }
     cx.notify();
   }
@@ -383,11 +427,12 @@ export default class Changes extends View {
   async loadRefs(cx) {
     const top = this.view?.place.top;
     if (!top || this.picker.loading) return;
+    const machine = this.machine();
     this.picker.loading = true;
     cx.notify();
-    const r = await this.helper.call(this.machine(), ["diff", "refs", "--path", top]);
+    const r = await this.helper.call(machine, ["diff", "refs", "--path", top]);
     this.picker.loading = false;
-    if (this.view?.place.top !== top) return;
+    if (this.view?.place.top !== top || this.machine() !== machine) return;
     if (r.ok === false) this.picker.error = r.message;
     else this.picker.refs = r.lines.filter((l) => l.type === "diff-ref");
     cx.notify();
@@ -401,24 +446,34 @@ export default class Changes extends View {
     this.note = null;
   }
 
-  /** Enter in the picker: a listed ref is taken as it is; anything else is checked first. @param {any} cx */
+  /**
+   * Enter in the picker: a name only one listed ref has is taken as that ref; anything else is checked
+   * first, and stored for the project it was typed in even when the space changed meanwhile.
+   * @param {any} cx
+   */
   submitRef(cx) {
     const text = this.filter.value().trim();
     const top = this.view?.place.top;
-    if (!text || !top) return;
-    if ((this.picker.refs ?? []).some((r) => r.name === text)) {
-      this.chooseRef(text);
+    const project = this.want?.project;
+    if (!text || !top || !project) return;
+    const listed = (this.picker.refs ?? []).filter((r) => r.name === text || r.ref === text);
+    if (listed.length === 1) {
+      this.chooseRef(String(listed[0].ref ?? listed[0].name));
       return cx.notify();
     }
+    const machine = this.machine();
+    const mode = this.want?.base.mode ?? "merge-base";
     this.act(
       "diff-verify",
       async () => {
-        const r = await this.helper.call(this.machine(), ["diff", "refs", "--path", top, "--verify", text]);
+        const r = await this.helper.call(machine, ["diff", "refs", "--path", top, "--verify", text]);
+        const here = this.want?.project === project;
         if (r.ok === false) {
-          this.picker.error = r.message;
+          if (here) this.picker.error = r.message;
           return null;
         }
-        this.chooseRef(text);
+        if (here) this.chooseRef(text);
+        else this.storeBase({ ref: text, mode }, project);
         return null;
       },
       cx,
@@ -475,6 +530,7 @@ export default class Changes extends View {
       this.folderKey = folderKey;
       this.answered = false;
       this.view = null;
+      this.viewAt = 0;
       this.failure = null;
       this.selected = null;
       this.patch = null;
@@ -485,6 +541,13 @@ export default class Changes extends View {
     const project = commonDir ? projectKey(machine, commonDir) : null;
     const base = project ? readBase(shared(BASE_KEY), project) : readBase(null, "");
     this.want = folder ? { machine, folder, base, project } : null;
+    // A reveal names a file the agent just changed: read the list again before looking for it.
+    const reveal = space && shown ? revealFor(shared(REVEAL), space.id) : null;
+    const pending = reveal !== null && reveal.at !== this.revealed;
+    if (pending && this.viewAt < reveal.at && this.revealAsked !== reveal.at) {
+      this.revealAsked = reveal.at;
+      this.nonce++;
+    }
 
     const key = folder ? JSON.stringify([machine, folder, base.ref, base.mode, this.nonce]) : null;
     const wanted = shown && key !== null;
@@ -514,6 +577,7 @@ export default class Changes extends View {
     this.key = key;
     this.shown = shown;
     this.drawn = true;
+    if (shown && (this.patchWanted || this.refsWanted)) this.work.poke();
 
     const view = this.view;
     if (!space || !view || !project) return;
@@ -522,11 +586,11 @@ export default class Changes extends View {
       this.picker.open = true;
       this.wantRefs();
     }
-    const reveal = revealFor(shared(REVEAL), space.id);
-    if (reveal && reveal.at !== this.revealed && shown) {
+    if (pending && this.viewAt >= reveal.at) {
       this.revealed = reveal.at;
       const row = rowFor(view, reveal.file);
       if (row) {
+        this.note = null;
         this.selected = selectionOf(row);
         this.patch = null;
         this.wantPatch(0);
@@ -625,7 +689,7 @@ export default class Changes extends View {
   header(t, view) {
     const base = view?.base;
     const branch = view ? (view.place.branch ?? (view.place.head ? view.place.head.slice(0, 7) : "no commits")) : "…";
-    const baseName = base?.ref ?? "pick a base";
+    const baseName = base?.ref ? shortRef(base.ref) : "pick a base";
     const age = base?.time != null ? ago(base.time * 1000, Date.now()) : null;
     const meta = base?.short ? `${base.short}${age ? ` · ${age}` : ""}` : "";
     const ready = view !== null && this.want?.project != null;
@@ -776,8 +840,8 @@ export default class Changes extends View {
           `diff-ref-${r.kind}-${r.name}`,
           String(r.name),
           `${r.kind} · ${r.short}${typeof r.time === "number" ? ` · ${ago(r.time * 1000, Date.now())}` : ""}`,
-          current === r.name,
-          () => this.chooseRef(String(r.name)),
+          current === (r.ref ?? r.name),
+          () => this.chooseRef(String(r.ref ?? r.name)),
         ),
       );
     return div()
@@ -938,7 +1002,7 @@ export default class Changes extends View {
       id: "diff-patch",
       title: sel.path,
       detail: SECTION_TITLE[sel.section],
-      patch: this.patch?.key === selKey(sel) ? this.patch : null,
+      patch: this.patch?.key === this.patchSource()?.key ? this.patch : null,
       onMore: (cx) => {
         if (!this.patch || this.patch.loading) return;
         this.wantPatch(this.patch.pages.length);
@@ -971,7 +1035,7 @@ export default class Changes extends View {
     const detail = [
       SECTION_TITLE[tab.section],
       tab.section === "committed" && tab.base ? `${tab.mode === "tip" ? "tip of" : "since"} ${tab.base}` : null,
-      tab.machine,
+      this.tabMachineName,
     ]
       .filter(Boolean)
       .join(" · ");

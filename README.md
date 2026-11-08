@@ -409,9 +409,12 @@ runs `bw diff` through the helper on the space's machine.
 The header reads `<branch> → <base> ▾`, then the base's short hash and age,
 for example `feat → origin/main ▾ 9d6c68d · 3d`. Clicking it opens the base
 picker. The picker lists up to 200 branches, remote branches and tags, newest
-first, and filters them as you type. Enter takes a listed ref as it is. Any
-other text is checked first with `bw diff refs --verify`, and a text that
-names no commit shows the error and is not kept. With no choice stored, the
+first, and filters them as you type, and it reads the list again each time
+it opens and after Fetch. A picked row is kept by its full name, such as
+`refs/tags/release`, so a branch and a tag with one name stay two choices.
+Enter takes a name only one listed ref has. Any other text is checked first
+with `bw diff refs --verify`, and a text that names no commit shows the error
+and is not kept. With no choice stored, the
 base is `origin/main`, else the branch `origin/HEAD` points to. When the
 repository has neither, the picker opens by itself once.
 
@@ -455,7 +458,7 @@ no helper call, and showing the panel again reads at once.
 
 "Open in Changes" in a chat selects the Changes tab. When the chat's line
 names one file, the chat also writes that file to `shared("bw.diff.reveal")`,
-and the panel selects it once the space's list is read.
+and the panel reads the list again and then selects the file.
 
 Changes never stages, commits or pushes. `bw diff fetch` is its only command
 that writes to the repository.

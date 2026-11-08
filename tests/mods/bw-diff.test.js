@@ -671,3 +671,246 @@ describe("tab", () => {
     expect(textOf(lost.el)).toBe("Open this diff again from Changes in this window");
   });
 });
+
+describe("review fixes", () => {
+  /** A promise and the function that settles it, for a helper answer held back. */
+  function held() {
+    /** @type {(v: any) => void} */
+    let release = () => {};
+    const p = new Promise((r) => (release = r));
+    return { p, release };
+  }
+
+  test("a reveal for a file changed while Changes was hidden waits for a fresh list", async () => {
+    const t0 = 1_794_009_600_000;
+    setSystemTime(new Date(t0));
+    let list = FILES.filter((l) => l.path !== "fresh.txt");
+    const m = await panel({ answers: { "diff files": () => out(list), "diff patch": PATCH } });
+    showInLayout("browser");
+    m.render();
+    list = FILES;
+    fake.shared["bw.diff.reveal"] = { s1: { file: `${TOP}/fresh.txt`, at: t0 + 10 } };
+    setSystemTime(new Date(t0 + 20));
+    showInLayout("changes");
+    m.render();
+    expect(byId(m.el, "diff-note")).toBe(null);
+    for (let i = 0; i < 4; i++) {
+      await m.cx.flush();
+      m.render();
+    }
+    expect(fake.shared["bw.diff.reveal"]).toEqual({});
+    expect(calls(m, "patch").at(-1)?.args).toContain("fresh.txt");
+    expect(byId(m.el, "diff-file-changes-fresh.txt-bar")).not.toBe(null);
+  });
+
+  test("a selected file staged in place gets its new flags and patch", async () => {
+    let tracked = false;
+    const files = () => out(tracked ? FILES.map((l) => (l.path === "fresh.txt" ? { ...l, status: "M" } : l)) : FILES);
+    const m = await panel({ machine: "macmini", answers: { "diff files": files, "diff patch": PATCH } });
+    await m.click("diff-file-changes-fresh.txt");
+    await m.cx.flush();
+    expect(calls(m, "patch").at(-1)?.args).toContain("--untracked");
+    tracked = true;
+    setSystemTime(new Date());
+    await runFor(m, 1600);
+    expect(calls(m, "patch").at(-1)?.args).not.toContain("--untracked");
+  });
+
+  test("an answer for another worktree is not shown for the same file name", async () => {
+    const first = held();
+    let n = 0;
+    const patch = () => (++n === 1 ? first.p : out([{ ...PATCH[0], text: "diff --git a/b b/b\n" }]));
+    const m = await panel({ answers: { "diff files": FILES, "diff patch": patch } });
+    await m.click("diff-file-changes-notes.txt");
+    const view = /** @type {any} */ (m.view);
+    view.view = { ...view.view, place: { ...view.view.place, top: "/elsewhere" } };
+    first.release(out([{ ...PATCH[0], text: "FROM THE FIRST WORKTREE\n" }]));
+    await m.cx.flush();
+    m.render();
+    expect(textOf(m.el)).not.toContain("FROM THE FIRST WORKTREE");
+    expect(calls(m, "patch").length).toBe(2);
+  });
+
+  test("a newer digest that lands while a patch loads reloads it", async () => {
+    const first = held();
+    let n = 0;
+    let digest = PATCH[0].digest;
+    const files = (/** @type {string[]} */ args) =>
+      out(
+        args.includes("--select")
+          ? [
+              ...FILES.filter((l) => l.type !== "diff-digest"),
+              { type: "diff-digest", section: "changes", path: "notes.txt", digest, bytes: 1 },
+            ]
+          : FILES,
+      );
+    const patch = () => (++n === 1 ? first.p : out(PATCH));
+    const m = await panel({ machine: "macmini", answers: { "diff files": files, "diff patch": patch } });
+    await m.click("diff-file-changes-notes.txt");
+    digest = "ffffffffffffffff";
+    setSystemTime(new Date());
+    await runFor(m, 1600);
+    first.release(out(PATCH));
+    await m.cx.flush();
+    expect(n).toBe(2);
+  });
+
+  test("a typed ref verified after a space switch is stored for the space it was typed in", async () => {
+    const verify = held();
+    const refs = (/** @type {string[]} */ a) => (a.includes("--verify") ? verify.p : out(REFS));
+    const m = await panel({ answers: { "diff files": FILES, "diff refs": refs } });
+    await m.click("diff-base-button");
+    await m.cx.flush();
+    const view = /** @type {any} */ (m.view);
+    view.filter.set_value("feat~1");
+    view.filter.handlers.submit({}, m.cx);
+    view.want = { ...view.want, project: projectKey("macmini", "/r/b/.git") };
+    verify.release(out([{ type: "diff-ref-ok", ref: "feat~1", commit: "abc", short: "abc", time: 1 }]));
+    await m.cx.flush();
+    expect(fake.shared[BASE_KEY]).toEqual({ [projectKey(null, COMMON)]: { ref: "feat~1", mode: "merge-base" } });
+  });
+
+  test("pages of two versions are never joined", async () => {
+    const tab = await mount("bw-diff", {
+      props: {
+        tab: true,
+        space: "s1",
+        machine: null,
+        window: "w",
+        top: TOP,
+        section: "changes",
+        file: "big.txt",
+        untracked: true,
+      },
+      live: {
+        shared: { "bw.window-id": "w" },
+        exec: bw({
+          "diff patch": (/** @type {string[]} */ a) =>
+            a.includes("--page")
+              ? out([{ type: "diff-patch", page: 1, pages: 2, bytes: 9, digest: "v2", text: "+v2 line 2\n", cut: [] }])
+              : out([
+                  {
+                    type: "diff-patch",
+                    page: 0,
+                    pages: 2,
+                    bytes: 9,
+                    digest: "v1",
+                    text: "@@ -0,0 +1,2 @@\n+v1 line 1\n",
+                    cut: [],
+                  },
+                ]),
+        }),
+      },
+    });
+    await tab.cx.flush();
+    tab.render();
+    await tab.click("diff-tab-patch-more");
+    await tab.cx.flush();
+    tab.render();
+    expect(textOf(tab.el)).not.toContain("v2 line 2");
+    expect(calls(tab, "patch").map((c) => c.args.includes("--page"))).toEqual([false, true, false]);
+  });
+
+  test("a patch wanted while a refs read runs waits until Changes is shown again", async () => {
+    const refs = held();
+    const m = await panel({
+      machine: "macmini",
+      answers: { "diff files": FILES, "diff refs": () => refs.p, "diff patch": PATCH },
+    });
+    await m.click("diff-base-button");
+    await m.click("diff-file-changes-notes.txt");
+    showInLayout("browser");
+    refs.release(out(REFS));
+    await m.cx.flush();
+    expect(calls(m, "patch")).toHaveLength(0);
+    showInLayout("changes");
+    m.render();
+    await m.cx.flush();
+    expect(calls(m, "patch")).toHaveLength(1);
+  });
+
+  test("a failed reload shows its error over the old patch, and the same digest is not retried", async () => {
+    let digest = PATCH[0].digest;
+    let fail = false;
+    const files = (/** @type {string[]} */ args) =>
+      out(
+        args.includes("--select")
+          ? [
+              ...FILES.filter((l) => l.type !== "diff-digest"),
+              { type: "diff-digest", section: "changes", path: "notes.txt", digest, bytes: 1 },
+            ]
+          : FILES,
+      );
+    const patch = () =>
+      fail
+        ? { ...out([{ type: "error", code: "too_large", message: "the patch is over 256 MiB" }]), code: 1 }
+        : out(PATCH);
+    const m = await panel({ machine: "macmini", answers: { "diff files": files, "diff patch": patch } });
+    await m.click("diff-file-changes-notes.txt");
+    await m.cx.flush();
+    fail = true;
+    digest = "too_large";
+    setSystemTime(new Date());
+    await runFor(m, 6100);
+    expect(textOf(byId(m.el, "diff-patch-error"))).toContain("over 256 MiB");
+    expect(textOf(byId(m.el, "diff-patch"))).toContain("two changed");
+    expect(calls(m, "patch")).toHaveLength(2);
+  });
+
+  test("the picker lists refs again on every open and after Fetch", async () => {
+    const m = await panel({
+      answers: { "diff files": FILES, "diff refs": REFS, "diff fetch": [{ type: "diff-fetched", remote: "origin" }] },
+    });
+    await m.click("diff-base-button");
+    await m.cx.flush();
+    await m.click("diff-base-button");
+    await m.click("diff-base-button");
+    await m.cx.flush();
+    expect(calls(m, "refs")).toHaveLength(2);
+    await m.click("diff-fetch");
+    await m.cx.flush();
+    m.render();
+    await m.cx.flush();
+    expect(calls(m, "refs")).toHaveLength(3);
+  });
+
+  test("a picker row stores its full ref, so a branch and a tag of one name stay apart", async () => {
+    const both = [
+      { type: "diff-ref", name: "release", ref: "refs/heads/release", kind: "branch", short: "aaa", time: 1 },
+      { type: "diff-ref", name: "release", ref: "refs/tags/release", kind: "tag", short: "bbb", time: 1 },
+    ];
+    const m = await panel({ answers: { "diff files": FILES, "diff refs": both } });
+    await m.click("diff-base-button");
+    await m.cx.flush();
+    m.render();
+    await m.click("diff-ref-branch-release");
+    expect(fake.shared[BASE_KEY]).toEqual({
+      [projectKey(null, COMMON)]: { ref: "refs/heads/release", mode: "merge-base" },
+    });
+  });
+
+  test("tabMachine takes the exact space id, then one suffix match, and refuses two", () => {
+    const t = /** @type {any} */ (
+      readTab({
+        tab: true,
+        space: "macmini/sp9",
+        machine: "macmini",
+        window: null,
+        top: "/w",
+        section: "changes",
+        file: "a",
+      })
+    );
+    const both = [
+      { id: "sp9", machine: null },
+      { id: "macmini/sp9", machine: "macmini" },
+    ];
+    expect(tabMachine(t, null, both)).toEqual({ ok: true, machine: "macmini" });
+    expect(
+      tabMachine({ ...t, space: "sp9", window: "w1" }, "w2", [
+        { id: "macbook/sp9", machine: "macbook" },
+        ...both.slice(1),
+      ]),
+    ).toEqual({ ok: false });
+  });
+});

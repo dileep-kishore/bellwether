@@ -119,7 +119,22 @@ export function patchView(t, o) {
       ),
   );
   body.child(Scrollbar.vertical(`${o.id}-rows`).absolute().inset_0());
-  const pane = v_flex().id(o.id).flex_1().min_h(0).child(head).child(body);
+  const pane = v_flex().id(o.id).flex_1().min_h(0).child(head);
+  if (p.error)
+    pane.child(
+      div()
+        .id(`${o.id}-error`)
+        .flex_none()
+        .px(12)
+        .py(6)
+        .border_b(1)
+        .border_color(t.border)
+        .bg(t.chrome)
+        .text_size(11.5)
+        .text_color(t.blocked)
+        .child(`Could not read the patch again: ${p.error}`),
+    );
+  pane.child(body);
   if (more)
     pane.child(
       h_flex()

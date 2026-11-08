@@ -58,6 +58,9 @@ const str = (/** @type {unknown} */ v) => (typeof v === "string" ? v : null);
 const num = (/** @type {unknown} */ v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const isSection = (/** @type {unknown} */ s) => SECTIONS.includes(/** @type {Section} */ (s));
 
+/** A ref as the header shows it: `refs/tags/v1` reads `v1`. @param {string} ref */
+export const shortRef = (ref) => ref.replace(/^refs\/(heads|remotes|tags)\//, "");
+
 /** @param {string} path @returns {{ dir: string, name: string }} */
 export function splitPath(path) {
   const trimmed = path.endsWith("/") ? path.slice(0, -1) : path;
@@ -366,15 +369,19 @@ export function readTab(p) {
 }
 
 /**
- * The machine a diff tab reads from: its own props in the window that opened it; elsewhere the machine of
- * the space whose id matches, since another window prefixes another machine's ids (`macmini/sp1`).
+ * The machine a diff tab reads from: its own props in the window that opened it; elsewhere the space with
+ * the same id, else the one space whose id matches past its machine prefix (another window writes
+ * `macmini/sp1` where this one writes `sp1`). Several such spaces resolve to none.
  * @param {TabProps} t @param {string | null} windowId this window's `bw.window-id`
  * @param {{ id: string, machine?: string | null }[]} spaces
  * @returns {{ ok: true, machine: string | null } | { ok: false }}
  */
 export function tabMachine(t, windowId, spaces) {
   if (t.window !== null && t.window === windowId) return { ok: true, machine: t.machine };
+  const exact = spaces.find((s) => s.id === t.space);
+  if (exact) return { ok: true, machine: exact.machine ?? null };
   const local = (/** @type {string} */ id) => id.slice(id.lastIndexOf("/") + 1);
-  const hit = spaces.find((s) => local(s.id) === local(t.space));
-  return hit ? { ok: true, machine: hit.machine ?? null } : { ok: false };
+  const hits = spaces.filter((s) => local(s.id) === local(t.space));
+  // Two machines can number a space alike; guessing would read the wrong machine's checkout.
+  return hits.length === 1 ? { ok: true, machine: hits[0].machine ?? null } : { ok: false };
 }
