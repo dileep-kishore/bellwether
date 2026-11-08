@@ -29,6 +29,8 @@ jobs:
           workspaces: |
             . -> target
             crates/vendor -> ../../target/vendor
+      # scripts/verify/linear.sh scans for the Linear key with rg and fails when rg is missing.
+      - run: brew install ripgrep
       - run: bun install --frozen-lockfile
       # Without herdr-app, scripts/check.sh renders each mod in the headless harness instead.
       - run: scripts/test.sh --offline
