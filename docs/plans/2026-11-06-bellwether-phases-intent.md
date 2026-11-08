@@ -334,3 +334,16 @@ Answer:
   `docs/drafts/phase5-onward/phase5/window-checks.md` row 4. "Open in
   Changes" in a chat was checked in the harness only; no agent chat ran
   in the window.
+- 2026-11-08: phase 5's independent review (tier 2 deep: GPT-6.1 Sol
+  7/10 on lenses 1, 2 and 4, Gemini 4 Argon 8/10 on lenses 1 and 5 and
+  unscored on lens 3; 15 merged findings, Claude Opus verifiers: 14
+  confirmed, 1 refuted) changed two behaviours the plan names. A chat's
+  reveal now waits for a fresh list before it selects the file, and
+  the base picker keeps a picked ref by its full name
+  (`refs/tags/release`), so a branch and a tag with one name stay
+  apart. The other fixes keep the plan's wording: file names read as
+  literal paths, a 4 MiB budget for the lists, async answers tied to
+  their machine, worktree and range, and no queued call while hidden.
+  Evidence: `crates/bw/tests/diff.rs` (3 new tests) and
+  `tests/mods/bw-diff.test.js` "review fixes" (11 new tests), each
+  failing on 837431b.
