@@ -3,7 +3,7 @@ import { live, mount } from "../harness/mount.js";
 import { byId, textOf } from "../harness/kit-stub.js";
 import { fake } from "../harness/herdr-stub.js";
 import { adopt } from "../../shared/chat-tabs.js";
-import { HELPER_SCRIPT, HELPER_VERSION, PROTOCOL } from "../../shared/helper.js";
+import { HELPER_SCRIPTS, HELPER_VERSION, PROTOCOL } from "../../shared/helper.js";
 import { argsRequest, extrasFrom, launchFolder } from "../../mods/bw-new/entries.js";
 
 const EXTRAS = [
@@ -34,7 +34,7 @@ const argsLine = (fields = {}) => ({
  * @param {(args: string[]) => unknown} answer
  */
 const bw = (answer) => (/** @type {string} */ cmd, /** @type {string[]} */ args) => {
-  if (cmd !== "sh" || args[1] !== HELPER_SCRIPT) return { code: 127, stdout: "", stderr: "stub: not bw" };
+  if (cmd !== "sh" || !HELPER_SCRIPTS.includes(args[1])) return { code: 127, stdout: "", stderr: "stub: not bw" };
   const sub = args.slice(3);
   if (sub[0] === "version") return out([{ type: "version", protocol: PROTOCOL, version: HELPER_VERSION }]);
   if (sub[0] === "browser" && sub[1] === "agent-args") return answer(sub);
@@ -63,7 +63,7 @@ async function settle(m) {
 }
 /** @param {any} m */
 const argsCalls = (m) =>
-  m.log.exec.filter((/** @type {any} */ [c, a]) => c === "sh" && a[1] === HELPER_SCRIPT && a[3] === "browser");
+  m.log.exec.filter((/** @type {any} */ [c, a]) => c === "sh" && HELPER_SCRIPTS.includes(a[1]) && a[3] === "browser");
 /** @param {any} m */
 const chatWrites = (m) => m.log.shared.filter((/** @type {any} */ [k]) => k === "bw.chat-tabs");
 

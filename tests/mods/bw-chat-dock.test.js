@@ -4,7 +4,7 @@ import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { live, mount } from "../harness/mount.js";
 import { fake } from "../harness/herdr-stub.js";
 import { byId, emit, findAll, fire, inspect, textOf } from "../harness/kit-stub.js";
-import { HELPER_SCRIPT } from "../../shared/helper.js";
+import { HELPER_SCRIPTS } from "../../shared/helper.js";
 
 const ROOT = "a9baa480-8207-4b0a-b31c-1a2d7b062db3";
 const ROOT_PATH = `/home/test/.claude/projects/-r-alpha/${ROOT}.jsonl`;
@@ -37,7 +37,7 @@ const VERSION = out([{ type: "version", protocol: 4, version: "0.4.0" }]);
 /** @param {Record<string, (args: string[], on: string | null) => unknown>} handlers */
 function bw(handlers) {
   return async (/** @type {string} */ cmd, /** @type {string[]} */ args, /** @type {any} */ opts) => {
-    if (cmd !== "sh" || args[1] !== HELPER_SCRIPT || args[2] !== "bw")
+    if (cmd !== "sh" || !HELPER_SCRIPTS.includes(args[1]) || args[2] !== "bw")
       return { code: 127, stdout: "", stderr: "sh: no such fake" };
     const sub = args[3];
     const h = handlers[sub] ?? (sub === "version" ? () => VERSION : null);
@@ -47,7 +47,7 @@ function bw(handlers) {
 }
 /** @param {any} m @param {string} sub */
 const calls = (m, sub) =>
-  m.log.exec.filter((/** @type {any} */ [c, a]) => c === "sh" && a[1] === HELPER_SCRIPT && a[3] === sub);
+  m.log.exec.filter((/** @type {any} */ [c, a]) => c === "sh" && HELPER_SCRIPTS.includes(a[1]) && a[3] === sub);
 /** @param {any} m */
 const lastFeed = (m) => calls(m, "feed").at(-1)[1].slice(4);
 /** @param {any} m */

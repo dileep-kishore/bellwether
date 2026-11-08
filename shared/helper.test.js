@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { createHelper, HELPER_SCRIPT, HELPER_VERSION, parseLines, PROTOCOL } from "./helper.js";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  createHelper,
+  HELPER_SCRIPT,
+  HELPER_VERSION,
+  helperScript,
+  LOCAL_HELPER_SCRIPT,
+  parseLines,
+  PROTOCOL,
+} from "./helper.js";
 
 const CURRENT = { protocol: PROTOCOL, version: HELPER_VERSION, build: "0123456789ab", target: "aarch64-apple-darwin" };
 
@@ -71,6 +82,44 @@ function fakeWorld(/** @type {Map<string | null, FakeMachine>} */ machines) {
   };
 }
 
+describe("BW_HELPER", () => {
+  // Runs each script as Herdr's exec would: sh -c <script> bw <args>, with a HOME holding a fake bw.
+  const runScript = (/** @type {string} */ script, /** @type {Record<string, string>} */ env) =>
+    Bun.spawnSync(["sh", "-c", script, "bw", "x y"], { env }).stdout.toString().trim();
+  /** @param {(home: string) => void} body */
+  const withHome = (body) => {
+    const home = mkdtempSync(join(tmpdir(), "bw-helper-"));
+    try {
+      const dir = join(home, ".local/share/bellwether/helper/current");
+      Bun.spawnSync(["mkdir", "-p", dir]);
+      writeFileSync(join(dir, "bw"), '#!/bin/sh\necho "installed $1"\n', { mode: 0o755 });
+      writeFileSync(join(home, "logging-bw"), '#!/bin/sh\necho "override $1"\n', { mode: 0o755 });
+      body(home);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  };
+
+  test("set: this machine runs the program it names, arguments intact", () =>
+    withHome((home) => {
+      expect(runScript(helperScript(null), { HOME: home, BW_HELPER: join(home, "logging-bw") })).toBe("override x y");
+    }));
+
+  test("unset or empty: this machine runs the installed helper", () =>
+    withHome((home) => {
+      expect(runScript(helperScript(null), { HOME: home })).toBe("installed x y");
+      expect(runScript(helperScript(null), { HOME: home, BW_HELPER: "" })).toBe("installed x y");
+    }));
+
+  test("another machine keeps the installed helper even when BW_HELPER is set", () =>
+    withHome((home) => {
+      expect(helperScript("tsuki")).toBe(HELPER_SCRIPT);
+      expect(runScript(helperScript("tsuki"), { HOME: home, BW_HELPER: join(home, "logging-bw") })).toBe(
+        "installed x y",
+      );
+    }));
+});
+
 describe("call", () => {
   test("call passes args after the fixed script and routes by machine", async () => {
     const w = fakeWorld(
@@ -93,7 +142,10 @@ describe("call", () => {
       args: ["-c", HELPER_SCRIPT, "bw", "send", "a b", "$HOME;rm -rf /"],
       opts: { on: "tsuki" },
     });
-    expect(w.calls.find((c) => c.args[3] === "status").opts).toEqual({ on: null });
+    expect(w.calls.find((c) => c.args[3] === "status")).toMatchObject({
+      args: ["-c", LOCAL_HELPER_SCRIPT, "bw", "status"],
+      opts: { on: null },
+    });
     expect(HELPER_SCRIPT).toBe('exec "$HOME"/.local/share/bellwether/helper/current/bw "$@"');
   });
 

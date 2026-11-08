@@ -2,8 +2,16 @@
 
 export const PROTOCOL = 4;
 export const HELPER_VERSION = "0.4.0";
-// Arguments reach bw as "$@", never through the shell's parser.
+// Arguments reach bw as "$@", never through the shell's parser. Another machine always runs its installed helper.
 export const HELPER_SCRIPT = 'exec "$HOME"/.local/share/bellwether/helper/current/bw "$@"';
+// This machine runs $BW_HELPER when the app was started with it (the stage window counts calls this way).
+// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell parameter expansion, not a template.
+export const LOCAL_HELPER_SCRIPT = 'exec "${BW_HELPER:-$HOME/.local/share/bellwether/helper/current/bw}" "$@"';
+/** Both scripts, for tests that answer any helper call. */
+export const HELPER_SCRIPTS = Object.freeze([LOCAL_HELPER_SCRIPT, HELPER_SCRIPT]);
+
+/** The script that runs bw on `machine`; null is this one. @param {string | null} machine */
+export const helperScript = (machine) => (machine == null ? LOCAL_HELPER_SCRIPT : HELPER_SCRIPT);
 
 const CACHE_MS = 60_000;
 
@@ -101,7 +109,7 @@ export function createHelper({ exec, localInstall, now = Date.now }) {
   async function run(machine, args) {
     let r;
     try {
-      r = await exec("sh", ["-c", HELPER_SCRIPT, "bw", ...args], { on: machine });
+      r = await exec("sh", ["-c", helperScript(machine), "bw", ...args], { on: machine });
     } catch (e) {
       return fail("unreachable", e instanceof Error ? e.message : String(e));
     }

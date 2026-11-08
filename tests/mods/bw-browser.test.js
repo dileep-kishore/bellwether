@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { live, mount, repo } from "../harness/mount.js";
 import { fake } from "../harness/herdr-stub.js";
 import { byId, findAll, fire, textOf } from "../harness/kit-stub.js";
-import { HELPER_SCRIPT } from "../../shared/helper.js";
+import { HELPER_SCRIPTS } from "../../shared/helper.js";
 import { canForward, forwardLabel, isShown, viewOf } from "../../mods/bw-browser/model.js";
 
 const PANEL = live("browser-panel");
@@ -34,7 +34,7 @@ const out = (lines) => ({ code: 0, stdout: `${lines.map((l) => JSON.stringify(l)
  */
 function bw(answers) {
   return async (/** @type {string} */ cmd, /** @type {string[]} */ args, /** @type {any} */ opts) => {
-    if (cmd !== "sh" || args[1] !== HELPER_SCRIPT || args[2] !== "bw" || (opts?.on ?? null) !== null)
+    if (cmd !== "sh" || !HELPER_SCRIPTS.includes(args[1]) || args[2] !== "bw" || (opts?.on ?? null) !== null)
       return { code: 127, stdout: "", stderr: "sh: no such fake" };
     if (args[3] === "version") return VERSION;
     const a = answers[`${args[3]} ${args[4]}`];

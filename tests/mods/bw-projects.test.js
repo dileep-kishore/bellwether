@@ -4,7 +4,7 @@ import { fake, phase } from "../harness/herdr-stub.js";
 import { byId, findAll, fire, textOf } from "../harness/kit-stub.js";
 import { forgetProject, projectKey, worktreeKey } from "../../shared/projects-model.js";
 import { COUNTS_SCRIPT } from "../../shared/git.js";
-import { HELPER_SCRIPT, HELPER_VERSION, PROTOCOL } from "../../shared/helper.js";
+import { HELPER_SCRIPTS, HELPER_VERSION, PROTOCOL } from "../../shared/helper.js";
 
 const ALPHA = projectKey(null, "/r/alpha/.git");
 const GAMMA = projectKey("macmini", "/home/u/gamma/.git");
@@ -41,7 +41,7 @@ function withExec(name, first) {
     const on = opts?.on ?? null;
     const own = first?.(cmd, args, on);
     if (own !== undefined) return own;
-    if (cmd === "sh" && args.includes(HELPER_SCRIPT) && args.includes("version")) return VERSION_OK;
+    if (cmd === "sh" && HELPER_SCRIPTS.some((x) => args.includes(x)) && args.includes("version")) return VERSION_OK;
     return answer(entries, cmd, args, on);
   };
   return data;
@@ -218,7 +218,8 @@ describe("bw-projects", () => {
       } else if (c.cmd === "sh" && c.args[1] === COUNTS_SCRIPT) {
         expect(c.args.slice(2)).toEqual(["sh", c.args[3]]);
       } else {
-        expect([c.cmd, c.args[1]]).toEqual(["sh", HELPER_SCRIPT]);
+        expect(c.cmd).toBe("sh");
+        expect(HELPER_SCRIPTS).toContain(c.args[1]);
       }
     }
     const kinds = new Set(
@@ -286,7 +287,7 @@ describe("bw-projects", () => {
     const install = new Promise((resolve) => (finish = resolve));
     let installed = false;
     const m = await mounted("two-machines", (cmd, args, on) => {
-      if (cmd === "sh" && args.includes(HELPER_SCRIPT) && on === "macmini")
+      if (cmd === "sh" && HELPER_SCRIPTS.some((x) => args.includes(x)) && on === "macmini")
         return installed ? VERSION_OK : { code: 127, stdout: "", stderr: "sh: no such file" };
       if (cmd === "/home/test/.local/share/bellwether/helper/current/bw") return install;
       return undefined;
@@ -309,7 +310,7 @@ describe("bw-projects", () => {
 
   test("a failed install names the helper's message", async () => {
     const m = await mounted("two-machines", (cmd, args, on) => {
-      if (cmd === "sh" && args.includes(HELPER_SCRIPT) && on === "macmini")
+      if (cmd === "sh" && HELPER_SCRIPTS.some((x) => args.includes(x)) && on === "macmini")
         return { code: 127, stdout: "", stderr: "" };
       if (cmd.endsWith("/bw"))
         return {

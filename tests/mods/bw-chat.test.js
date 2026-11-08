@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { live, mount, repo } from "../harness/mount.js";
 import { fake } from "../harness/herdr-stub.js";
 import { byId, emit, findAll, fire, inspect, layOut, textOf } from "../harness/kit-stub.js";
-import { HELPER_SCRIPT, HELPER_VERSION, PROTOCOL } from "../../shared/helper.js";
+import { HELPER_SCRIPTS, HELPER_VERSION, PROTOCOL } from "../../shared/helper.js";
 import { columnWidth, sizes } from "../../mods/bw-chat/estimate.js";
 import { pollMs, sendText, targetOf, waitingText } from "../../mods/bw-chat/target.js";
 import { createPictures } from "../../mods/bw-chat/pictures.js";
@@ -44,7 +44,7 @@ function bw(handlers) {
   return async (/** @type {string} */ cmd, /** @type {string[]} */ args, /** @type {any} */ opts) => {
     const on = opts?.on ?? null;
     if (cmd === BW && handlers.install) return handlers.install(args, on);
-    if (cmd !== "sh" || args[1] !== HELPER_SCRIPT || args[2] !== "bw")
+    if (cmd !== "sh" || !HELPER_SCRIPTS.includes(args[1]) || args[2] !== "bw")
       return { code: 127, stdout: "", stderr: "sh: no such fake" };
     const sub = args[3];
     const h = handlers[sub] ?? (sub === "version" ? () => VERSION : null);
@@ -54,7 +54,7 @@ function bw(handlers) {
 }
 
 /** @param {any} m @param {string} sub */
-const calls = (m, sub) => m.log.exec.filter(([c, a]) => c === "sh" && a[1] === HELPER_SCRIPT && a[3] === sub);
+const calls = (m, sub) => m.log.exec.filter(([c, a]) => c === "sh" && HELPER_SCRIPTS.includes(a[1]) && a[3] === sub);
 /** @param {any} m */
 const list = (m) => findAll(m.el, (e) => e.tag === "VirtualList")[0] ?? null;
 /** Pictures drawn from bw picture's copies (the header's program icon is an image too). @param {any} el */
