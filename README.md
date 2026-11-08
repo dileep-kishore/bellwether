@@ -17,14 +17,27 @@ each has a result with a shot or log (done check B in
 behind `bw diff files --watch`, so a remote Changes panel's unchanged poll
 runs no Git. It also added `RECIPE.md` and `preview.png`. Then every done
 check ran from empty state on the Mac mini. All passed except one window
-check: a Claude sub-agent's approval card at 15 columns, in phase 4's Known
-limits below.
+check: a Claude sub-agent's approval card at 15 columns.
 
-For that run, the checks in a Herdr window on a space on the second machine,
-`macbook`, are owed: it stopped answering over SSH after its scripted checks
-passed. A Claude chat on another machine is owed for the keychain reason in
-phase 4's Known limits. Codex's `/new` folder prompt in a narrowed pane is
-owed in the window too; the `rewrap` tests cover it on recorded screens.
+On 2026-11-08 the window checks that run left owed ran on the Mac mini and
+on the second machine, `macbook`. The 15-column card failed again, so
+Bellwether now matches a Claude approval box whose top rule is off screen by
+its command. After that fix, design check 3's approval click at 15 columns
+passed. Codex's `/new` folder prompt in a narrowed pane showed one pending
+card, and its first option started a new conversation. A Claude approval in
+a narrowed pane passed, and so did the Issues and Changes panels after the
+review fixes. On `macbook`, the Changes panel equalled Git, a remote
+Changes panel polled through the watcher, "+" started a Codex chat that runs
+on `macbook`, counts followed an edit within 2 s, and a Codex browser chat
+passed.
+
+One window check is still owed: the `macbook` heading while `macbook` is
+offline. Ending the core's SSH session to `macbook` did not show it, because
+the core reconnected within 0.5 s. Keeping `macbook` offline would need a
+change to `~/.ssh/config` or a firewall rule. The scripted check
+`scripts/verify/projects.sh --machine macbook` ("an unreachable machine
+keeps its rows") still covers it. A Claude chat on another machine is owed
+for the keychain reason in phase 4's Known limits.
 
 ## What phase 1 delivers
 
