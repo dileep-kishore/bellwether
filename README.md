@@ -378,6 +378,9 @@ that folder removes its history and sign-ins.
 - Arrange works on macOS only.
 - After the Bellwether Chrome restarts, a running agent's browser tools stop
   working until its next session.
+- Claude started on another machine by a core that SSH started cannot read
+  that machine's login keychain, so it runs unlogged ("Not logged in" or API
+  billing). Start that machine's core from its own login session.
 - The checks in a Herdr window are still owed: the panel, Arrange beside a
   real Herdr window, a screenshot inline in a chat, and a real SSH machine.
 
