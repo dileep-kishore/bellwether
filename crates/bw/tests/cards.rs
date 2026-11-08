@@ -1195,3 +1195,79 @@ fn cards_goldens_are_current() {
         "stale goldens {stale:?}: rerun with BW_BLESS=1 and review the diff"
     );
 }
+
+/// `screen` as Claude redraws it at `cols` columns: rules cut to that width and every longer line broken inside
+/// its words, continuing indented, as `tests/fixtures/screens/claude-approval-52.txt` shows Claude doing.
+fn rewrapped(screen: &str, cols: usize) -> String {
+    let mut out = vec![];
+    for line in screen.lines() {
+        let chars: Vec<char> = line.chars().collect();
+        if chars.first().is_some_and(|c| matches!(c, '╌' | '─')) {
+            out.push(chars[..cols.min(chars.len())].iter().collect::<String>());
+            continue;
+        }
+        let indent = chars.iter().take_while(|c| **c == ' ').count() + 3;
+        let mut rest: &[char] = &chars;
+        let mut first = true;
+        while rest.len() > cols {
+            out.push(rest[..cols].iter().collect::<String>());
+            rest = &rest[cols..];
+            first = false;
+        }
+        let tail: String = rest.iter().collect();
+        out.push(if first {
+            tail
+        } else {
+            format!("{}{}", " ".repeat(indent), tail.trim_start())
+        });
+    }
+    out.join("\n")
+}
+
+#[test]
+fn rewrap_keeps_one_pending_claude_card() {
+    let x = Scratch::new();
+    claude_approval(&x);
+    let wide = one(&x.cards("t1"), "request").clone();
+    let narrow_screen = rewrapped(
+        &read(&sessions("claude-approval").join("screen-approval.txt")),
+        52,
+    );
+    assert_ne!(
+        narrow_screen,
+        read(&sessions("claude-approval").join("screen-approval.txt"))
+    );
+    x.screen("t1", Some(&narrow_screen));
+    let lines = x.cards("t1");
+    let requests = lines_of(&lines, "request");
+    assert_eq!(requests.len(), 1, "{lines:?}");
+    let r = requests[0];
+    assert_eq!(r["id"], wide["id"], "{r}");
+    assert_eq!(r["screen_id"], wide["screen_id"]);
+    assert_eq!(r["state"], "pending");
+    assert_eq!(r["answerable"], true);
+    assert_eq!(action_ids(r), ["approve", "always", "deny"]);
+}
+
+#[test]
+fn rewrap_keeps_the_codex_folder_card_pending() {
+    let x = Scratch::new();
+    let _codex = fresh_codex(&x, &json!({"app": "codex", "state": "idle"}));
+    x.screen(
+        "t7",
+        Some(&read(&fixtures().join("screens/codex-new-folder-80.txt"))),
+    );
+    let wide = one(&x.cards("t7"), "request").clone();
+    x.screen(
+        "t7",
+        Some(&read(&fixtures().join("screens/codex-new-folder-24.txt"))),
+    );
+    let lines = x.cards("t7");
+    let requests = lines_of(&lines, "request");
+    assert_eq!(requests.len(), 1, "{lines:?}");
+    let r = requests[0];
+    assert_eq!(r["id"], wide["id"], "{r}");
+    assert_eq!(r["state"], "pending");
+    assert_eq!(action_ids(r), ["option-1", "option-2"]);
+    assert_eq!(r["actions"][0]["label"], "Use current Git worktree");
+}
