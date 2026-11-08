@@ -7,6 +7,17 @@ pub struct Args {
 
 /// `flags` and `options` are names without the leading `--`.
 pub fn parse(args: &[String], flags: &[&str], options: &[&str]) -> Result<Args, String> {
+    parse_free(args, flags, options, &["text"])
+}
+
+/// As `parse`, but each option in `free` takes any value, even one that looks like an option: a message
+/// typed as written, or a path or ref that Git itself must check.
+pub fn parse_free(
+    args: &[String],
+    flags: &[&str],
+    options: &[&str],
+    free: &[&str],
+) -> Result<Args, String> {
     let mut out = Args {
         values: Vec::new(),
         flags: Vec::new(),
@@ -27,8 +38,7 @@ pub fn parse(args: &[String], flags: &[&str], options: &[&str]) -> Result<Args, 
             return Err(format!("unknown option {arg:?}"));
         }
         let value = it.next().ok_or_else(|| format!("--{name} needs a value"))?;
-        // A message is typed as written, so it may look like an option; any other value may not.
-        if name != "text" && (value.is_empty() || value.starts_with('-')) {
+        if !free.contains(&name) && (value.is_empty() || value.starts_with('-')) {
             return Err(format!("--{name} needs a value, not {value:?}"));
         }
         out.values.push((name.to_string(), value.clone()));
@@ -94,6 +104,19 @@ mod tests {
         assert!(parse(&s(&["--terminal", ""]), &[], opts).is_err());
         assert!(parse(&s(&["--terminal"]), &[], opts).is_err());
         assert!(parse(&s(&["--text"]), &[], opts).is_err());
+    }
+
+    #[test]
+    fn free_value_may_start_with_dash() {
+        let a = parse_free(
+            &s(&["--base", "--output=x", "--path", "/w"]),
+            &[],
+            &["base", "path"],
+            &["base"],
+        )
+        .unwrap();
+        assert_eq!(a.get("base"), Some("--output=x"));
+        assert!(parse_free(&s(&["--path", "-x"]), &[], &["path"], &["base"]).is_err());
     }
 
     #[test]
