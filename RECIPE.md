@@ -269,8 +269,9 @@ ring-spin, check and question live in `mods/bw-projects/icons/`), and `layouts/b
   64 MiB, and a diff tab does not refresh by itself. Mine and All show every project's issues.
 - A covered window stops drawing, so `herdr-app shot` returns the last frame drawn. Bring the window
   to the front first.
-- The repository's README lists the in-window checks for the sidebar, tabs, chats, requests and
-  browser as still owed; their headless checks pass.
+- The in-window checks for the sidebar, tabs, chats, requests, browser, Changes and Issues ran on
+  one Mac, and the repository's README lists what they found under Known limits. The in-window
+  checks on a space on a second machine are still owed.
 
 ## Done when
 

@@ -7,13 +7,24 @@ view of each agent built from its session log, a Git diff viewer against
 Linear issues that can be attached to the current chat. Rust helpers do the
 heavy work; the mods draw the window.
 
-Status: phases 1 (window and project sidebar), 2 (chat tabs), 3 (sub-agents
-and requests) and 4 (a shared browser) are built and their headless checks
-pass; their checks in a Herdr window are still owed. Phase 5 (the Changes
-panel) is built, and its headless checks and its checks in a Herdr window
-pass, except "Open in Changes" from a chat, which only the headless tests
-cover. Phase 6 (the Issues panel and Attach) is built, and its headless
-checks and its check against Linear pass.
+Status: phases 1 to 7 are built. They are 1 (window and project sidebar), 2
+(chat tabs), 3 (sub-agents and requests), 4 (a shared browser), 5 (the
+Changes panel), 6 (the Issues panel and Attach) and 7 (measure and finish).
+Phase 4b ran the phase 1 to 4 checks in a Herdr window on the Mac mini, and
+each has a result with a shot or log (done check B in
+`docs/plans/2026-11-06-bellwether-phases.md`). Phase 7 timed each poll
+(`docs/research/2026-11-08-phase7-poll-cost.md`) and added the watcher
+behind `bw diff files --watch`, so a remote Changes panel's unchanged poll
+runs no Git. It also added `RECIPE.md` and `preview.png`. Then every done
+check ran from empty state on the Mac mini. All passed except one window
+check: a Claude sub-agent's approval card at 15 columns, in phase 4's Known
+limits below.
+
+For that run, the checks in a Herdr window on a space on the second machine,
+`macbook`, are owed: it stopped answering over SSH after its scripted checks
+passed. A Claude chat on another machine is owed for the keychain reason in
+phase 4's Known limits. Codex's `/new` folder prompt in a narrowed pane is
+owed in the window too; the `rewrap` tests cover it on recorded screens.
 
 ## What phase 1 delivers
 
@@ -396,9 +407,20 @@ that folder removes its history and sign-ins.
   zoomed: about 15 columns in a window under 1000 px wide. A prompt that
   wraps there still keeps one card, but Codex scrolls a long approval's
   options out of view at that width, so a Codex sub-agent's approval falls
-  back to "Answer in terminal". Herdr offers no command to size a pane.
-- The checks in a Herdr window are still owed: the panel, Arrange beside a
-  real Herdr window, a screenshot inline in a chat, and a real SSH machine.
+  back to "Answer in terminal". A Claude approval box taller than that
+  terminal can lose its header off the top while both dashed rules stay on
+  screen. Its card then reads the tool from a fragment of the header and is
+  not attributed to its sub-agent. Showing the terminal wider once, for
+  example with `⌘J`, gives a new card under the sub-agent, and the first card
+  goes stale. Herdr offers no command to size a pane.
+- `bw answer` refuses as `stale` when the command, the question (an Edit's
+  target included) or the Always label differs in any whitespace inside a
+  line. A card pending when its machine's helper is replaced by one with
+  this check comes back under a new id, and the old id presses nothing.
+- Arrange's left-gap and half-screen placements are unchecked in a window.
+  OmniWM tiles every window on the Mac mini, so only the right-gap placement
+  was seen. A browser agent on a space on another machine is checked by
+  script only.
 
 ## What phase 5 delivers
 
@@ -478,9 +500,11 @@ bw diff fetch --path <dir> [--remote <name> | --base <ref>]
 
 `bw diff …` runs on the space's machine and prints JSON lines. `files`
 prints a `diff-place` line, a `diff-base` line, one `diff-file` line per row,
-a `diff-more` line for a section past 2,000 files and, with `--select`, a
-`diff-digest` line. Its digest is `too_large` past one page, and `unreadable`
-with Git's error when Git cannot read the file; the lists still print. `patch` prints one `diff-patch` line with the page, the
+and a `diff-more` line with the count left out for a section past 2,000
+files or past the 4 MiB all three lists share. With `--select` it adds a
+`diff-digest` line. Its digest is `too_large` for a patch over 256 MiB, and
+`unreadable` with Git's error when Git cannot read the file; the lists still
+print. `patch` prints one `diff-patch` line with the page, the
 page count, the patch's size and digest, the text and the lines left out.
 Committed needs `--from` and `--to`, and an untracked file needs
 `--untracked`. `refs` prints up to 200 `diff-ref` lines, or one `diff-ref-ok`
@@ -490,11 +514,14 @@ A failure prints one `error` line and exits 1.
 `files --watch` starts a watcher for the worktree when none runs: a detached
 `bw diff watch` that counts file events in the worktree and its common dir,
 keeps its state under `~/.cache/bellwether/git-watch/`, and exits after 60 s
-with no `files --watch` call. Each full read then ends with a `diff-token`
-line. A call that sends that token back with `--since` prints one
-`diff-unchanged` line instead of the lists while the watcher saw no event,
-the arguments are the same and the watcher's process is alive; any other
-call reads Git. The watcher starts without `HC_SCOPE`, the variable
+with no `files --watch` call. It also exits when its event stream fails, and
+a watcher that failed to start is not started again for 5 minutes. A full
+read made while the watcher runs ends with a `diff-token` line; the read
+that starts it has none. A call that sends that token back with `--since`
+prints one `diff-unchanged` line instead of the lists while the watcher saw
+no event, the arguments are the same, and the watcher's process is alive and
+wrote its state in the last 15 s. Any other call reads Git. The watcher
+starts in its own process group and without `HC_SCOPE`, the variable
 herdr-core uses to end what an `hc exec` call started, so it outlives the
 call. Only a remote panel uses it: a local panel already reads when
 `watchFolder` fires.
@@ -516,6 +543,14 @@ ref.
 - An untracked file over 64 MiB is listed without counts.
 - A diff opened as a tab does not refresh by itself; its Refresh button reads
   it again.
+- A read after an edit is a full read: about 156 ms of CPU on a
+  40,000-file checkout. Only a remote poll that finds no change is cheap,
+  about 10 ms.
+- A remote panel keeps one `bw diff watch` process per worktree on the
+  space's machine while the panel is shown and for 60 s after.
+- The project sidebar's Git counts have no watcher. For a selected worktree
+  on another machine they run every 1.5 s, about 175 ms of CPU per poll on a
+  40,000-file checkout.
 
 ## What phase 6 delivers
 
@@ -808,8 +843,11 @@ header through the question without whitespace, tips or options, a Codex
 approval's its text without whitespace or rule lines, and Codex's folder
 prompt's its question and option names. Because spacing and options are
 left out, `bw answer` presses a key only while the box still shows the
-command the card first showed, line breaks aside, and for Always the same
-option 2 label; otherwise it reports the card as changed. `scripts/verify/record-wrap.sh` records the screens the
+command and the question the card first showed, an Edit's target included,
+and for Always the same option 2 label or a narrow pane's cut of it.
+Whitespace inside a line must match, and a line break may stand for one
+space or none. Otherwise it answers `stale` ("Changed on screen; nothing was
+pressed"). `scripts/verify/record-wrap.sh` records the screens the
 `rewrap` tests read: a Claude approval, a Codex approval and Codex's `/new`
 folder prompt at 80 columns, then again after an `hc attach` viewer narrows
 the same terminal. It runs Claude haiku and Codex in a private core
@@ -817,14 +855,19 @@ the same terminal. It runs Claude haiku and Codex in a private core
 `tests/fixtures/screens/`, and removes the core and the folders.
 
 `scripts/verify/poll-cost.sh [--machine <name>] [--bw <path>] [runs]` is done
-check E's cost half: it times `bw feed` on the largest Claude log and Codex
-rollout and `bw diff files` on the largest Git checkout under the home
-folder (by index size), a full read and a watcher's unchanged poll, each
-`runs` times under `/usr/bin/time -l`. With `--machine` it feeds
-`poll-cost-probe.sh` to `hc exec -i` and runs the helper installed there.
-It skips Desktop, Documents and Downloads, which macOS guards with a prompt
-on that machine's display. Its table names the files it read, never their
-text. `docs/research/2026-11-08-phase7-poll-cost.md` holds the results.
+check E's cost half. It times `bw feed` on a scratch copy of the largest
+Claude log and Codex rollout: a first read, an unchanged cursor and one
+appended line. It times `bw diff files` on the largest Git checkout under
+the home folder (by index size): a full read and a watcher's unchanged poll.
+Each case runs `runs` times (default 5) under `/usr/bin/time -l`, and the
+table gives the median and largest user plus system milliseconds from
+`getrusage`, Git's calls included. A last row gives the watcher's own CPU
+from `ps`. Without `--machine` it builds this checkout's release `bw`
+unless `--bw` names one. With `--machine` it feeds `poll-cost-probe.sh` to
+`hc exec -i` and runs the helper installed there. It skips Desktop,
+Documents and Downloads, which macOS guards with a prompt on that machine's
+display. Its table names the files it read, never their text.
+`docs/research/2026-11-08-phase7-poll-cost.md` holds the results.
 
 `scripts/verify/feed-cost.sh [runs]` times `bw feed --log … --pictures` on
 the largest Claude and Codex logs on this Mac: a first read, an unchanged
