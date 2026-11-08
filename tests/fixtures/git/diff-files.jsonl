@@ -1,0 +1,16 @@
+{"type":"diff-place","top":"/private/tmp/bw-verify-diff-t1/changes","common_dir":"/private/tmp/bw-verify-diff-t1/changes/.git","branch":"feat","head":"9c6652cb3717c1de8a968c1463ed3c86750fab2c"}
+{"type":"diff-base","ref":"origin/main","commit":"2cb7cc2cb24327cdc039759cfd416f077b6957be","short":"2cb7cc2","time":1767484800,"source":"default","error":null,"mode":"merge-base","from":"9d6c68ddfe3eb2ff673d7d551d786df3bccc8479"}
+{"type":"diff-file","section":"staged","path":"mark.tc","old_path":null,"status":"M","added":1,"removed":0,"binary":false}
+{"type":"diff-file","section":"staged","path":"new-name.txt","old_path":"old-name.txt","status":"R","added":0,"removed":0,"binary":false}
+{"type":"diff-file","section":"staged","path":"pic.bin","old_path":null,"status":"M","added":null,"removed":null,"binary":true}
+{"type":"diff-file","section":"staged","path":"staged.txt","old_path":null,"status":"M","added":1,"removed":0,"binary":false}
+{"type":"diff-file","section":"changes","path":"dash -name.txt","old_path":null,"status":"M","added":1,"removed":0,"binary":false}
+{"type":"diff-file","section":"changes","path":"gone.txt","old_path":null,"status":"D","added":0,"removed":1,"binary":false}
+{"type":"diff-file","section":"changes","path":"notes.txt","old_path":null,"status":"M","added":2,"removed":1,"binary":false}
+{"type":"diff-file","section":"changes","path":"blob.dat","old_path":null,"status":"?","added":null,"removed":null,"binary":true}
+{"type":"diff-file","section":"changes","path":"fresh.tc","old_path":null,"status":"?","added":1,"removed":0,"binary":false}
+{"type":"diff-file","section":"changes","path":"fresh.txt","old_path":null,"status":"?","added":3,"removed":0,"binary":false}
+{"type":"diff-file","section":"changes","path":"newdir/inner.txt","old_path":null,"status":"?","added":1,"removed":0,"binary":false}
+{"type":"diff-file","section":"committed","path":"feature.txt","old_path":null,"status":"A","added":1,"removed":0,"binary":false}
+{"type":"diff-file","section":"committed","path":"mark.tc","old_path":null,"status":"M","added":1,"removed":0,"binary":false}
+{"type":"diff-digest","section":"changes","path":"notes.txt","digest":"7020ed235184b371","bytes":149}

@@ -5,6 +5,7 @@ use serde_json::json;
 mod agent;
 mod browser;
 mod chat;
+mod diff;
 mod events;
 mod hc;
 mod machine;
@@ -14,7 +15,8 @@ mod version;
 const USAGE: &str = "usage: bw version | bw machine status <machine> | bw machine install <machine> [--force] \
     | bw machine setup <machine|local> <options> | bw feed|locate|send|picture|picture-read|tree <options> \
     | bw cards|answer|counts <options> | bw hooks <options> | bw event --agent claude|codex \
-    | bw browser <command> <options> | bw agent <command> <options>";
+    | bw browser <command> <options> | bw agent <command> <options> \
+    | bw diff files|patch|refs|fetch <options>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -32,6 +34,7 @@ fn main() -> ExitCode {
         Some("hooks") => machine::hooks::run(&args[1..]),
         Some("browser") => browser::run(&args[1..]),
         Some("agent") => agent::run(&args[1..]),
+        Some("diff") => diff::run(&args[1..]),
         Some(other) => usage(&format!("unknown command {other:?}; {USAGE}")),
         None => usage(USAGE),
     }

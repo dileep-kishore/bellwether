@@ -36,6 +36,7 @@ import {
 } from "./dock-model.js";
 import { columnWidth, rowHeight } from "./estimate.js";
 import { applyFeed, applyOlder, emptyFeed, expectation, freshChat, newConversation, olderFrom } from "./feedstate.js";
+import { REVEAL, withReveal } from "./diff-reveal.js";
 import { createGuard, guardedUntil, isGuarded, observe, observeLeft } from "./focus-guard.js";
 import { createHelper, parseLines } from "./helper.js";
 import { createPictures } from "./pictures.js";
@@ -863,6 +864,9 @@ export default class Chat extends View {
       if (space) {
         const ids = all.map((s) => s.id);
         setShared(RIGHT_TAB, choose(shared(RIGHT_TAB), space.id, "changes", ids));
+        // A line naming one file also selects it in Changes; several files leave the list as it is.
+        const files = Array.isArray(row.files) ? row.files.filter((f) => typeof f === "string" && f) : [];
+        if (files.length === 1) setShared(REVEAL, withReveal(shared(REVEAL), space.id, files[0], Date.now(), ids));
       }
     } else if (waitsInTerminal(row)) {
       this.showTerminal();
