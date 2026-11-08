@@ -9,8 +9,10 @@ heavy work; the mods draw the window.
 
 Status: phases 1 (window and project sidebar), 2 (chat tabs), 3 (sub-agents
 and requests) and 4 (a shared browser) are built and their headless checks
-pass; their checks in a Herdr window are still owed. Diffs and Linear come in
-later phases.
+pass; their checks in a Herdr window are still owed. Phase 5 (the Changes
+panel) is built, and its headless checks and its checks in a Herdr window
+pass, except "Open in Changes" from a chat, which only the headless tests
+cover. Linear comes in a later phase.
 
 ## What phase 1 delivers
 
@@ -26,8 +28,9 @@ shows. Eight mods fill it:
 - `bw-new` is the tab bar's "+" menu: a Claude or Codex chat, a shell, Claude
   or Codex in a plain terminal, and Herdr's New worktree and Open worktree
   dialogs.
-- `bw-right` is the right sidebar's strip of Changes, Issues and Browser,
-  whose panels say which phase fills them.
+- `bw-right` is the right sidebar's strip of Changes, Issues and Browser.
+  Phase 5's `bw-diff` fills Changes and phase 4's `bw-browser` fills
+  Browser. Issues still shows a placeholder that says which phase fills it.
 - `bw-menu` is a project's menu in `bw-projects`: worktree dialogs and
   Remove.
 - `bw-add` is the Add project dialog: pick a machine and a folder, and Git
@@ -65,7 +68,8 @@ hidden, and flipping back reads at once. It shows:
   and ran 2 commands", with a spinner until every call has a result, then a
   check, or a cross when a call failed; click the line to list the calls;
 - a line such as "Changed 2 files · Open in Changes" at the end of a turn
-  that edited files; clicking it selects the right sidebar's Changes panel;
+  that edited files; clicking it selects the right sidebar's Changes panel
+  and, for one file, that file;
 - pictures inline, up to 320 px tall, each copied once into the app home's
   `data/bellwether/pictures/` (4 MB at most);
 - an approval or question the agent waits on as one line that says where to
@@ -395,6 +399,101 @@ that folder removes its history and sign-ins.
 - The checks in a Herdr window are still owed: the panel, Arrange beside a
   real Herdr window, a screenshot inline in a chat, and a real SSH machine.
 
+## What phase 5 delivers
+
+The right sidebar's Changes panel is the `bw-diff` mod, which replaces the
+Changes placeholder in `layouts/bellwether.json`. It shows the Git changes of
+the active space's worktree, on this Mac or on another machine. Every read
+runs `bw diff` through the helper on the space's machine.
+
+The header reads `<branch> → <base> ▾`, then the base's short hash and age,
+for example `feat → origin/main ▾ 9d6c68d · 3d`. Clicking it opens the base
+picker. The picker lists up to 200 branches, remote branches and tags, newest
+first, and filters them as you type. Enter takes a listed ref as it is. Any
+other text is checked first with `bw diff refs --verify`, and a text that
+names no commit shows the error and is not kept. With no choice stored, the
+base is `origin/main`, else the branch `origin/HEAD` points to. When the
+repository has neither, the picker opens by itself once.
+
+The header's Fetch button runs `git fetch` for the remote the base belongs
+to, else `origin`. Fetch runs only when you click it, and gives up after
+25 s. The Merge base and Tip switch under the header sets where Committed on
+branch starts: at the merge base of the base and `HEAD`, or at the base
+itself. The panel keeps each project's base and mode in
+`shared("bw.diff.base")` under `projectKey(machine, commonDir)`, so every
+worktree of a repository shares them. Picking the default base in Merge base
+mode removes the project's entry.
+
+Three sections follow:
+
+- Staged lists the index against `HEAD`, renames included.
+- Changes lists the worktree against the index, then untracked files.
+- Committed on branch lists the base, or its merge base, against `HEAD`.
+
+Each row shows a status letter, the file's name and folder (`from <old path>`
+for a rename), and `+N −M`. Letters are Git's (`M`, `A`, `D`, `R`, `C`, `T`),
+except that Changes shows an untracked file as `U` and an unmerged one as
+`!`. A binary file shows "binary" in place of counts. Each section's header
+shows its file count and its total `+N −M`, and a click folds or unfolds it.
+The panel remembers which sections are folded. A section lists at most 2,000
+files and says how many more it left out.
+
+Clicking a file shows its patch below the lists. Each line has its old and
+new line numbers, and added and removed lines are tinted Green and Red. The
+helper sends the patch in pages under 4 MiB, and a "Show more" button loads
+the next page. A line too large for a page shows as "Line too large to show"
+with its size. "Open as tab" opens the patch as a middle tab named after the
+file, such as `notes.txt · diff`. That tab loads once, and again when you
+click its Refresh button.
+
+While the panel is shown, it reads a worktree on this Mac when `watchFolder`
+reports a change in the worktree or its common dir, at most once a second,
+and every 30 s without a change. It reads a worktree on another machine every
+1.5 s. Each read also returns a digest of the selected file's patch, and the
+panel reloads the patch only when that digest changes. A hidden panel makes
+no helper call, and showing the panel again reads at once.
+
+"Open in Changes" in a chat selects the Changes tab. When the chat's line
+names one file, the chat also writes that file to `shared("bw.diff.reveal")`,
+and the panel selects it once the space's list is read.
+
+Changes never stages, commits or pushes. `bw diff fetch` is its only command
+that writes to the repository.
+
+### Commands
+
+```sh
+bw diff files --path <dir> [--base <ref>] [--mode merge-base|tip] [--select staged|changes|committed --file <path> [--old <path>]]
+bw diff patch --path <dir> --section staged|changes|committed --file <path> [--old <path>] [--untracked] [--from <rev> --to <rev>] [--page <n>]
+bw diff refs --path <dir> [--verify <ref>]
+bw diff fetch --path <dir> [--remote <name> | --base <ref>]
+```
+
+`bw diff …` runs on the space's machine and prints JSON lines. `files`
+prints a `diff-place` line, a `diff-base` line, one `diff-file` line per row,
+a `diff-more` line for a section past 2,000 files and, with `--select`, a
+`diff-digest` line. `patch` prints one `diff-patch` line with the page, the
+page count, the patch's size and digest, the text and the lines left out.
+Committed needs `--from` and `--to`, and an untracked file needs
+`--untracked`. `refs` prints up to 200 `diff-ref` lines, or one `diff-ref-ok`
+line with `--verify`. `fetch` prints a `diff-fetched` line naming the remote.
+A failure prints one `error` line and exits 1.
+
+Every Git call runs with
+`--no-optional-locks -c core.fsmonitor=false -c diff.autoRefreshIndex=false`,
+so a read never refreshes the index or starts fsmonitor. Every diff adds
+`--no-ext-diff --no-textconv --no-color`, so a repository's own config never
+runs a diff program. The helper also clears `GIT_DIR`, `GIT_WORK_TREE`,
+`GIT_INDEX_FILE`, `GIT_COMMON_DIR` and `GIT_EXTERNAL_DIFF`, and reads a
+typed ref after `--end-of-options`, so a ref spelled like an option stays a
+ref.
+
+### Known limits
+
+- An untracked file over 64 MiB is listed without counts.
+- A diff opened as a tab does not refresh by itself; its Refresh button reads
+  it again.
+
 ## The look
 
 Bellwether draws in Catppuccin Mocha with a Mauve (`#cba6f7`) accent, in the
@@ -621,6 +720,39 @@ processes changed. It spends tokens.
 scripts/verify/browser.sh --offline          # files exist, bun test tests/browser, bw browser status parses; what scripts/test.sh runs
 scripts/verify/browser.sh --machine <name>   # real agents; <name> must be a temporary hc machine (bwloop)
 ```
+
+## Checking Changes against Git
+
+`scripts/verify/git.sh` builds the repositories of
+`scripts/verify/make-diff-repos.sh` in `/private/tmp/bw-verify-diff`. They
+hold a branch two commits past its merge base with an `origin/main` that
+moved on, a tag, staged, unstaged and untracked changes with a rename, binary
+files and odd paths, a repository with no remote, and one whose `origin/HEAD`
+points to `origin/trunk`. Some files name a textconv, an external diff and an
+fsmonitor hook that would each leave a marker file if they ran. The script
+compares `bw diff` and the panel's model with Git's own commands, each run
+with `--no-ext-diff --no-textconv --no-color`:
+
+- Staged, Changes, and Committed on branch in both modes equal `git diff`.
+- Each untracked file's counts equal `git diff --no-index --numstat`.
+- A typed ref (`v1`) gives Git's list, and `--output=…` is refused as a ref.
+- The rename and the binary files show as Git shows them.
+- Every patch, joined from its pages, equals Git's patch.
+- The panel model's rows equal the helper's.
+- A repository with no `origin/main` or `origin/HEAD` has no base, and
+  `origin/HEAD`'s target is the default when `origin/main` is missing.
+- No textconv, external diff or fsmonitor program ran.
+
+It prints `PASS` or `FAIL` per check, exits 1 on any `FAIL`, and removes the
+folder after.
+
+```sh
+scripts/verify/git.sh                    # this Mac, with this checkout's bw; --offline is the same, and scripts/test.sh runs it
+scripts/verify/git.sh --machine <name>   # the repositories on <name> through hc exec, read by the helper there
+```
+
+With `--machine`, the script builds a release `bw` here, and installs it on
+`<name>` when that machine's helper is missing or outdated.
 
 ## The bw helper on each machine
 

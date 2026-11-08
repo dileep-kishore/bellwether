@@ -316,3 +316,21 @@ Answer:
   (`crates/bw/tests/answer.rs` `second_read_*`). The helper moves to
   0.4.1 so machines with 0.4.0 reinstall the fixes.
 
+- 2026-11-08: phase 5 build notes. `bw diff files --select <section>
+  --file <path>` also returns a digest of that file's patch, so the
+  panel reloads a patch only when it changed; the plan's "one round
+  trip for the three lists" still holds. `bw diff fetch --base <ref>`
+  fetches the remote a remote-tracking base belongs to, else `origin`.
+  A diff opened as a tab loads once and on its Refresh button and polls
+  nothing; the refresh rules name the panel only.
+- 2026-11-08: phase 5 leaves out the design spec's "git pages 200 MB"
+  cache (Defaults nobody discussed): each page reruns Git, so nothing is
+  written on the space's machine. An untracked file over 64 MiB is
+  listed without counts instead of being read to count its lines.
+- 2026-11-08: phase 5's window run found a hidden Changes panel still
+  making two calls after a strip click (the click's re-render came
+  before the stack switched); fixed in `fix(bw-diff): stop reading once
+  the panel is hidden`. Evidence:
+  `docs/drafts/phase5-onward/phase5/window-checks.md` row 4. "Open in
+  Changes" in a chat was checked in the harness only; no agent chat ran
+  in the window.
