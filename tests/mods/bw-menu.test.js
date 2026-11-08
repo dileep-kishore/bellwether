@@ -45,11 +45,12 @@ function sequence(m) {
 }
 
 describe("bw-menu", () => {
-  test("rows: worktree actions, Linear coming in phase 6, Remove", async () => {
+  test("rows: worktree actions, Link Linear project, Remove", async () => {
     const m = await open(beta());
     const text = textOf(m.el);
-    for (const s of ["beta", "New worktree…", "Open worktree…", "Link Linear project", "coming in phase 6", "Remove"])
+    for (const s of ["beta", "New worktree…", "Open worktree…", "Link Linear project…", "Remove"])
       expect(text).toContain(s);
+    expect(text).not.toContain("coming in phase 6");
   });
 
   test("remove forgets exactly that key", async () => {
@@ -122,12 +123,20 @@ describe("bw-menu", () => {
     expect(m.log.closed).toEqual([]);
   });
 
-  test("Link Linear project does nothing yet", async () => {
-    const m = await open(beta());
+  test("Link Linear project opens bw-linear's picker for that project", async () => {
+    const m = await open(gamma());
     await m.click("menu-linear");
-    expect(m.log.closed).toEqual([]);
+    expect(m.log.closed).toEqual(["o7"]);
     expect(m.log.shared).toEqual([]);
-    expect(m.log.overlays).toEqual([]);
+    expect(m.log.overlays).toEqual([
+      {
+        mod: "bw-linear",
+        kind: "dialog",
+        width: 440,
+        height: 500,
+        props: { pick: { machine: "macmini", commonDir: "/home/u/gamma/.git", name: "gamma" } },
+      },
+    ]);
   });
 
   test("no project prop draws an empty menu without acting", async () => {

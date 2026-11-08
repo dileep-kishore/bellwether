@@ -17,7 +17,11 @@ import { ICONS, appear, card, hoverFill, themeColors } from "./ui.js";
 
 /** @typedef {{ id: string, icon: string | null, label: string, hint: string, enabled: boolean, act: () => void }} Row */
 
-const DIALOG = { new: { width: 460, height: 280 }, open: { width: 560, height: 480 } };
+const DIALOG = {
+  new: { width: 460, height: 280 },
+  open: { width: 560, height: 480 },
+  linear: { width: 440, height: 500 },
+};
 
 export default class Menu extends View {
   init() {
@@ -80,10 +84,17 @@ export default class Menu extends View {
       {
         id: "menu-linear",
         icon: "mods/bw-right/icons/issues.svg",
-        label: "Link Linear project",
-        hint: "coming in phase 6",
-        enabled: false,
-        act: () => {},
+        label: "Link Linear project…",
+        hint: "",
+        enabled: true,
+        // bw-linear's picker reads the origin itself and writes the link.
+        act: () =>
+          openOverlay({
+            mod: "bw-linear",
+            kind: "dialog",
+            ...DIALOG.linear,
+            props: { pick: { machine: project.machine || null, commonDir: project.commonDir, name: project.name } },
+          }),
       },
       {
         id: "menu-remove",
