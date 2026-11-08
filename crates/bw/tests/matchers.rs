@@ -560,6 +560,26 @@ fn rewrap_claude_approval_at_16_columns() {
 }
 
 #[test]
+fn rewrap_claude_box_with_its_header_off_screen() {
+    // A sub-agent's box in a 15-column chat terminal is taller than the screen: the top rule and most of the wrapped
+    // header ("Bash command · from the general-purpose agent") scrolled off, leaving "rpose", while both command
+    // rules stay on screen. The first line is no header, so no tool is read from it and the command alone matches.
+    let p = approval_on_screen("claude", &screen("screens/claude-approval-headcut-15.txt"))
+        .expect("a prompt");
+    assert!(p.header_cut);
+    assert!(!p.clipped);
+    assert_eq!(p.tool, "");
+    assert_eq!(p.title, "");
+    assert_eq!(p.from, None);
+    assert_eq!(unwrapped(&p.command), "touchfg.txt");
+    assert!(same_call("Bash", "touch fg.txt", &p));
+    assert!(!same_call("Bash", "touch bg.txt", &p));
+    assert!(!same_call("Bash", "", &p));
+    let ids: Vec<&str> = p.actions.iter().map(|a| a.id.as_str()).collect();
+    assert_eq!(ids, ["approve", "always", "deny"]);
+}
+
+#[test]
 fn rewrap_detail_leaves_out_the_wrapped_tip() {
     // Claude's tip wraps onto lines the box keeps; the card's detail is the description alone, at any width.
     // The description itself can break inside a word, as the screen draws it, so it is compared unwrapped.

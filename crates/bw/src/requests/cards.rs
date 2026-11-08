@@ -800,11 +800,26 @@ fn approval(pass: &Pass, store: &mut Store, p: &ScreenPrompt) -> String {
         (None, true) => (false, Some("clipped")),
         (None, false) => (true, None),
     };
+    // A box whose header is cut off names no tool; the call it matched does.
+    let tool = if p.header_cut {
+        bound
+            .iter()
+            .rev()
+            .find_map(|a| a.event.tool.clone())
+            .or_else(|| {
+                pass.open_call(first)
+                    .filter(|o| matchers::same_call(&o.tool_name, &o.command, p))
+                    .map(|o| o.tool_name.clone())
+            })
+            .unwrap_or_default()
+    } else {
+        p.tool.clone()
+    };
     let asked = Asked {
         kind: "approval",
         screen_id: Some(p.screen_id.clone()),
         title: p.title.clone(),
-        tool: p.tool.clone(),
+        tool,
         command: p.command.clone(),
         detail: p.detail.clone(),
         actions: actions_of(p),

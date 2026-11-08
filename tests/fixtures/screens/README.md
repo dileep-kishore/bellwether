@@ -27,6 +27,7 @@ in the window. `bw` reads `hc read --json`'s text, so the notes `hc read` adds a
 | `codex-new-folder-24.txt` | The same prompt at 24 columns: the question over two lines, each option over two, and no descriptions. |
 | `codex-new-folder-15.txt` | The same prompt in a real chat tab's terminal, which is 15 columns wide behind the chat (read with `hc read --json` in the window run on 2026-11-07): the question breaks inside "conversation". |
 | `claude-approval-pair-34.txt`, `claude-approval-pair-16.txt` | One Claude approval in a chat tab's terminal at 34 columns, then after its pane was narrowed to 16 in the window run on 2026-11-07: the question wraps, option 2 reads `2.Yes, and` and loses "this project", and the scratch path breaks inside words. |
+| `claude-approval-headcut-15.txt` | A general-purpose sub-agent's Bash approval for `touch fg.txt` in a real chat tab's terminal, 15 columns wide behind the chat (read with `hc read` in the stage window on the Mac mini on 2026-11-08, Claude Code 2.1.319). The box is taller than the terminal, so its top rule and most of its wrapped header ("Bash command · from the general-purpose agent") scrolled off, and the screen starts at "rpose". Both dashed rules around the command stay on screen. The scratch path in option 2 wrapped inside words, so it was rewritten by hand to `/scratch` and `/alpha` on two lines. |
 
 Made by hand for `crates/bw/tests/matchers.rs`, not recorded:
 

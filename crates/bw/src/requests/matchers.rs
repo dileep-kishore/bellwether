@@ -38,6 +38,9 @@ pub struct ScreenPrompt {
     pub question: String,
     /// The box's top is off screen: its header and command are not read.
     pub clipped: bool,
+    /// The box's top rule is off screen but its command is whole: no header or tool was read, so a call matches it
+    /// by command alone.
+    pub header_cut: bool,
     pub actions: Vec<Action>,
     /// Who the box says asks: Claude's agent type (`from the toucher agent`), Codex's thread path. It names no id,
     /// so it only confirms who asked.
@@ -215,6 +218,7 @@ fn claude_box(screen: &str) -> Option<ScreenPrompt> {
         detail,
         question,
         clipped: b.clipped,
+        header_cut: b.header_cut,
         actions,
         from,
     })
@@ -239,6 +243,7 @@ fn codex_prompt(screen: &str) -> Option<ScreenPrompt> {
         detail: b.reason.clone(),
         question: b.question.clone(),
         clipped: false,
+        header_cut: false,
         actions,
         from: b.thread.clone(),
     })
@@ -283,6 +288,7 @@ pub fn folder_prompt_on_screen(agent: &str, screen: &str) -> Option<ScreenPrompt
         detail,
         question: String::new(),
         clipped: false,
+        header_cut: false,
         actions,
         from: None,
     })
@@ -303,10 +309,11 @@ pub fn codex_command_tool(tool: &str) -> bool {
 
 /// The log's call is the prompt on screen: same tool, same non-empty command. Each line break of the box stands
 /// for one space or none; inside a line, words must match. Codex's log names its command tools as they are
-/// (`exec`, `exec_command`, `shell`…), its box always as a command.
+/// (`exec`, `exec_command`, `shell`…), its box always as a command. A box whose header is cut off names no tool, so
+/// only its command is compared.
 pub fn same_call(tool: &str, command: &str, p: &ScreenPrompt) -> bool {
     let codex_command = p.agent == "codex" && codex_command_tool(tool);
-    if p.tool.is_empty() || !(tool == p.tool || codex_command) {
+    if !p.header_cut && (p.tool.is_empty() || !(tool == p.tool || codex_command)) {
         return false;
     }
     let all = words(command);

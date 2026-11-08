@@ -409,10 +409,9 @@ that folder removes its history and sign-ins.
   options out of view at that width, so a Codex sub-agent's approval falls
   back to "Answer in terminal". A Claude approval box taller than that
   terminal can lose its header off the top while both dashed rules stay on
-  screen. Its card then reads the tool from a fragment of the header and is
-  not attributed to its sub-agent. Showing the terminal wider once, for
-  example with `⌘J`, gives a new card under the sub-agent, and the first card
-  goes stale. Herdr offers no command to size a pane.
+  screen. Bellwether matches that box to its call by command, so its card
+  sits under its sub-agent. The card's detail can begin with a fragment of
+  the cut header, such as "agent". Herdr offers no command to size a pane.
 - `bw answer` refuses as `stale` when the command, the question (an Edit's
   target included) or the Always label differs in any whitespace inside a
   line. A card pending when its machine's helper is replaced by one with

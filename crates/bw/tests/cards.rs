@@ -407,6 +407,29 @@ fn child_approval_sits_under_its_child() {
 }
 
 #[test]
+fn child_approval_with_its_header_off_screen_sits_under_its_child() {
+    // The same call drawn in a 15-column terminal whose box lost its header off the top: the hook's call and the
+    // child's log still match it by command, and the card names the tool they give.
+    let x = Scratch::new();
+    case_a(&x, None);
+    let pr = case_a_events(&x);
+    x.screen(
+        "t1",
+        Some(&read(
+            &fixtures().join("screens/claude-approval-headcut-15.txt"),
+        )),
+    );
+    let lines = x.cards("t1");
+    let r = one(&lines, "request");
+    assert_eq!(r["state"], "pending", "{r}");
+    assert_eq!(*who_child(r), CHILD_A, "{r}");
+    assert_eq!(r["event"], pr.as_str());
+    assert_eq!(r["tool_use_id"], "toolu_01CFkjgfQawSc7F4S41cVRMf");
+    assert_eq!(r["tool"], "Bash");
+    assert_eq!(r["answerable"], true);
+}
+
+#[test]
 fn child_found_from_its_log_without_hooks() {
     let x = Scratch::new();
     case_a(&x, None);
