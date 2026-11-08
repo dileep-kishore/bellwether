@@ -39,6 +39,28 @@ pub struct ScreenPrompt {
     pub from: Option<String>,
 }
 
+/// Claude 2.1.319's tip above the description. The box drops its first line (`Tip:`); the rest wraps onto lines
+/// of its own.
+const AUTO_MODE_TIP: &str =
+    "Tip: auto mode handles these prompts for you — choose \"switch to auto mode\" below";
+
+/// `lines` without the leading lines that are the rest of a wrapped `AUTO_MODE_TIP`.
+fn without_tip(lines: &[String]) -> &[String] {
+    let squeeze = |s: &str| s.split_whitespace().collect::<String>();
+    let tip = squeeze(AUTO_MODE_TIP);
+    let (mut seen, mut keep) = (String::new(), 0);
+    for (i, l) in lines.iter().enumerate() {
+        seen.push_str(&squeeze(l));
+        if !tip.contains(&seen) {
+            break;
+        }
+        if tip.ends_with(&seen) {
+            keep = i + 1;
+        }
+    }
+    &lines[keep..]
+}
+
 /// `N. text` as `(N, text)`; a narrow pane draws `2.Yes` with no space after the number.
 fn option_number(line: &str) -> Option<(usize, &str)> {
     let digits = line.bytes().take_while(u8::is_ascii_digit).count();
@@ -109,7 +131,9 @@ fn claude_box(screen: &str) -> Option<ScreenPrompt> {
         (CLIPPED_TITLE.to_string(), String::new(), None)
     } else {
         let rule = b.lines.iter().position(|l| l.starts_with('╌'));
-        let detail = rule.map(|r| b.lines[1..r].join("\n")).unwrap_or_default();
+        let detail = rule
+            .map(|r| without_tip(&b.lines[1..r]).join("\n"))
+            .unwrap_or_default();
         let from = b
             .header
             .rsplit_once("· from the ")

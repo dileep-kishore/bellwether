@@ -558,3 +558,20 @@ fn rewrap_claude_approval_at_16_columns() {
     assert_eq!(ids(&narrow), ["approve", "always", "deny"]);
     assert_eq!(ids(&narrow), ids(&wide));
 }
+
+#[test]
+fn rewrap_detail_leaves_out_the_wrapped_tip() {
+    // Claude's tip wraps onto lines the box keeps; the card's detail is the description alone, at any width.
+    // The description itself can break inside a word, as the screen draws it, so it is compared unwrapped.
+    for file in [
+        "screens/claude-approval-pair-34.txt",
+        "screens/claude-approval-pair-16.txt",
+    ] {
+        let p = approval_on_screen("claude", &screen(file)).unwrap();
+        assert_eq!(
+            unwrapped(&p.detail),
+            "Createemptyfilepair-wrapped-file.txt",
+            "{file}"
+        );
+    }
+}
