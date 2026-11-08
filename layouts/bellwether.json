@@ -145,10 +145,7 @@
               "id": "issues",
               "type": "block",
               "content": {
-                "mod": "bw-right",
-                "props": {
-                  "panel": "issues"
-                }
+                "mod": "bw-linear"
               }
             },
             {

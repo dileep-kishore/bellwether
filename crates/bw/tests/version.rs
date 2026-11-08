@@ -23,8 +23,8 @@ fn is_build_id(s: &str) -> bool {
 fn version_prints_protocol_version_build_and_target() {
     let (code, v) = run(&["version"]);
     assert_eq!(code, 0);
-    assert_eq!(v["protocol"], 5);
-    assert_eq!(v["version"], "0.5.0");
+    assert_eq!(v["protocol"], 6);
+    assert_eq!(v["version"], "0.6.0");
     let target = v["target"].as_str().expect("target is a string");
     assert!(!target.is_empty());
     let build = v["build"].as_str().expect("build is a string");

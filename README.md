@@ -12,7 +12,8 @@ and requests) and 4 (a shared browser) are built and their headless checks
 pass; their checks in a Herdr window are still owed. Phase 5 (the Changes
 panel) is built, and its headless checks and its checks in a Herdr window
 pass, except "Open in Changes" from a chat, which only the headless tests
-cover. Linear comes in a later phase.
+cover. Phase 6 (the Issues panel and Attach) is built, and its headless
+checks and its check against Linear pass.
 
 ## What phase 1 delivers
 
@@ -29,10 +30,10 @@ shows. Eight mods fill it:
   or Codex in a plain terminal, and Herdr's New worktree and Open worktree
   dialogs.
 - `bw-right` is the right sidebar's strip of Changes, Issues and Browser.
-  Phase 5's `bw-diff` fills Changes and phase 4's `bw-browser` fills
-  Browser. Issues still shows a placeholder that says which phase fills it.
-- `bw-menu` is a project's menu in `bw-projects`: worktree dialogs and
-  Remove.
+  Phase 5's `bw-diff` fills Changes, phase 6's `bw-linear` fills Issues and
+  phase 4's `bw-browser` fills Browser.
+- `bw-menu` is a project's menu in `bw-projects`: worktree dialogs, Link
+  Linear project and Remove.
 - `bw-add` is the Add project dialog: pick a machine and a folder, and Git
   finds the repository it belongs to.
 - `bw-status` is the bar under the active tab: the shown space's machine and
@@ -497,6 +498,116 @@ ref.
 - A diff opened as a tab does not refresh by itself; its Refresh button reads
   it again.
 
+## What phase 6 delivers
+
+The right sidebar's Issues panel is the `bw-linear` mod, which replaces the
+Issues placeholder in `layouts/bellwether.json`. It shows the open Linear
+issues of the project linked to the active space's repository. Every Linear
+call runs `bw linear` on this Mac, the window machine, whatever machine the
+space is on; only the Git reads that find the repository run on the space's
+machine.
+
+### The key
+
+`bw linear` reads a Linear personal API key from this Mac's login Keychain
+with `security find-generic-password -s bellwether.linear -w`. Store it once
+per Mac:
+
+```sh
+scripts/linear-key.sh < keyfile   # or run it in a terminal and paste at the prompt, which does not echo
+```
+
+The script checks that the text looks like a Linear key (`lin_api_` and 40
+letters or digits), stores it under service `bellwether.linear` and your
+account, and reads it back to confirm. The key never reaches an argument
+list: `security -i` reads the store command, with the key in hex, from a
+pipe, and `bw linear` hands it to `/usr/bin/curl` in curl's config on
+standard input. No mod, shared value, output line, log or cache holds it.
+
+### Links
+
+Each repository can be linked to one Linear project. The panel's header
+shows the linked project's name; clicking it opens the link picker, a dialog
+of the workspace's projects with the one whose name matches the repository
+first and marked "suggested". The project menu's "Link Linear project…"
+opens the same dialog. Links live in `shared("bw.linear.links")`. A
+repository with an `origin` is keyed by its URL in lower case without the
+user, port or `.git` (`origin:github.com/owner/repo`), so its clones on other
+machines share the link. A repository without one, or whose origin is a
+local path, is keyed by `[machine, common dir]`, and its link moves to the
+origin key the first time the panel reads it with an origin.
+
+### The list
+
+The filter under the header picks Project (the linked project's open
+issues), Mine (open issues assigned to you anywhere) or All (every open
+issue). Project is the default when the repository is linked and Mine when it
+is not. Open means any state but completed, canceled and duplicate. The
+search field runs Linear's issue search within the filter when you press
+Enter. Issues come 50 at a time, grouped by state, started first, then
+unstarted, backlog and triage; "Load more" reads the next 50.
+
+The panel reads the list when it is shown, every 60 s while it stays shown,
+and when you click its refresh button. A hidden panel makes no call.
+Each answer is kept in `~/.cache/bellwether/linear/`, readable by your
+account only, for 30 days. When Linear cannot be reached, the panel shows the
+kept list and says how old it is. A missing or refused key clears the list
+and any open issue, and says what to run. A space outside Git, or on a
+machine that does not answer, reads nothing from Linear and says why.
+
+Clicking an issue opens it inline: identifier, state, labels, title and
+description as markdown, with three buttons. Attach to chat puts the issue on
+the composer of the active tab when that tab is a chat. Open in Linear opens
+the issue's page. Copy branch name copies Linear's branch name for it.
+
+### Attach
+
+Attach writes a chip to `shared("bw.chat.attach")` under the chat's tab id,
+so it reaches that chat only. The composer shows each chip above the text
+field. Pointing at a chip shows its state, title and the start of its
+description, and its × removes it. A message may be empty when chips are
+attached.
+
+At Send the chat builds each chip's text with `bw linear issue --id <id>
+--text` on this Mac, then sends one message to its own terminal: for each
+issue, `Linear issue <id>: <title>`, its URL, its description and a `---`
+line, then what you typed. The chips clear once the message went. A
+description over 8 KB needs a choice on its chip first: Trim to 8 KB sends
+the first 8 KB and a note that the rest is at the URL, and Send as a file
+places the description beside the chat's terminal with `hc put` and sends
+its path. When a description grew past 8 KB after Attach, Send stops, the
+chip shows its new size and the choice, and the typed message stays. When a
+text cannot be built, the chat names the issue and sends nothing.
+
+### Commands
+
+```sh
+bw linear projects
+bw linear issues --scope project|mine|all [--project <id>] [--after <cursor>]
+bw linear search --text <words> --scope project|mine|all [--project <id>] [--after <cursor>]
+bw linear issue --id <identifier> [--text [--trim | --put <terminal>]]
+```
+
+`projects` prints one `linear-project` line per project (up to 250) and a
+`linear-done` line. `issues` and `search` print one `linear-issue` line per
+open issue and a `linear-page` line with the next page's cursor, and
+`cached` and `age_s` when the answer came from the cache. `issue` prints the
+issue with its description, or with `--text` one `linear-text` line holding
+the text Send uses. A failure prints one `error` line whose code is
+`no_key`, `key_refused`, `offline` (Linear unreachable and nothing cached),
+`rate_limited`, `not_found`, `too_large` (over 8 KB without `--trim` or
+`--put`), `put_failed` or `linear_failed`, and exits 1. Bellwether never
+writes to Linear.
+
+### Known limits
+
+- The key lives in one Mac's Keychain; run `scripts/linear-key.sh` once on
+  each Mac that shows the window.
+- Mine and All show issues from every project, so their titles appear on
+  screen whatever the repository.
+- A list is not read again while the panel is hidden; showing it reads at
+  once.
+
 ## The look
 
 Bellwether draws in Catppuccin Mocha with a Mauve (`#cba6f7`) accent, in the
@@ -540,6 +651,7 @@ scripts/check.sh          herdr-app check (or the headless stand-in) on every mo
 scripts/test.sh           every check that needs no Herdr window
 scripts/gen-herdr-api.js  extract Herdr's API names into tests/harness/api.json and copy its types into types/herdr
 scripts/install-helper.sh build bw and install it on this machine
+scripts/linear-key.sh     store the Linear key in this Mac's Keychain for bw linear
 scripts/build-dist.sh     build bw for other platforms into ~/.local/share/bellwether/dist
 scripts/verify/           checks against real machines and agents
 crates/                   Rust helpers; crates/bw is the bw binary the mods run
@@ -757,6 +869,33 @@ scripts/verify/git.sh --machine <name>   # the repositories on <name> through hc
 With `--machine`, the script builds a release `bw` here, and installs it on
 `<name>` when that machine's helper is missing or outdated.
 
+## Checking Issues against Linear
+
+`scripts/verify/linear.sh` makes two scratch repositories in
+`/private/tmp/bw-verify-linear`: one without an origin, linked to the
+`Bellwether` project, and one with an origin, linked to `Bellwether
+scratch`. It reads each as the panel does, through its Git place, its link
+and its default filter, and compares `bw linear` with GraphQL queries of
+another shape that curl sends to Linear with the same Keychain key:
+
+- Each repository's default list equals `project(id).issues` for its own
+  project's open issues, and the two lists share no issue.
+- Mine equals `viewer.assignedIssues` and All the first page of open
+  issues, and neither equals the Project list.
+- Adding an origin to the first repository moves its link to the origin key
+  and keeps its list.
+- `rg -F`, given the key's first 12 characters on standard input, finds them
+  in no file under the app homes, `~/.cache/bellwether`,
+  `~/.local/share/bellwether` and the repository.
+
+```sh
+scripts/verify/linear.sh            # Linear itself, with the Keychain key; needs the two test projects
+scripts/verify/linear.sh --offline  # a loopback fake of Linear and a made-up key; scripts/test.sh runs it
+```
+
+With no key in the Keychain the script says the live run is owed and runs
+the fake.
+
 ## The bw helper on each machine
 
 Mods call `~/.local/share/bellwether/helper/current/bw` on the machine a space
@@ -768,8 +907,8 @@ call to the stage's `helper-calls.log` (a timestamp and the command, such as
 `feed` or `browser status`, never its arguments, which can hold chat text) and
 runs the repository's `bw`, so a check can count calls without touching the
 installed helper.
-`shared/helper.js` needs `bw version` to report version 0.5.0 and protocol 5;
-0.5.0 adds phase 5's `bw diff` commands, so a machine with 0.4.1 reinstalls
+`shared/helper.js` needs `bw version` to report version 0.6.0 and protocol 6;
+0.6.0 adds phase 6's `bw linear` commands, so a machine with 0.5.0 reinstalls
 once.
 Phase 4's helper adds the `browser` and `agent` commands, so every machine's
 helper reinstalls once. When another machine's helper is missing or

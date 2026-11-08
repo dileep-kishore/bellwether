@@ -29,6 +29,7 @@ export function withoutEnter(now, before) {
  * @property {string | null} reason shown in the box while disabled
  * @property {boolean} sending
  * @property {{ text: string, bad: boolean } | null} note the last send's result
+ * @property {any} [chips] the attached issues' chips, drawn above the text field
  */
 
 export class Composer {
@@ -41,6 +42,8 @@ export class Composer {
     this.input.set_auto_grow(1, 8);
     this.onSend = onSend;
     this.blocked = true;
+    /** Attached issues can go without a typed message. */
+    this.hasChips = false;
     /** The box holds the keyboard: its border turns Mauve. */
     this.focused = false;
     this.input.on("focus", (/** @type {unknown} */ _e, /** @type {any} */ cx) => {
@@ -71,7 +74,7 @@ export class Composer {
   send(raw, cx) {
     const text = raw.replace(/\s+$/, "");
     this.setText(text);
-    if (this.blocked || !text.trim()) return;
+    if (this.blocked || (!text.trim() && !this.hasChips)) return;
     this.onSend(text, cx);
   }
 
@@ -91,6 +94,7 @@ export class Composer {
   /** @param {Theme} t themeColors() @param {ComposerView} v */
   render(t, v) {
     this.blocked = v.disabled;
+    this.hasChips = Boolean(v.chips);
     const live = !v.disabled;
     return v_flex()
       .id("composer")
@@ -115,6 +119,7 @@ export class Composer {
           .pb(8)
           .gap(6)
           .when(v.disabled, (el) => el.opacity(0.6))
+          .when(Boolean(v.chips), (el) => el.child(v.chips))
           .child(Textarea.new(this.input).w_full().disabled(v.disabled))
           .child(
             h_flex()

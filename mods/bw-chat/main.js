@@ -20,6 +20,7 @@ import {
 } from "herdr";
 import { CHAT_SHOWN, hasMod, isShown, leftAt, shownFrom, TERMINAL_FOCUS } from "./chat-tabs.js";
 import { choose } from "./choice.js";
+import { chipsView } from "./chips.js";
 import { Composer } from "./composer.js";
 import { dock } from "./dock.js";
 import {
@@ -39,6 +40,19 @@ import { applyFeed, applyOlder, emptyFeed, expectation, freshChat, newConversati
 import { REVEAL, withReveal } from "./diff-reveal.js";
 import { createGuard, guardedUntil, isGuarded, observe, observeLeft } from "./focus-guard.js";
 import { createHelper, parseLines } from "./helper.js";
+import {
+  ATTACH,
+  chipFrom,
+  chipsFor,
+  clearChips,
+  composeMessage,
+  needsChoice,
+  refreshChip,
+  removeChip,
+  setChipMode,
+  sizeText,
+  textArgs,
+} from "./linear-attach.js";
 import { createPictures } from "./pictures.js";
 import { createPoke } from "./refresh-driver.js";
 import {
@@ -182,6 +196,8 @@ export default class Chat extends View {
     this.sending = false;
     /** @type {{ text: string, bad: boolean } | null} */
     this.note = null;
+    /** The attached issue under the pointer. @type {string | null} */
+    this.chipHover = null;
     /** @type {string | null} the machine the helper is being installed on */
     this.installing = null;
     // Read once here so the first feed and the loop's first sleep are right; render keeps them current.
@@ -543,25 +559,60 @@ export default class Chat extends View {
     const expect = expectation(st.feed, st.kind);
     if (this.sending || !expect) return;
     const { session, path } = expect;
+    // The chips on screen now, for this chat's own tab; the text of each is built here, at Send.
+    const tab = this.tab();
+    const chips = chipsFor(shared(ATTACH), tab);
+    const long = chips.find(needsChoice);
+    if (long) {
+      this.note = {
+        text: `${long.identifier}'s description is ${sizeText(long.bytes)}: choose Trim or Send as a file on its chip`,
+        bad: true,
+      };
+      cx.notify();
+      return;
+    }
     this.sending = true;
     this.note = null;
     this.viewNote = null;
     cx.notify();
-    const args = [
-      "send",
-      "--terminal",
-      st.local,
-      "--expect-kind",
-      st.kind,
-      "--expect-session",
-      session,
-      "--expect-path",
-      path,
-      "--text",
-      text,
-    ];
+    // hc put on this Mac places a long description beside the terminal, by its address in this window.
+    const address = st.machine ? `${st.machine}/${st.local}` : st.local;
     cx.spawn(async (/** @type {any} */ cx) => {
       try {
+        /** @type {string[]} */
+        const texts = [];
+        for (const chip of chips) {
+          const built = await this.helper.call(null, textArgs(chip, address));
+          const line = built.ok ? /** @type {any} */ (built.lines.find((l) => l.type === "linear-text")) : null;
+          if (!line || typeof line.text !== "string") {
+            if (built.ok === false && built.code === "too_large" && tab !== null) {
+              // The description grew past 8 KB after Attach: read its size so the chip offers the choice.
+              await this.resizeChip(tab, chip.identifier);
+              this.note = {
+                text: `${chip.identifier}'s description is now over 8 KB: choose Trim or Send as a file on its chip`,
+                bad: true,
+              };
+              return;
+            }
+            const why = built.ok === false ? built.message : "bw linear printed no text";
+            this.note = { text: `Could not read ${chip.identifier}: ${why}; nothing was sent`, bad: true };
+            return;
+          }
+          texts.push(line.text);
+        }
+        const args = [
+          "send",
+          "--terminal",
+          st.local,
+          "--expect-kind",
+          st.kind,
+          "--expect-session",
+          session,
+          "--expect-path",
+          path,
+          "--text",
+          composeMessage(texts, text),
+        ];
         // hc wraps text sent from another core as `<hc from=…>`, so slash commands only run when sent there.
         const answer = await this.helper.call(st.machine, args);
         const line = answer.ok ? answer.lines.find((/** @type {any} */ l) => l.type === "send") : null;
@@ -570,12 +621,29 @@ export default class Chat extends View {
         const went = result === "sent" || result === "unconfirmed";
         this.note = result === "sent" ? null : { text: sendText(result, st.name, message), bad: !went };
         if (went) this.composer.clear();
+        if (went && tab !== null && chips.length)
+          setShared(
+            ATTACH,
+            clearChips(
+              shared(ATTACH),
+              tab,
+              chips.map((c) => c.identifier),
+            ),
+          );
       } finally {
         this.sending = false;
         this.poke.poke();
         cx.notify();
       }
     });
+  }
+
+  /** Reads an attached issue again and stores its chip with the current size. @param {string} tab @param {string} id */
+  async resizeChip(tab, id) {
+    const answer = await this.helper.call(null, ["linear", "issue", "--id", id]);
+    const line = answer.ok ? answer.lines.find((/** @type {any} */ l) => l.type === "linear-issue") : null;
+    const fresh = line ? chipFrom(line, Date.now()) : null;
+    if (fresh) setShared(ATTACH, refreshChip(shared(ATTACH), tab, fresh));
   }
 
   /**
@@ -1286,8 +1354,28 @@ export default class Chat extends View {
               : f.loaded
                 ? waitingText("no_log", name)
                 : "Loading…";
+    const chips = chipsView(t, chipsFor(shared(ATTACH), tab), this.chipHover, {
+      hover: (id, on, cx) => {
+        const next = on ? id : this.chipHover === id ? null : this.chipHover;
+        if (next === this.chipHover) return;
+        this.chipHover = next;
+        cx.notify();
+      },
+      remove: (id, cx) => {
+        if (tab === null) return;
+        this.note = null;
+        setShared(ATTACH, removeChip(shared(ATTACH), tab, id));
+        cx.notify();
+      },
+      mode: (id, mode, cx) => {
+        if (tab === null) return;
+        this.note = null;
+        setShared(ATTACH, setChipMode(shared(ATTACH), tab, id, mode));
+        cx.notify();
+      },
+    });
     return root.child(
-      this.composer.render(t, { disabled: reason !== null, reason, sending: this.sending, note: this.note }),
+      this.composer.render(t, { disabled: reason !== null, reason, sending: this.sending, note: this.note, chips }),
     );
   }
 }
