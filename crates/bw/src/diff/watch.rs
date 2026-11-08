@@ -35,6 +35,7 @@ pub enum Seen {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct State {
     id: String,
+    pid: u32,
     count: u64,
 }
 
@@ -85,12 +86,22 @@ fn age(file: &Path) -> Option<Duration> {
     Some(SystemTime::now().duration_since(m).unwrap_or_default())
 }
 
-/// The running watcher's state, when it beat recently.
+/// The running watcher's state, when it beat recently and its process is still there: a watcher ended by
+/// a signal leaves its last state behind, which must not answer for edits it never saw.
 fn fresh(s: &Slot) -> Option<State> {
     if age(&s.state)? > beat() * 3 {
         return None;
     }
-    serde_json::from_slice(&fs::read(&s.state).ok()?).ok()
+    let st: State = serde_json::from_slice(&fs::read(&s.state).ok()?).ok()?;
+    alive(st.pid).then_some(st)
+}
+
+fn alive(pid: u32) -> bool {
+    let Ok(pid) = libc::pid_t::try_from(pid) else {
+        return false;
+    };
+    // Signal 0 checks that the process exists without touching it.
+    pid > 0 && unsafe { libc::kill(pid, 0) } == 0
 }
 
 fn write_private(file: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -144,7 +155,9 @@ pub fn before_read(top: &Path, common_dir: &Path, key: &str, since: Option<&str>
     }
 }
 
-/// A watcher in a process group of its own, so the `hc exec` that ran this call does not end it.
+/// A watcher in a process group of its own and without `HC_SCOPE`, the variable herdr-core gives each
+/// `hc exec` to find and end what that call started: with it, a watcher on a machine reached over SSH
+/// ended when the call that started it returned.
 fn start(top: &Path, common_dir: &Path) {
     let Ok(me) = std::env::current_exe() else {
         return;
@@ -154,6 +167,7 @@ fn start(top: &Path, common_dir: &Path) {
         .arg(top)
         .arg("--dir")
         .arg(common_dir)
+        .env_remove("HC_SCOPE")
         .process_group(0)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -198,7 +212,11 @@ pub fn run(a: &Args) -> Result<(), Fail> {
             return Err(fail("watch_failed", e.to_string()));
         }
     };
-    let mut state = State { id, count: 0 };
+    let mut state = State {
+        id,
+        pid: std::process::id(),
+        count: 0,
+    };
     let save = |st: &State| write_private(&s.state, &serde_json::to_vec(st).unwrap_or_default());
     save(&state).map_err(|e| fail("watch_failed", e.to_string()))?;
     // Events name resolved paths (/private/tmp, not /tmp).

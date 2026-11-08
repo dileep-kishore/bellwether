@@ -97,6 +97,7 @@ impl Fixture {
             .args(extra)
             .env("BW_CACHE_DIR", &self.cache)
             .env("BW_WATCH_IDLE_MS", IDLE_MS)
+            .env("HC_SCOPE", "bw-test-scope")
             .env("PATH", path)
             .output()
             .unwrap();
@@ -209,13 +210,64 @@ fn watch_a_replaced_or_missing_watcher_reads() {
     let f = fixture();
     let t = f.token();
     let state = f.state_files().pop().expect("a state file");
-    fs::write(&state, r#"{"id":"someone-else","count":0}"#).unwrap();
+    fs::write(
+        &state,
+        format!(
+            r#"{{"id":"someone-else","pid":{},"count":0}}"#,
+            std::process::id()
+        ),
+    )
+    .unwrap();
     assert!(!unchanged(&f.files(&["--since", &t])));
     fs::remove_file(&state).unwrap();
     let lines = f.files(&["--since", &t]);
     assert!(!unchanged(&lines));
     // A new watcher starts and its token differs from the old one.
     assert_ne!(f.token(), t);
+}
+
+#[test]
+fn watch_a_killed_watcher_never_answers_unchanged() {
+    let f = fixture();
+    let t = f.token();
+    let state = f.state_files().pop().expect("a state file");
+    let pid = serde_json::from_slice::<Value>(&fs::read(&state).unwrap()).unwrap()["pid"]
+        .as_u64()
+        .unwrap();
+    assert!(Command::new("kill")
+        .args(["-9", &pid.to_string()])
+        .status()
+        .unwrap()
+        .success());
+    std::thread::sleep(Duration::from_millis(100));
+    // Its last state is still on disk and recent; the edit after the kill must show.
+    assert!(state.exists());
+    fs::write(f.repo.join("a.txt"), "one\ntwo\n").unwrap();
+    let lines = f.files(&["--since", &t]);
+    assert!(!unchanged(&lines), "{lines:?}");
+    assert_eq!(changes(&lines), ["a.txt"]);
+}
+
+#[test]
+fn watch_leaves_out_the_hc_scope_that_would_end_it() {
+    let f = fixture();
+    f.token();
+    let state = f.state_files().pop().expect("a state file");
+    let pid = serde_json::from_slice::<Value>(&fs::read(&state).unwrap()).unwrap()["pid"]
+        .as_u64()
+        .unwrap();
+    // `ps eww` prints a process's environment after its command.
+    let ps = Command::new("ps")
+        .args(["eww", "-o", "command=", "-p", &pid.to_string()])
+        .output()
+        .unwrap();
+    let seen = String::from_utf8_lossy(&ps.stdout);
+    assert!(seen.contains("diff watch"), "{seen}");
+    assert!(
+        seen.contains("BW_CACHE_DIR="),
+        "ps shows no environment: {seen}"
+    );
+    assert!(!seen.contains("HC_SCOPE="), "{seen}");
 }
 
 #[test]
