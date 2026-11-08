@@ -1,5 +1,5 @@
 #!/bin/sh
-# Copy this repo's layout and bw-* mods into a Herdr app home.
+# Copy this repo's layout, its theme and bw-* mods into a Herdr app home.
 # Real copies, not symlinks: Herdr does not load a mod's own SVGs through a symlink.
 #   scripts/sync.sh [--dry-run] [--shared-only]
 # --shared-only copies shared/ into the repository's mod folders and stops, so it needs no app home.
@@ -45,3 +45,7 @@ for f in "$src"/layouts/bellwether.*; do
   [ -f "$f" ] || { echo "no layouts/bellwether.json yet"; break; }
   rsync -a --itemize-changes $dry "$f" "$app/layouts/"
 done
+
+# The layout's own theme: Herdr offers a theme named like a layout only in that layout.
+mkdir -p "$app/themes"
+rsync -a --itemize-changes $dry "$src/themes/bellwether.json" "$app/themes/"

@@ -1,6 +1,7 @@
 {
   "id": "root",
   "type": "row",
+  "theme": "bellwether",
   "titlebar": "none",
   "traffic_lights": [12, 16],
   "background": "canvas",
