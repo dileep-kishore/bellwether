@@ -138,10 +138,7 @@
               "id": "changes",
               "type": "block",
               "content": {
-                "mod": "bw-right",
-                "props": {
-                  "panel": "changes"
-                }
+                "mod": "bw-diff"
               }
             },
             {

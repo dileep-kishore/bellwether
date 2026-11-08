@@ -54,6 +54,27 @@ export function pairs() {
     mark(`blocked mark at ${BREATHE_MIN} on ${name}`, mix(R.blocked, bg, BREATHE_MIN), bg);
     mark(`Mauve marker on ${name}`, R.accent, bg);
   }
+  // The Changes panel: status letters in Blue and Peach on rows, and patch rows tinted over Base.
+  for (const [n, bg] of [
+    ["Mantle", M.mantle],
+    ["hover on Mantle", hovered(M.mantle)],
+    ["Surface 1", M.surface1],
+  ]) {
+    text(
+      `renamed letter (${n === "Surface 1" ? "bright Blue" : "Blue"}) on ${n}`,
+      n === "Surface 1" ? TERMINAL.ansi[12] : R.working,
+      bg,
+    );
+    text(`modified letter (Peach) on ${n}`, R.blocked, bg);
+  }
+  for (const [n, tint] of [
+    ["added", M.green],
+    ["removed", M.red],
+  ]) {
+    text(`patch text on the ${n} tint`, R.foreground, mix(tint, M.base, 0.12));
+    text(`line numbers (muted) on the ${n} tint`, R.muted, mix(tint, M.base, 0.12));
+  }
+  text("hunk header (muted) on Surface 0", R.muted, M.surface0);
   text("text on hovered Surface 1 button", R.foreground, mix(M.text, M.surface1, HOVER));
   text("text on terminal selection", R.foreground, mix(M.mauve, M.base, 0.25));
   text("Crust on Mauve (primary button, accent pill)", M.crust, M.mauve);
