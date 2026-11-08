@@ -78,6 +78,7 @@ dependencies = [
  "core-graphics",
  "herdr-core",
  "libc",
+ "notify",
  "serde",
  "serde_json",
  "sha2",

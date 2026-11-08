@@ -9,6 +9,7 @@ publish = false
 base64 = "0.22"
 chrono = "0.4"
 herdr-core = { path = "../vendor/herdr-core" }
+notify = { version = "7.0.0", default-features = false, features = ["macos_fsevent"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"

@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 use super::parse::{raw_numstat, status_v2, Counts, StatusEntry};
 use super::{
-    commit_of, describe, digest, emit, fail, git, git_ok, patch, place, str_or_null, Fail,
+    commit_of, describe, digest, emit, fail, git, git_ok, patch, place, str_or_null, watch, Fail,
     DIFF_FLAGS,
 };
 use crate::chat::args::Args;
@@ -82,6 +82,27 @@ pub fn run(a: &Args) -> Result<(), Fail> {
     }
     let p = place(path)?;
     let top = p.top.as_path();
+
+    // Taken before Git runs, so an edit during the read changes the next token.
+    let token = if a.has("watch") {
+        let key = watch::args_key(&[
+            Some(path),
+            a.get("base"),
+            a.get("mode"),
+            select,
+            a.get("file"),
+            a.get("old"),
+        ]);
+        match watch::before_read(top, &p.common_dir, &key, a.get("since")) {
+            watch::Seen::Unchanged(t) => {
+                emit(json!({"type": "diff-unchanged", "token": t}));
+                return Ok(());
+            }
+            watch::Seen::Read(t) => t,
+        }
+    } else {
+        None
+    };
 
     let status = status_v2(&git_ok(
         top,
@@ -158,6 +179,9 @@ pub fn run(a: &Args) -> Result<(), Fail> {
         emit(
             json!({"type": "diff-digest", "section": section, "path": file, "digest": d, "bytes": bytes}),
         );
+    }
+    if let Some(t) = token {
+        emit(json!({"type": "diff-token", "token": t}));
     }
     Ok(())
 }

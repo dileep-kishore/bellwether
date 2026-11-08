@@ -14,6 +14,7 @@ mod files;
 pub mod parse;
 mod patch;
 mod refs;
+pub mod watch;
 
 /// Without these a read refreshes the index or starts fsmonitor, and both write under `.git`.
 pub const READ_ONLY: [&str; 5] = [
@@ -59,8 +60,8 @@ pub fn run(argv: &[String]) -> ExitCode {
     let result = match cmd {
         "files" => args::parse_free(
             rest,
-            &[],
-            &["path", "base", "mode", "select", "file", "old"],
+            &["watch"],
+            &["path", "base", "mode", "select", "file", "old", "since"],
             &["base", "file", "old"],
         )
         .map_err(|e| fail("usage", e))
@@ -79,6 +80,9 @@ pub fn run(argv: &[String]) -> ExitCode {
         "fetch" => args::parse_free(rest, &[], &["path", "remote", "base"], &["base"])
             .map_err(|e| fail("usage", e))
             .and_then(|a| refs::fetch(&a)),
+        "watch" => args::parse_free(rest, &[], &["path", "dir"], &[])
+            .map_err(|e| fail("usage", e))
+            .and_then(|a| watch::run(&a)),
         other => Err(fail("usage", format!("unknown diff command {other:?}"))),
     };
     match result {
