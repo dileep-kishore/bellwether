@@ -58,7 +58,10 @@ pub fn run(a: &Args) -> Result<(), Fail> {
             continue;
         };
         let time: i64 = f[2].parse().or_else(|_| f[3].parse()).unwrap_or(0);
-        emit(json!({"type": "diff-ref", "name": name, "kind": kind, "short": f[1], "time": time}));
+        // `ref` is the full name, so a branch and a tag that share a short name stay two choices.
+        emit(
+            json!({"type": "diff-ref", "name": name, "ref": f[0], "kind": kind, "short": f[1], "time": time}),
+        );
         n += 1;
         if n == MAX_REFS {
             break;
@@ -70,6 +73,7 @@ pub fn run(a: &Args) -> Result<(), Fail> {
 /// The remote a base ref tracks: `upstream` for `upstream/main` when that is a remote-tracking ref, else
 /// `origin`.
 fn remote_of(top: &std::path::Path, remotes: &str, base: &str) -> Result<String, Fail> {
+    let base = base.strip_prefix("refs/remotes/").unwrap_or(base);
     for r in remotes.lines() {
         if base.starts_with(&format!("{r}/"))
             && commit_of(top, &format!("refs/remotes/{base}"))?.is_some()
@@ -103,27 +107,31 @@ pub fn fetch(a: &Args) -> Result<(), Fail> {
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| fail("fetch_failed", format!("could not run git fetch: {e}")))?;
+    // Read stderr while fetch runs: a full pipe would stop fetch until the time limit.
+    let mut pipe = child.stderr.take().expect("piped stderr");
+    let reader = std::thread::spawn(move || {
+        let mut err = String::new();
+        let _ = pipe.read_to_string(&mut err);
+        err
+    });
     let started = Instant::now();
     let status = loop {
         match child.try_wait() {
             Ok(Some(s)) => break s,
-            Ok(None) if started.elapsed() > FETCH_LIMIT => {
+            Ok(None) if started.elapsed() <= FETCH_LIMIT => sleep(Duration::from_millis(50)),
+            waited => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(fail(
-                    "fetch_failed",
-                    format!("git fetch {remote} took over {} s", FETCH_LIMIT.as_secs()),
-                ));
+                let why = match waited {
+                    Err(e) => format!("waiting for git fetch {remote}: {e}"),
+                    _ => format!("git fetch {remote} took over {} s", FETCH_LIMIT.as_secs()),
+                };
+                return Err(fail("fetch_failed", why));
             }
-            Ok(None) => sleep(Duration::from_millis(50)),
-            Err(e) => return Err(fail("fetch_failed", format!("waiting for git fetch: {e}"))),
         }
     };
+    let err = reader.join().unwrap_or_default();
     if !status.success() {
-        let mut err = String::new();
-        if let Some(mut e) = child.stderr.take() {
-            let _ = e.read_to_string(&mut err);
-        }
         let err = err.trim();
         let start = (err.len().saturating_sub(300)..=err.len())
             .find(|&i| err.is_char_boundary(i))

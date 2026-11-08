@@ -91,7 +91,9 @@ pub fn command(dir: &Path, args: &[&str]) -> Command {
     for v in CLEARED {
         c.env_remove(v);
     }
+    // A file name is a path, never a pathspec: `a*.txt` must not also match `ab.txt`.
     c.env("GIT_OPTIONAL_LOCKS", "0")
+        .env("GIT_LITERAL_PATHSPECS", "1")
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(Stdio::null());
     c

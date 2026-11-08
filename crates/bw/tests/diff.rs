@@ -733,3 +733,129 @@ fn fetch_unknown_remote() {
     let (code, lines) = bw(&["diff", "fetch", "--path", r.get("nobase").to_str().unwrap()]);
     assert_eq!((code, lines[0]["code"].as_str()), (1, Some("no_remote")));
 }
+
+fn commit_all(dir: &Path, msg: &str) {
+    for args in [vec!["add", "-A"], vec!["commit", "-q", "-m", msg]] {
+        let ok = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["-c", "core.fsmonitor=false"])
+            .args(&args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@example.invalid")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@example.invalid")
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?}");
+    }
+}
+
+#[test]
+fn a_file_name_is_never_a_pathspec() {
+    let r = repos();
+    let dir = r.get("nobase");
+    std::fs::write(dir.join("a*.txt"), "star\n").unwrap();
+    std::fs::write(dir.join("ab.txt"), "plain\n").unwrap();
+    commit_all(dir, "two names");
+    std::fs::write(dir.join("a*.txt"), "star edited\n").unwrap();
+    std::fs::write(dir.join("ab.txt"), "plain edited\n").unwrap();
+    let p = patch(dir, &["--section", "changes", "--file", "a*.txt"]);
+    let text = p[0]["text"].as_str().unwrap();
+    assert!(text.contains("a/a*.txt"), "{text}");
+    assert!(
+        !text.contains("ab.txt"),
+        "the glob matched another file: {text}"
+    );
+    let digest = |lines: &[Value]| {
+        lines.iter().find(|l| l["type"] == "diff-digest").unwrap()["digest"].clone()
+    };
+    let f = files(dir, &["--select", "changes", "--file", "a*.txt"]);
+    assert_eq!(digest(&f), p[0]["digest"]);
+    let magic = bw(&[
+        "diff",
+        "patch",
+        "--path",
+        dir.to_str().unwrap(),
+        "--section",
+        "changes",
+        "--file",
+        ":!x",
+    ]);
+    assert!(
+        magic.1[0]["text"].as_str().unwrap_or("").is_empty(),
+        "{:?}",
+        magic.1
+    );
+}
+
+#[test]
+fn a_branch_and_a_tag_with_one_name_stay_apart() {
+    let r = repos();
+    let dir = r.get("nobase");
+    let first = rev(dir, "HEAD");
+    git(dir, &["tag", "release", &first]);
+    std::fs::write(dir.join("later.txt"), "later\n").unwrap();
+    commit_all(dir, "later");
+    git(dir, &["branch", "release", "HEAD"]);
+    let (_, lines) = bw(&["diff", "refs", "--path", dir.to_str().unwrap()]);
+    let refs: BTreeSet<(String, String)> = lines
+        .iter()
+        .filter(|l| l["name"] == "release")
+        .map(|l| {
+            (
+                l["kind"].as_str().unwrap().into(),
+                l["ref"].as_str().unwrap().into(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        refs,
+        BTreeSet::from([
+            ("branch".into(), "refs/heads/release".into()),
+            ("tag".into(), "refs/tags/release".into()),
+        ])
+    );
+    let branch = files(dir, &["--base", "refs/heads/release"]);
+    let base = branch.iter().find(|l| l["type"] == "diff-base").unwrap();
+    assert_eq!(base["commit"], rev(dir, "refs/heads/release").as_str());
+    assert_ne!(base["commit"], first.as_str());
+}
+
+#[test]
+fn fetch_reports_a_noisy_failure_at_once() {
+    let r = repos();
+    let dir = r.get("changes");
+    let noisy = dir.parent().unwrap().join("hooks/noisy-ssh");
+    std::fs::write(
+        &noisy,
+        "#!/bin/sh\nhead -c 200000 /dev/zero | tr '\\0' x >&2\necho noisy end >&2\nexit 1\n",
+    )
+    .unwrap();
+    Command::new("chmod")
+        .arg("755")
+        .arg(&noisy)
+        .status()
+        .unwrap();
+    git(dir, &["remote", "add", "far", "ssh://fake.invalid/x.git"]);
+    git(dir, &["config", "core.sshCommand", noisy.to_str().unwrap()]);
+    let started = std::time::Instant::now();
+    let (code, lines) = bw(&[
+        "diff",
+        "fetch",
+        "--path",
+        dir.to_str().unwrap(),
+        "--remote",
+        "far",
+    ]);
+    assert_eq!(code, 1);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(10),
+        "fetch waited {:?}",
+        started.elapsed()
+    );
+    let message = lines[0]["message"].as_str().unwrap();
+    assert!(!message.contains("took over"), "{message}");
+}

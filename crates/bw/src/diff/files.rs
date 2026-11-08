@@ -14,8 +14,11 @@ use super::{
 };
 use crate::chat::args::Args;
 
-/// Rows past this many in one section are counted, not listed, so the output stays well under a page.
+/// Rows past this many in one section are counted, not listed.
 pub const MAX_ROWS: usize = 2000;
+/// The bytes all three sections' rows may print together, so one call stays under `exec`'s 8 MiB cap
+/// whatever the paths' lengths.
+pub const LIST_BYTES: usize = 4 * 1024 * 1024;
 /// An untracked file past this size is listed without counts.
 const COUNT_LIMIT: u64 = 64 * 1024 * 1024;
 /// Git calls a file binary when its first 8000 bytes hold a NUL.
@@ -130,9 +133,10 @@ pub fn run(a: &Args) -> Result<(), Fail> {
         "mode": if mode == Mode::Tip { "tip" } else { "merge-base" },
         "from": str_or_null(from.as_deref()),
     }));
-    print_section("staged", &staged);
-    print_section("changes", &changes);
-    print_section("committed", &committed);
+    let mut budget = LIST_BYTES;
+    print_section("staged", &staged, &mut budget);
+    print_section("changes", &changes, &mut budget);
+    print_section("committed", &committed, &mut budget);
 
     if let (Some(section), Some(file)) = (select, a.get("file")) {
         let spec = patch::Spec {
@@ -154,26 +158,51 @@ pub fn run(a: &Args) -> Result<(), Fail> {
     Ok(())
 }
 
-fn print_section(section: &str, rows: &[Row]) {
-    for r in rows.iter().take(MAX_ROWS) {
-        let (added, removed) = match r.counts {
-            Some((a, d)) => (json!(a), json!(d)),
-            None => (Value::Null, Value::Null),
-        };
-        emit(json!({
-            "type": "diff-file",
-            "section": section,
-            "path": r.path,
-            "old_path": str_or_null(r.old_path.as_deref()),
-            "status": r.status.to_string(),
-            "added": added,
-            "removed": removed,
-            "binary": r.binary,
-        }));
+fn print_section(section: &str, rows: &[Row], budget: &mut usize) {
+    let lines: Vec<String> = rows
+        .iter()
+        .take(MAX_ROWS)
+        .map(|r| row_line(section, r))
+        .collect();
+    let shown = within(&lines, budget);
+    for l in &lines[..shown] {
+        println!("{l}");
     }
-    if rows.len() > MAX_ROWS {
-        emit(json!({"type": "diff-more", "section": section, "omitted": rows.len() - MAX_ROWS}));
+    if rows.len() > shown {
+        emit(json!({"type": "diff-more", "section": section, "omitted": rows.len() - shown}));
     }
+}
+
+fn row_line(section: &str, r: &Row) -> String {
+    let (added, removed) = match r.counts {
+        Some((a, d)) => (json!(a), json!(d)),
+        None => (Value::Null, Value::Null),
+    };
+    json!({
+        "type": "diff-file",
+        "section": section,
+        "path": r.path,
+        "old_path": str_or_null(r.old_path.as_deref()),
+        "status": r.status.to_string(),
+        "added": added,
+        "removed": removed,
+        "binary": r.binary,
+    })
+    .to_string()
+}
+
+/// How many of `lines` fit in what is left of `budget`, which is reduced by their size.
+pub fn within(lines: &[String], budget: &mut usize) -> usize {
+    let mut n = 0;
+    for l in lines {
+        let size = l.len() + 1;
+        if size > *budget {
+            break;
+        }
+        *budget -= size;
+        n += 1;
+    }
+    n
 }
 
 /// One `git diff … --raw --numstat -z` listing as rows, in Git's order.
@@ -330,4 +359,20 @@ fn merge_base(top: &Path, commit: &str) -> Result<Option<String>, Fail> {
     let out = git(top, &["merge-base", commit, "HEAD"])?;
     let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
     Ok((out.status.success() && !sha.is_empty()).then_some(sha))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::within;
+
+    #[test]
+    fn within_stops_at_the_budget_and_carries_it_over() {
+        let lines: Vec<String> = ["aaaa", "bbbb", "cccc"].map(String::from).to_vec();
+        let mut budget = 11;
+        assert_eq!(within(&lines, &mut budget), 2);
+        assert_eq!(budget, 1);
+        assert_eq!(within(&lines, &mut budget), 0);
+        let mut plenty = 100;
+        assert_eq!(within(&lines, &mut plenty), 3);
+    }
 }
