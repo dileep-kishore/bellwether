@@ -15,8 +15,8 @@ use std::path::{Path, PathBuf};
 use codex_approval::{codex_box, codex_id};
 use codex_folder::{folder_box, folder_id};
 use matchers::{
-    approval_on_screen, folder_prompt_on_screen, other_prompt, same_call, same_drawn, Action,
-    ScreenPrompt, CODEX_CHILD_ANSWERABLE,
+    approval_on_screen, folder_prompt_on_screen, other_prompt, same_call, same_drawn, same_label,
+    Action, ScreenPrompt, CODEX_CHILD_ANSWERABLE,
 };
 use serde_json::Value;
 
@@ -628,10 +628,108 @@ fn same_drawn_tolerates_line_breaks_only() {
         "touch wrapped-long-\nname.txt"
     ));
     assert!(
-        same_drawn("touch  a.txt", "touch a.txt"),
-        "a run of spaces in a line counts as one"
+        !same_drawn("touch  a.txt", "touch a.txt"),
+        "a run of spaces in a line must match"
     );
     assert!(!same_drawn("touch approved.txt", "touch approved .txt"));
     assert!(!same_drawn("touch a.txt", "touch b.txt"));
     assert!(!same_drawn("rm -rf build", "rm -rf build/"));
+}
+
+#[test]
+fn same_drawn_keeps_spaces_inside_a_line() {
+    // Inside shell quotes a second space names another file.
+    assert!(!same_drawn("rm 'allowed  file'", "rm 'allowed file'"));
+    assert!(same_drawn("rm 'allowed  file'", "rm 'allowed  fi\nle'"));
+    // A break stands for one space or none, never for two.
+    assert!(!same_drawn("touch  a.txt", "touch\na.txt"));
+}
+
+/// Option 2's label as the box draws it.
+fn always_drawn(p: &ScreenPrompt) -> &str {
+    p.actions
+        .iter()
+        .find(|a| a.id == "always")
+        .map(|a| a.drawn.as_str())
+        .expect("an always action")
+}
+
+#[test]
+fn question_keeps_the_edit_target_spacing_through_a_rewrap() {
+    let a = approval_on_screen("claude", &edit_box("a b.rs")).expect("an Edit box");
+    let b = approval_on_screen("claude", &edit_box("ab.rs")).expect("an Edit box");
+    assert_eq!(a.screen_id, b.screen_id, "(setup) the id leaves spaces out");
+    assert!(!same_drawn(&a.question, &b.question), "{:?}", a.question);
+    let wrapped = edit_box("a b.rs").replace(
+        " Do you want to make this edit to a b.rs?",
+        " Do you want to\n make this\n edit to a\n b.rs?",
+    );
+    let w = approval_on_screen("claude", &wrapped).expect("a wrapped Edit box");
+    assert!(same_drawn(&a.question, &w.question), "{:?}", w.question);
+    let wide =
+        approval_on_screen("claude", &screen("screens/claude-approval-pair-34.txt")).unwrap();
+    let narrow =
+        approval_on_screen("claude", &screen("screens/claude-approval-pair-16.txt")).unwrap();
+    assert!(
+        same_drawn(&wide.question, &narrow.question),
+        "{:?} {:?}",
+        wide.question,
+        narrow.question
+    );
+    assert!(wide.question.contains("Do you want to proceed?"));
+}
+
+#[test]
+fn always_label_cut_by_a_narrow_pane_is_the_same_label() {
+    let wide =
+        approval_on_screen("claude", &screen("screens/claude-approval-pair-34.txt")).unwrap();
+    let narrow =
+        approval_on_screen("claude", &screen("screens/claude-approval-pair-16.txt")).unwrap();
+    let (w, n) = (always_drawn(&wide), always_drawn(&narrow));
+    assert!(same_label(w, n) && same_label(n, w), "{w:?} {n:?}");
+    assert!(same_label(
+        "Yes, and always allow access to /repo from this project",
+        "Yes, and always allow access to /repo fr…"
+    ));
+    assert!(!same_label(
+        "Yes, and always allow access to /repo/a b from this project",
+        "Yes, and always allow access to /repo/ab from this project"
+    ));
+    assert!(!same_label(
+        "Yes, and always allow access to /repo from this project",
+        "Yes, and always allow access to /other from this project"
+    ));
+}
+
+#[test]
+fn rewrap_keeps_the_question_and_the_always_label() {
+    // The guards compare these as drawn, so the recorded rewraps must still read as the same prompt.
+    for (wide, narrow) in [
+        (
+            "screens/claude-approval-80.txt",
+            "screens/claude-approval-52.txt",
+        ),
+        (
+            "screens/codex-approval-80.txt",
+            "screens/codex-approval-52.txt",
+        ),
+    ] {
+        let agent = if wide.contains("codex") {
+            "codex"
+        } else {
+            "claude"
+        };
+        let w = approval_on_screen(agent, &screen(wide)).expect(wide);
+        let n = approval_on_screen(agent, &screen(narrow)).expect(narrow);
+        assert!(!w.question.is_empty(), "{wide}");
+        assert!(
+            same_drawn(&w.question, &n.question),
+            "{wide}: {:?} {:?}",
+            w.question,
+            n.question
+        );
+        assert!(same_drawn(&w.command, &n.command), "{wide}");
+        let (wa, na) = (always_drawn(&w), always_drawn(&n));
+        assert!(same_label(wa, na), "{wide}: {wa:?} {na:?}");
+    }
 }

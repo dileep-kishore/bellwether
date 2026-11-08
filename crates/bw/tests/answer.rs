@@ -1331,3 +1331,157 @@ fn codex_second_read_with_other_spacing_is_stale() {
     assert_eq!(result(&line), "stale", "{line}");
     assert!(x.typed().is_empty(), "{:?}", x.typed());
 }
+
+/// claude-approval's agent blocked on its Bash call with `screen` on t1, and the screen after the key calm.
+fn claude_blocked(x: &Scratch, screen: &str) -> (Agent, String) {
+    let (agent, log) = x.claude(
+        &upto(
+            &claude_log(),
+            &format!(r#""type":"tool_use","id":"{CLAUDE_CALL}""#),
+        ),
+        &blocked(),
+    );
+    x.screen("t1", "txt", screen);
+    x.screen("t1", "after.txt", CALM);
+    (agent, log.to_string_lossy().to_string())
+}
+
+/// The card's read shows `first`, `bw answer`'s second read shows `next`; returns the card, the line and the keys.
+fn claude_reads(first: &str, next: &str, action: &str) -> (Value, Value, Vec<String>) {
+    let x = Scratch::new();
+    let (_claude, log) = claude_blocked(&x, first);
+    let r = x.request("t1");
+    x.screen("t1", "next.txt", next);
+    let line = x.answer(
+        "t1",
+        &r,
+        ("claude", CLAUDE_SID, &log),
+        &["--action", action],
+    );
+    (r, line, x.typed())
+}
+
+/// A Claude Edit box whose ╌ block is empty, on the claude-approval screen: the file is named only in the question.
+fn edit_screen(file: &str) -> String {
+    let s = read(&sessions("claude-approval").join("screen-approval.txt"));
+    let cut = s.find("─────").unwrap();
+    format!(
+        "{}────────────────────────────────────────\n Edit file\n╌╌╌╌╌╌╌╌╌╌\n╌╌╌╌╌╌╌╌╌╌\n Do you want to make this edit to {file}?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel\n",
+        &s[..cut]
+    )
+}
+
+#[test]
+fn second_read_of_an_edit_to_a_respaced_file_is_stale() {
+    let (r, line, typed) = claude_reads(&edit_screen("a b.rs"), &edit_screen("ab.rs"), "approve");
+    assert_eq!(
+        (r["tool"].as_str(), r["answerable"].as_bool()),
+        (Some("Edit"), Some(true)),
+        "{r}"
+    );
+    assert_eq!(result(&line), "stale", "{line}");
+    assert!(typed.is_empty(), "{typed:?}");
+}
+
+#[test]
+fn second_read_with_a_respaced_question_and_the_same_command_is_stale() {
+    let s = read(&sessions("claude-approval").join("screen-approval.txt"));
+    let a = s.replace(
+        " Do you want to proceed?",
+        " Do you want to make this edit to a b.rs?",
+    );
+    let b = s.replace(
+        " Do you want to proceed?",
+        " Do you want to make this edit to ab.rs?",
+    );
+    assert_ne!(a, s, "(setup) the question changed");
+    let (_, line, typed) = claude_reads(&a, &b, "approve");
+    assert_eq!(result(&line), "stale", "{line}");
+    assert!(typed.is_empty(), "{typed:?}");
+}
+
+#[test]
+fn second_read_with_a_run_of_spaces_in_the_command_is_stale() {
+    let s = read(&sessions("claude-approval").join("screen-approval.txt"));
+    let (line, typed) = claude_second_read(
+        &s.replace(" touch approved.txt\n", " touch  approved.txt\n"),
+        "approve",
+    );
+    assert_eq!(result(&line), "stale", "{line}");
+    assert!(typed.is_empty(), "{typed:?}");
+}
+
+#[test]
+fn second_read_with_a_respaced_always_scope_is_stale() {
+    let s = read(&sessions("claude-approval").join("screen-approval.txt"));
+    let other = s.replace(
+        "access to /scratch/claude-approval from",
+        "access to /scratch/claude- approval from",
+    );
+    assert_ne!(other, s, "(setup) the always label changed");
+    let (line, typed) = claude_second_read(&other, "always");
+    assert_eq!(result(&line), "stale", "{line}");
+    assert!(typed.is_empty(), "{typed:?}");
+}
+
+const ALWAYS_FULL: &str =
+    "   2. Yes, and always allow access to /scratch/claude-approval from this project";
+const ALWAYS_CUT: &str = "   2.Yes, and always allow access to /scratch/claude-approval from";
+
+/// claude-approval with option 2 cut short, as a narrow pane draws it.
+fn cut_screen() -> String {
+    let s = read(&sessions("claude-approval").join("screen-approval.txt"));
+    let cut = s.replace(ALWAYS_FULL, ALWAYS_CUT);
+    assert_ne!(cut, s, "(setup) option 2 was cut");
+    cut
+}
+
+#[test]
+fn always_first_seen_cut_short_answers_after_the_pane_widens() {
+    let x = Scratch::new();
+    let (_claude, log) = claude_blocked(&x, &cut_screen());
+    let full = read(&sessions("claude-approval").join("screen-approval.txt"));
+    let narrow = x.request("t1");
+    x.screen("t1", "txt", &full);
+    let r = x.request("t1");
+    assert_eq!(r["id"], narrow["id"], "{r}");
+    let line = x.answer(
+        "t1",
+        &r,
+        ("claude", CLAUDE_SID, &log),
+        &["--action", "always"],
+    );
+    assert_eq!(result(&line), "answered", "{line}");
+    assert_eq!(x.typed(), ["keys t1 2"]);
+}
+
+#[test]
+fn always_seen_wide_answers_while_a_narrow_pane_cuts_it() {
+    let (line, typed) = claude_second_read(&cut_screen(), "always");
+    assert_eq!(result(&line), "answered", "{line}");
+    assert_eq!(typed, ["keys t1 2"]);
+}
+
+#[test]
+fn always_widened_after_a_cut_then_changed_is_stale() {
+    // Once a wider pane shows the whole label, a label that only extends the first cut is another scope.
+    let x = Scratch::new();
+    let (_claude, log) = claude_blocked(&x, &cut_screen());
+    let full = read(&sessions("claude-approval").join("screen-approval.txt"));
+    x.request("t1");
+    x.screen("t1", "txt", &full);
+    let r = x.request("t1");
+    x.screen(
+        "t1",
+        "next.txt",
+        &full.replace("from this project", "from another project"),
+    );
+    let line = x.answer(
+        "t1",
+        &r,
+        ("claude", CLAUDE_SID, &log),
+        &["--action", "always"],
+    );
+    assert_eq!(result(&line), "stale", "{line}");
+    assert!(x.typed().is_empty(), "{:?}", x.typed());
+}

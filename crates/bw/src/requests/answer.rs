@@ -194,29 +194,27 @@ struct Answer<'a> {
     deadline: Instant,
 }
 
-/// Whether the box on screen still shows what the card first showed: the command, line breaks aside, and for
-/// `always`, option 2's label, since the screen id leaves spacing and options out. A narrow pane can cut that label
-/// short; then `always` is refused and the card's other actions still work.
+/// Whether the box on screen still shows what the card first showed: the command and the question, line breaks
+/// aside, and for `always`, option 2's label or a cut of it either way, since the screen id leaves spacing and
+/// options out and a narrow pane cuts that label short.
 fn shows_first(o: &Occurrence, p: &ScreenPrompt, action: &str) -> bool {
     let Some(first) = o.first.as_ref() else {
         return true;
     };
-    if !matchers::same_drawn(first["command"].as_str().unwrap_or(""), &p.command) {
+    let text = |k: &str| first[k].as_str().unwrap_or("");
+    if !matchers::same_drawn(text("command"), &p.command)
+        || !matchers::same_drawn(text("question"), &p.question)
+    {
         return false;
     }
     if action != "always" {
         return true;
     }
-    let squeeze = |s: &str| s.split_whitespace().collect::<String>();
-    let now = p
-        .actions
-        .iter()
-        .find(|a| a.id == "always")
-        .map(|a| squeeze(&a.label));
+    let now = p.actions.iter().find(|a| a.id == "always");
     first["always"]
         .as_str()
-        .map(squeeze)
-        .is_some_and(|f| now.as_deref() == Some(f.as_str()))
+        .zip(now)
+        .is_some_and(|(f, now)| matchers::same_label(f, &now.drawn))
 }
 
 /// What the keys did: nothing went out, they went (or may still land), or they went and failed after.

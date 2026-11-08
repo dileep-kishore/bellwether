@@ -20,6 +20,8 @@ pub struct Action {
     /// `approve`, `always`, `deny` or `option-<n>`.
     pub id: String,
     pub label: String,
+    /// The label as the box draws it, its wrapped lines joined with `\n`, for `same_label`.
+    pub drawn: String,
     pub keys: Vec<&'static str>,
 }
 
@@ -31,6 +33,9 @@ pub struct ScreenPrompt {
     pub tool: String,
     pub command: String,
     pub detail: String,
+    /// The box outside its command up to the options, lines kept: who asks, the description and the question with
+    /// the file it names. The screen id leaves their spacing out, so `bw cards` and `bw answer` compare this.
+    pub question: String,
     /// The box's top is off screen: its header and command are not read.
     pub clipped: bool,
     pub actions: Vec<Action>,
@@ -39,14 +44,32 @@ pub struct ScreenPrompt {
     pub from: Option<String>,
 }
 
-/// Whether two drawings of a command say the same: runs of spaces inside a line count as one, and a line break
-/// stands for nothing or one space, since a pane breaks a line between words or inside one. Spaces inside a line
-/// must match, so `touch a.txt` and `touch a .txt` differ. A command over `DRAWN_MAX` characters must match
-/// exactly.
+/// Whether two drawings of a command say the same: a line break stands for nothing or one space, since a pane
+/// breaks a line between words or inside one. Whitespace inside a line, runs included, must match, so
+/// `touch a.txt` and `touch a .txt` differ, and so do `rm 'a  b'` and `rm 'a b'`. A command over `DRAWN_MAX`
+/// characters must match exactly.
 pub fn same_drawn(a: &str, b: &str) -> bool {
+    drawn_match(a, b, false)
+}
+
+/// Whether two drawings of an option's label say the same, line breaks aside, or one is the other cut short with
+/// or without a trailing `…`, as a narrow pane cuts Claude's option text.
+pub fn same_label(a: &str, b: &str) -> bool {
+    cut_of(a, b) || cut_of(b, a)
+}
+
+/// Whether `short` is `long` cut short, or the same, line breaks aside.
+pub fn cut_of(short: &str, long: &str) -> bool {
+    let short = short.trim_end();
+    let short = short.strip_suffix('…').unwrap_or(short);
+    !short.trim().is_empty() && drawn_match(short, long, true)
+}
+
+/// `same_drawn`, or with `prefix` whether `a` says the same as the start of `b`.
+fn drawn_match(a: &str, b: &str, prefix: bool) -> bool {
     let norm = |s: &str| -> Vec<char> {
         s.split('\n')
-            .map(words)
+            .map(str::trim)
             .filter(|l| !l.is_empty())
             .collect::<Vec<_>>()
             .join("\n")
@@ -55,15 +78,15 @@ pub fn same_drawn(a: &str, b: &str) -> bool {
     };
     let (a, b) = (norm(a), norm(b));
     if a.len() > DRAWN_MAX || b.len() > DRAWN_MAX {
-        return a == b;
+        return if prefix { b.starts_with(&a) } else { a == b };
     }
-    // ok[i][j]: a[i..] and b[j..] say the same.
+    // ok[i][j]: a[i..] and b[j..] say the same (with `prefix`, a[i..] and the start of b[j..]).
     let (n, m) = (a.len(), b.len());
     let mut ok = vec![vec![false; m + 1]; n + 1];
-    ok[n][m] = true;
     for i in (0..=n).rev() {
         for j in (0..=m).rev() {
-            if i == n && j == m {
+            if i == n && (j == m || prefix) {
+                ok[i][j] = true;
                 continue;
             }
             let (x, y) = (a.get(i), b.get(j));
@@ -92,6 +115,7 @@ fn action(id: &str, label: &str, keys: &[&'static str]) -> Action {
     Action {
         id: id.into(),
         label: label.into(),
+        drawn: label.into(),
         keys: keys.to_vec(),
     }
 }
@@ -125,23 +149,49 @@ fn claude_box(screen: &str) -> Option<ScreenPrompt> {
             None if opts.is_empty() => {}
             None => {
                 let last = opts.last_mut()?;
-                last.push(' ');
+                last.push('\n');
                 last.push_str(l);
             }
         }
     }
+    let options = b.lines[ask + 1..]
+        .iter()
+        .position(|l| option_number(l).is_some())
+        .map_or(b.lines.len(), |k| ask + 1 + k);
+    let is_rule = |l: &&String| l.starts_with('╌');
+    let rules: Vec<usize> = (0..ask).filter(|&i| is_rule(&&b.lines[i])).collect();
+    // The command is the block between the first two rules, else every line between the header and the question.
+    let outside: Vec<&String> = match (b.clipped, rules.as_slice()) {
+        (true, _) => b.lines[ask..options].iter().collect(),
+        (false, [r1, r2, ..]) => b.lines[..*r1]
+            .iter()
+            .chain(&b.lines[r2 + 1..options])
+            .collect(),
+        (false, _) => b.lines[..1].iter().chain(&b.lines[ask..options]).collect(),
+    };
+    let question = outside
+        .into_iter()
+        .filter(|l| !is_rule(l))
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let shown = |o: &String| o.replace('\n', " ");
     if !opts
         .first()
+        .map(shown)
         .is_some_and(|o| o == "Yes" || o.starts_with("Yes ") || o.starts_with("Yes,"))
     {
         return None;
     }
     let mut actions = vec![action("approve", "Approve", &["1"])];
-    if let Some(always) = opts
-        .get(1)
-        .filter(|o| o.starts_with("Yes, and") || o.starts_with("Yes, allow"))
-    {
-        actions.push(action("always", always, &["2"]));
+    if let Some(always) = opts.get(1).filter(|o| {
+        let o = shown(o);
+        o.starts_with("Yes, and") || o.starts_with("Yes, allow")
+    }) {
+        actions.push(Action {
+            drawn: always.clone(),
+            ..action("always", &shown(always), &["2"])
+        });
     }
     actions.push(action("deny", "Deny", &["esc"]));
     let (title, detail, from) = if b.clipped {
@@ -163,6 +213,7 @@ fn claude_box(screen: &str) -> Option<ScreenPrompt> {
         tool: b.tool,
         command: b.command,
         detail,
+        question,
         clipped: b.clipped,
         actions,
         from,
@@ -172,8 +223,11 @@ fn claude_box(screen: &str) -> Option<ScreenPrompt> {
 fn codex_prompt(screen: &str) -> Option<ScreenPrompt> {
     let b = codex_box(screen)?;
     let mut actions = vec![action("approve", "Approve", &["y"])];
-    if let Some(always) = &b.always {
-        actions.push(action("always", always, &["p"]));
+    if let (Some(always), Some(drawn)) = (&b.always, &b.always_drawn) {
+        actions.push(Action {
+            drawn: drawn.clone(),
+            ..action("always", always, &["p"])
+        });
     }
     actions.push(action("deny", "Deny", &["esc"]));
     Some(ScreenPrompt {
@@ -183,6 +237,7 @@ fn codex_prompt(screen: &str) -> Option<ScreenPrompt> {
         tool: "Bash".into(),
         command: b.command.clone(),
         detail: b.reason.clone(),
+        question: b.question.clone(),
         clipped: false,
         actions,
         from: b.thread.clone(),
@@ -202,6 +257,7 @@ pub fn folder_prompt_on_screen(agent: &str, screen: &str) -> Option<ScreenPrompt
         .map(|(i, (label, keys))| Action {
             id: format!("option-{}", i + 1),
             label: label.clone(),
+            drawn: label.clone(),
             keys: keys.clone(),
         })
         .collect();
@@ -225,6 +281,7 @@ pub fn folder_prompt_on_screen(agent: &str, screen: &str) -> Option<ScreenPrompt
         tool: "new_conversation".into(),
         command: String::new(),
         detail,
+        question: String::new(),
         clipped: false,
         actions,
         from: None,
