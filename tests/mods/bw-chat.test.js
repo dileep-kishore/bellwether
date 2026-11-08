@@ -388,6 +388,28 @@ describe("bw-chat", () => {
     expect(wanted(fake.shared["bw.right.tab"], "s1", "changes")).toBe(null);
   });
 
+  test("Open in Changes on a one-file line asks Changes to select that file", async () => {
+    const m = await mount("bw-chat", { props: CODEX_REMOTE, live: live("chat-tab") });
+    fire(list(m), "on_item_click", "c-cx@24227", m.cx);
+    expect(fake.shared["bw.diff.reveal"]).toEqual({
+      s1: { file: "/scratch/codex-question/colour.txt", at: expect.any(Number) },
+    });
+  });
+
+  test("Open in Changes on a line naming several files selects none", async () => {
+    const data = live("chat-tab");
+    for (const e of data.exec)
+      if (typeof e.result?.stdout === "string")
+        e.result.stdout = e.result.stdout.replace(
+          '"files":["/scratch/codex-question/colour.txt"]',
+          '"files":["/scratch/codex-question/colour.txt","/scratch/codex-question/size.txt"]',
+        );
+    const m = await mount("bw-chat", { props: CODEX_REMOTE, live: data });
+    fire(list(m), "on_item_click", "c-cx@24227", m.cx);
+    expect(fake.shared["bw.right.tab"]).toEqual({ s1: "changes" });
+    expect(fake.shared["bw.diff.reveal"]).toBe(undefined);
+  });
+
   test("header: program icon, name, branch, machine tag and the ⌘J hint", async () => {
     const m = await mount("bw-chat", { props: CODEX_REMOTE, live: live("chat-tab") });
     const header = byId(m.el, "chat-header");
