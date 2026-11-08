@@ -271,4 +271,14 @@ Answer:
   - v11: the pointer limits move into the plan.
   - v12 refuted (the plan's "per project" fixes the key); its note added
     `projectKey` and the common dir in `bw diff files`.
+- 2026-11-07: phase 4b step 1 builds the prompt id with all whitespace and
+  rule glyphs removed. Original (v01 fix): "Keep every space, so two
+  commands that differ in spacing keep different ids". Evidence: Codex
+  breaks a command inside a word (`tests/fixtures/screens/codex-approval-wrapped.txt`,
+  `long-` / `name.txt`), Claude's rules are drawn to the pane's width
+  (`tests/fixtures/sessions/claude-approval/screen-approval.txt:18`), and
+  the narrow Codex folder prompt drops its descriptions
+  (`docs/drafts/window-check-results/p3-codex-folder-prompt-narrow.txt`);
+  `same_call` already compares commands by words
+  (`crates/bw/src/requests/matchers.rs:184-227`).
 

@@ -211,16 +211,22 @@ FAIL with evidence. One PR, before Changes.
    the Codex folder id (`crates/bw/src/requests/codex_folder.rs:59-60`) hash
    the box's drawn lines, so a narrower or wider pane gives a Claude
    approval a second "Left the screen" card and marked the waiting Codex
-   folder card answered. Build only the id from the box text with soft wraps
-   joined: a line joins the next only when it fills the terminal's width.
-   Keep every space, so two commands that differ in spacing keep different
-   ids, and leave the matchers' input as drawn, so `codex_folder.rs:42`
-   still splits options on two spaces. Keep the final screen guard in `bw
-   answer` (`crates/bw/src/requests/answer.rs:349-356`) comparing ids.
-   Test-first in `crates/bw/tests/cards.rs`, every test name containing
-   `rewrap`: the same Claude approval and the same Codex folder prompt at 80
-   and 52 columns give one id and one pending card with its key bound; two
-   approvals whose commands differ only in a run of spaces give two ids.
+   folder card answered. Build each id from the prompt's text with every
+   whitespace character and the rule glyphs (`╌`, `─`, `│`) removed, since
+   Claude and Codex rewrap words, Codex breaks commands inside a word, and
+   the rules are drawn to the pane's width; the Codex folder id uses the
+   question and the option labels only, since a narrow pane drops the
+   descriptions. The Codex parsers find a question that wrapped over several
+   lines. Leave the matchers' input as drawn, so `codex_folder.rs:42` still
+   splits options on two spaces, and keep the final screen guard in `bw
+   answer` (`crates/bw/src/requests/answer.rs:349-356`). Commands that
+   differ only in whitespace share an id, as `same_call` already treats
+   them (`crates/bw/src/requests/matchers.rs:184-227`).
+   Test-first with screens recorded from real agents at two widths, every
+   test name containing `rewrap`: the same Claude approval and the same
+   Codex folder prompt at two widths give one id and one pending card with
+   its key bound; two approvals whose commands differ in one character give
+   two ids.
    The `screen_prompt` change is a reviewed step in the vendored crate with
    its `UPSTREAM` note.
 2. The Browser panel's active tab. `document.hasFocus()` gives one active
@@ -339,9 +345,9 @@ Each is an observable result with the command that shows it, run with the
 window on the Mac mini and the remote half on `macbook`.
 
 - A. One card per prompt through a rewrap (known answer). The new `rewrap`
-  tests pass: one Claude approval and the Codex folder prompt at 80 and 52
-  columns give one id each and one pending card, and two approvals that
-  differ only in spacing give two ids. In the window, narrowing the pane of
+  tests pass: one Claude approval and the Codex folder prompt, each recorded
+  at two widths, give one id each and one pending card, and two approvals
+  whose commands differ in one character give two ids. In the window, narrowing the pane of
   a Claude chat whose approval waits leaves one card and no "Left the
   screen" note while the box is on screen, and Approve then answers it;
   narrowing a Codex chat's pane while its `/new` folder prompt waits leaves
