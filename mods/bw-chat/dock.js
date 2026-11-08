@@ -272,23 +272,19 @@ function card(c, v, h) {
     v.shown.has(c.id),
   )
     .child(
-      h_flex()
-        .w_full()
-        .gap(8)
-        .items_center()
-        .child(mark)
-        .child(
-          div()
-            .flex_1()
-            .min_w(0)
-            .max_h(36)
-            .overflow_hidden()
-            .whitespace_normal()
-            .text_size(13)
-            .font_semibold()
-            .text_color(t.foreground)
-            .child(c.title),
-        ),
+      h_flex().w_full().gap(8).items_center().child(mark).child(
+        div()
+          .flex_1()
+          .min_w(0)
+          // Two 13 px semibold lines take 42 px; 36 cut the second line's descenders.
+          .max_h(44)
+          .overflow_hidden()
+          .whitespace_normal()
+          .text_size(13)
+          .font_semibold()
+          .text_color(t.foreground)
+          .child(c.title),
+      ),
     )
     .when(Boolean(command || tool), (el) =>
       el.child(
