@@ -1,6 +1,6 @@
 //! `bw browser tabs|focus|close|new`: the Chrome's pages and their favicons.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
@@ -82,7 +82,7 @@ pub fn run(cmd: &str, argv: &[String]) -> ExitCode {
         };
     }
     match cmd {
-        "tabs" => match list(port, &app_home(), FETCH_BUDGET) {
+        "tabs" => match list(port, &app_home(), FETCH_BUDGET, checked.pid) {
             Ok(tabs) => {
                 for tab in tabs {
                     println!("{}", tab.json());
@@ -97,10 +97,14 @@ pub fn run(cmd: &str, argv: &[String]) -> ExitCode {
             } else {
                 close(port, id)
             };
+            if ok && cmd == "focus" {
+                remember(id);
+            }
             action(cmd, id, ok, &message)
         }
         "new" => match open(port, a.get("url").unwrap_or("about:blank")) {
             Ok(id) => {
+                remember(&id);
                 let message = match focus(port, &id) {
                     (true, _) => "opened".to_string(),
                     (false, why) => format!("opened, but focusing it failed: {why}"),
@@ -171,11 +175,50 @@ fn encode_query(url: &str) -> String {
     out
 }
 
+/// Where `focus` and `new` keep the tab Bellwether last showed, for when `hasFocus()` cannot tell.
+fn last_tab_path() -> PathBuf {
+    PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+        .join(".local/share/bellwether/browser/last-tab")
+}
+
+fn remember(id: &str) {
+    let path = last_tab_path();
+    let Some(dir) = path.parent() else { return };
+    // Losing the remembered tab only loses the fallback's mark, so a failed write is not reported.
+    let _ = fs::create_dir_all(dir).and_then(|_| write_file(dir, "last-tab", id.as_bytes()));
+}
+
+fn remembered() -> Option<String> {
+    let id = fs::read_to_string(last_tab_path()).ok()?;
+    let id = id.trim();
+    is_target_id(id).then(|| id.to_string())
+}
+
+/// The ids to mark active. While this Chrome is the frontmost app, `hasFocus()` names each window's active tab.
+/// Otherwise it names none (Herdr in front) or every tab an agent opened in the background, so the tab
+/// Bellwether last focused or opened stands in when it is still listed.
+fn active_ids(focused: HashSet<String>, ids: &[&str], chrome_in_front: bool) -> HashSet<String> {
+    if chrome_in_front || focused.len() == 1 {
+        return focused;
+    }
+    remembered()
+        .filter(|id| ids.contains(&id.as_str()))
+        .into_iter()
+        .collect()
+}
+
 /// The Chrome's pages in `/json/list` order, which is newest first, with favicons and the active tabs.
-pub fn list(port: u16, app_home: &Path, fetch_budget: usize) -> Result<Vec<Tab>, String> {
+/// `chrome_pid` is the checked Chrome's pid, compared with the frontmost app's.
+pub fn list(
+    port: u16,
+    app_home: &Path,
+    fetch_budget: usize,
+    chrome_pid: Option<i32>,
+) -> Result<Vec<Tab>, String> {
     let pages = pages::list(port)?;
     let ids: Vec<&str> = pages.iter().filter_map(|t| t["id"].as_str()).collect();
-    let focused = pages::focused(port, &ids);
+    let in_front = chrome_pid.is_some() && chrome_pid == super::arrange::front_pid();
+    let focused = active_ids(pages::focused(port, &ids), &ids, in_front);
     let icon_urls: Vec<Option<&str>> = pages.iter().map(|t| t["faviconUrl"].as_str()).collect();
     let icons = match Favicons::open(app_home) {
         Some(mut f) => f.resolve(&icon_urls, fetch_budget),

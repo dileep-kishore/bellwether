@@ -375,6 +375,24 @@ fn windows() -> Vec<Window> {
     out
 }
 
+/// The pid owning the frontmost on-screen window; `BW_FRONT_PID` stands in for it in tests.
+pub fn front_pid() -> Option<i32> {
+    if let Ok(v) = std::env::var("BW_FRONT_PID") {
+        return v.trim().parse().ok();
+    }
+    front_window_pid()
+}
+
+#[cfg(target_os = "macos")]
+fn front_window_pid() -> Option<i32> {
+    windows().first().map(|w| w.pid)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn front_window_pid() -> Option<i32> {
+    None
+}
+
 /// The Herdr window: `owner_pid`'s frontmost window, else that of the nearest ancestor of `bw`
 /// that owns one, else the frontmost window of an app whose name holds "herdr".
 #[cfg(target_os = "macos")]

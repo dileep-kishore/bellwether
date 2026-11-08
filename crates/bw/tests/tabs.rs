@@ -362,14 +362,11 @@ fn active_comes_from_has_focus() {
     ]);
     let chrome = Chrome::start(list, &["B", "W2"]);
     let scratch = Scratch::new();
-    let out = scratch.bw(chrome.port, &["tabs"]);
+    // The fake Chrome's listener is this test process, so its pid in front means Chrome is in front.
+    let me = std::process::id().to_string();
+    let out = scratch.bw_with(chrome.port, &["tabs"], &[("BW_FRONT_PID", &me)]);
     assert_eq!(out.status.code(), Some(0), "{out:?}");
-    let active: Vec<String> = lines(&out)
-        .iter()
-        .filter(|t| t["active"] == true)
-        .map(|t| t["id"].as_str().unwrap().to_string())
-        .collect();
-    assert_eq!(active, ["W2", "B"]);
+    assert_eq!(active_ids(&out), ["W2", "B"]);
 
     let cdp = chrome.cdp();
     let attached: Vec<&Value> = cdp
@@ -398,6 +395,58 @@ fn active_comes_from_has_focus() {
     chrome.set_focused(&[]);
     let out = scratch.bw(chrome.port, &["tabs"]);
     assert!(lines(&out).iter().all(|t| t["active"] == false), "{out:?}");
+}
+
+fn active_ids(out: &Output) -> Vec<String> {
+    lines(out)
+        .iter()
+        .filter(|t| t["active"] == true)
+        .map(|t| t["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+fn three_pages() -> Value {
+    json!([
+        page("A", "http://127.0.0.1:9/a.html", None),
+        page("B", "http://127.0.0.1:9/b.html", None),
+        page("W2", "http://127.0.0.1:9/w2.html", None),
+    ])
+}
+
+#[test]
+fn fallback_marks_the_last_focused_tab_when_none_has_focus() {
+    let _serial = serial();
+    let chrome = Chrome::start(three_pages(), &[]);
+    let scratch = Scratch::new();
+    let out = scratch.bw(chrome.port, &["focus", "--id", "W2"]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    // Herdr is in front: no tab reports focus, so the tab Bellwether focused stands in.
+    let out = scratch.bw_with(chrome.port, &["tabs"], &[("BW_FRONT_PID", "1")]);
+    assert_eq!(active_ids(&out), ["W2"]);
+}
+
+#[test]
+fn fallback_ignores_background_focus() {
+    let _serial = serial();
+    // Tabs an agent opened in the background all report focus while Herdr is in front.
+    let chrome = Chrome::start(three_pages(), &["A", "B", "W2"]);
+    let scratch = Scratch::new();
+    let out = scratch.bw(chrome.port, &["focus", "--id", "B"]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let out = scratch.bw_with(chrome.port, &["tabs"], &[("BW_FRONT_PID", "1")]);
+    assert_eq!(active_ids(&out), ["B"]);
+}
+
+#[test]
+fn fallback_forgets_a_closed_tab() {
+    let _serial = serial();
+    let chrome = Chrome::start(three_pages(), &[]);
+    let scratch = Scratch::new();
+    let out = scratch.bw(chrome.port, &["focus", "--id", "B"]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let chrome2 = Chrome::start(json!([page("A", "http://127.0.0.1:9/a.html", None)]), &[]);
+    let out = scratch.bw_with(chrome2.port, &["tabs"], &[("BW_FRONT_PID", "1")]);
+    assert!(active_ids(&out).is_empty(), "{out:?}");
 }
 
 #[test]
