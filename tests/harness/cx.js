@@ -78,6 +78,17 @@ export function makeCx() {
     stop_propagation() {
       cx.stopped++;
     },
+    /** @type {string[]} */ opened: [],
+    /** @param {string} url */
+    open_url(url) {
+      if (!/^https?:\/\/[^/]+/.test(url)) refuse(`open_url(${url}) is not an absolute http(s) URL`);
+      cx.opened.push(url);
+    },
+    /** @type {string[]} */ clipboard: [],
+    /** @param {string} text */
+    write_to_clipboard(text) {
+      cx.clipboard.push(text);
+    },
     propagate() {},
     /** Starts queued bodies with phase "task" and lets them run until a turn passes with no stub call. */
     async flush() {
