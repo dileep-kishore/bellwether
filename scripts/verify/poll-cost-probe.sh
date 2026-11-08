@@ -116,7 +116,8 @@ else
     cost diff files --path "$top" --watch --since "$t"
     row "diff files --watch, token unchanged" "$top" "$tracked tracked files" "$(jq -r .type "$S/out")"
     # The watcher's own CPU since it started, from ps (minutes:seconds).
-    w=$(pgrep -f "diff watch --path $top" | head -1)
+    # A fixed-string match: pgrep -f reads the path as a regular expression, and `c++proj` breaks it.
+    w=$(ps -axo pid=,command= | awk -v want="diff watch --path $top --dir" 'index($0, want) { print $1; exit }')
     cpu=$(ps -o time= -p "$w" | awk -F: '{ printf "%.0f", ($1 * 60 + $2) * 1000 }')
     printf 'watcher, %s s after its first read\t%s\t\tbw diff watch\t%s\t%s\t\t%s\n' \
       "$(($(date +%s) - started + 1))" "$(echo "$top" | sed "s:^$HOME:~:")" "$cpu" "$cpu" \
