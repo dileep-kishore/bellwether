@@ -31,12 +31,15 @@ up() {
   mkdir -p "$D/bin" "$A/mods" "$A/layouts"
   # The repo's bw, when built, ahead of any installed helper.
   for b in "$src/target/release/bw" "$src/target/debug/bw"; do [ -x "$b" ] && { ln -s "$b" "$D/bin/bw"; break; }; done
-  # Mods run the helper through BW_HELPER here, so each call is counted in helper-calls.log.
+  # Mods run the helper through BW_HELPER here, so each call is counted in helper-calls.log. Only the
+  # command is logged ("feed", "browser status"): send and answer carry the person's text.
   real=$D/bin/bw
   [ -e "$real" ] || real=$HOME/.local/share/bellwether/helper/current/bw
   cat > "$D/bin/bw-log" <<LOG
 #!/bin/sh
-printf '%s %s\\n' "\$(perl -MTime::HiRes=time -e 'printf "%.3f", time')" "\$*" >> "$D/helper-calls.log"
+sub=\${2:-}
+case \$sub in -*) sub="" ;; esac
+printf '%s %s %s\\n' "\$(perl -MTime::HiRes=time -e 'printf "%.3f", time')" "\${1:-}" "\$sub" >> "$D/helper-calls.log"
 exec "$real" "\$@"
 LOG
   chmod +x "$D/bin/bw-log"

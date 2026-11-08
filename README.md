@@ -600,9 +600,11 @@ Mods call `~/.local/share/bellwether/helper/current/bw` on the machine a space
 lives on. `current` links to a version folder, so an update swaps one link.
 On this machine a Herdr app started with `BW_HELPER` set runs that program
 instead; calls on another machine always run its installed helper.
-`scripts/verify/stage.sh up` sets it to a wrapper that appends one timestamped
-line per call to the stage's `helper-calls.log` and runs the repository's
-`bw`, so a check can count calls without touching the installed helper.
+`scripts/verify/stage.sh up` sets it to a wrapper that appends one line per
+call to the stage's `helper-calls.log` (a timestamp and the command, such as
+`feed` or `browser status`, never its arguments, which can hold chat text) and
+runs the repository's `bw`, so a check can count calls without touching the
+installed helper.
 `shared/helper.js` needs `bw version` to report version 0.4.0 and protocol 4.
 Phase 4's helper adds the `browser` and `agent` commands, so every machine's
 helper reinstalls once. When another machine's helper is missing or
