@@ -61,9 +61,14 @@ const MONO = "Menlo";
  * @param {(cx: any) => void} act
  */
 function pushButton(id, label, enabled, primary, t, act) {
-  return button(t, { id, label, kind: primary ? "primary" : "secondary", enabled, on: "raised" }).on_click(
-    (/** @type {unknown} */ _e, /** @type {any} */ cx) => act(cx),
-  );
+  return button(t, {
+    id,
+    label,
+    kind: primary ? "primary" : "secondary",
+    enabled,
+    on: "raised",
+    shrink: true,
+  }).on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => act(cx));
 }
 
 /** @param {any} q */

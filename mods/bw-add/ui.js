@@ -262,10 +262,11 @@ export function hoverFill(t, id, hovered, radius = 8) {
  * A button: primary is Mauve with Crust text, secondary Surface 0 with Text, ghost no fill with
  * Subtext 0. Disabled is Surface 0 with Overlay 2 text and no hover, for every kind. On a Surface 0
  * card (`on: "raised"`) secondary is Surface 1 and disabled keeps Surface 0 with a Surface 1 border,
- * so neither melts into the card.
+ * so neither melts into the card. `shrink` lets a labelled button narrow to its row and cut its label,
+ * for labels as long as a folder path.
  * @param {Theme} t themeColors()
  * @param {{ id: string, label?: string, icon?: any, kind?: ButtonKind, enabled?: boolean, h?: number,
- *   on?: "raised", onClick?: (e: unknown, cx: any) => void }} o
+ *   on?: "raised", shrink?: boolean, onClick?: (e: unknown, cx: any) => void }} o
  */
 export function button(t, o) {
   const kind = o.kind ?? "secondary";
@@ -284,9 +285,11 @@ export function button(t, o) {
           : [t.raised, t.foreground, raisedHover]
         : [null, t.muted, t.hover];
   const [fill, fg, hover] = look;
+  const shrink = Boolean(o.shrink && o.label);
   return h_flex()
     .id(o.id)
-    .flex_none()
+    .when(!shrink, (el) => el.flex_none())
+    .when(shrink, (el) => el.min_w(0).max_w_full())
     .h(h)
     .when(round, (el) => el.w(h).justify_center())
     .when(!round, (el) => el.px(12))
@@ -302,7 +305,15 @@ export function button(t, o) {
     .when(enabled && hover !== null, (el) => el.cursor_pointer().hover((s) => s.bg(/** @type {Color} */ (hover))))
     .when(enabled && Boolean(o.onClick), (el) => el.on_click(/** @type {any} */ (o.onClick)))
     .when(Boolean(o.icon), (el) => el.child(o.icon))
-    .when(Boolean(o.label), (el) => el.child(/** @type {string} */ (o.label)));
+    .when(Boolean(o.label) && !shrink, (el) => el.child(/** @type {string} */ (o.label)))
+    .when(shrink, (el) =>
+      el.child(
+        div()
+          .min_w(0)
+          .truncate()
+          .child(/** @type {string} */ (o.label)),
+      ),
+    );
 }
 
 /**
