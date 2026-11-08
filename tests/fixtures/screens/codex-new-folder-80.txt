@@ -1,0 +1,40 @@
+
+  >_ OpenAI Codex (v0.167.0)
+     /tmp/bw-wrap/codex-new-folder
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  Where should the new conversation run?
+
+
+› 1. Use current Git worktree  Keep using the current working directory
+  2. Create new Git worktree   Create a separate checkout of this repository in
+                               another directory
+
+  enter select · esc back
