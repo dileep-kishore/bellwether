@@ -197,9 +197,14 @@ export default class Changes extends View {
     return this.tab ? this.tabMachineName : (this.want?.machine ?? null);
   }
 
-  /** One `bw diff files` call, or none when the copy was not drawn since the last result. @param {any} target */
+  /**
+   * One `bw diff files` call, or none when the right sidebar no longer shows Changes or the copy was not
+   * drawn since the last result. The layout is read here too because the render a strip click causes can
+   * come before the stack switches, which would leave the copy counted as drawn.
+   * @param {any} target
+   */
   async read(target) {
-    if (!this.drawn && this.targeted && this.answered) {
+    if (!isShown(layout()) || (!this.drawn && this.targeted && this.answered)) {
       this.parked = true;
       this.targeted = false;
       this.schedule?.setTargets([], Date.now());

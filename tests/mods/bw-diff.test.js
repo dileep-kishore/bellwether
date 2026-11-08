@@ -555,6 +555,24 @@ describe("polling (done check E)", () => {
     });
   }
 
+  for (const machine of [null, "macmini"]) {
+    test(`a panel hidden by a stack switch calls nothing more (${machine ?? "local"})`, async () => {
+      setSystemTime(new Date(1_794_009_600_000));
+      /** @type {((paths: string[]) => void)[]} */
+      const waiting = [];
+      const m = await panel({ machine, watch: () => new Promise((resolve) => waiting.push(resolve)) });
+      const first = calls(m, "files").length;
+      // A render after the last result, then the strip selects Browser with no render of this copy.
+      m.render();
+      showInLayout("browser");
+      for (const w of waiting.splice(0)) w([`${TOP}/notes.txt`]);
+      await m.cx.flush();
+      await runFor(m, 12000, { draw: false });
+      expect(calls(m, "files").length).toBe(first);
+      expect(calls(m, "patch")).toHaveLength(0);
+    });
+  }
+
   test("shown remote panel calls diff files every 1.5 s, start to start", async () => {
     setSystemTime(new Date(1_794_009_600_000));
     const m = await panel({ machine: "macmini" });
