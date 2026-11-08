@@ -33,7 +33,7 @@ const WITHOUT_CARDS = ROOT_LINES.filter((l) => l.type !== "request" && l.type !=
 
 /** @param {object[]} lines */
 const out = (lines) => ({ code: 0, stdout: `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`, stderr: "" });
-const VERSION = out([{ type: "version", protocol: 4, version: "0.4.0" }]);
+const VERSION = out([{ type: "version", protocol: 4, version: "0.4.1" }]);
 /** @param {Record<string, (args: string[], on: string | null) => unknown>} handlers */
 function bw(handlers) {
   return async (/** @type {string} */ cmd, /** @type {string[]} */ args, /** @type {any} */ opts) => {
