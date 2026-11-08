@@ -151,9 +151,31 @@ describe("bw-projects", () => {
 
   test("clicking a dimmed row runs space.new with that folder", async () => {
     const m = await mounted();
-    expect(byId(m.el, `worktree-${DETACHED}`).attrs.opacity).toBe(0.55);
+    // A closed worktree reads quieter by colour, not opacity, so its text keeps AA contrast.
+    expect(textOf(byId(m.el, `worktree-${DETACHED}`))).toContain("detached");
+    expect(findAll(byId(m.el, `worktree-${DETACHED}`), (e) => e.attrs.text_color === "#muted").length).toBeGreaterThan(
+      0,
+    );
+    expect(byId(m.el, `worktree-${DETACHED}`).attrs.opacity).toBeUndefined();
     await click(m, `worktree-${DETACHED}`);
     expect(m.log.run).toEqual([["space.new", { folder: "/r/alpha-wt/detached", machine: "" }]]);
+  });
+
+  test("the active space's row is Surface 1 with a Mauve bar; hover fills fade and stay mounted", async () => {
+    const m = await mounted();
+    const main = worktreeKey(null, "/r/alpha");
+    const row = byId(m.el, `worktree-${main}`);
+    expect(row.attrs.bg).toBe("#selected");
+    expect(byId(m.el, `bar-worktree-${main}`).attrs.bg).toBe("#accent");
+    expect(byId(m.el, `bar-worktree-${FEAT}`)).toBeNull();
+    const fill = () => byId(m.el, `hover-worktree-${FEAT}`);
+    expect(fill().attrs).toMatchObject({ opacity: 0, transition: ["opacity", 120], bg: "#hover" });
+    await fire(byId(m.el, `worktree-${FEAT}`), "on_hover", true, m.cx);
+    m.render();
+    expect(fill().attrs.opacity).toBe(1);
+    await fire(byId(m.el, `worktree-${FEAT}`), "on_hover", false, m.cx);
+    m.render();
+    expect(fill().attrs.opacity).toBe(0);
   });
 
   test("clicking an open row selects its space; an agent line focuses that agent", async () => {
