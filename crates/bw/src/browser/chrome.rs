@@ -26,6 +26,8 @@ const LOCK_SLACK: Duration = Duration::from_secs(5);
 const POLL: Duration = Duration::from_millis(200);
 const HTTP_TIMEOUT: Duration = Duration::from_secs(2);
 const NOT_RUNNING: &str = "the Bellwether Chrome is not running";
+/// How long a background start watches for the new Chrome taking the front, to hand it back.
+const FOCUS_WATCH: Duration = Duration::from_secs(3);
 const NO_DEBUG_PORT: &str =
     "the Bellwether Chrome is running without its debugging port; quit it, then Start";
 const NOT_INSTALLED: &str = "Google Chrome is not installed on this Mac";
@@ -450,6 +452,8 @@ pub fn up(port: u16, profile: &Path, background: bool) -> Chrome {
             format!("cannot create {}: {e}", profile.display()),
         );
     }
+    // `open -g` asks Chrome to start behind, yet a window manager can still bring its window forward.
+    let before = background.then(super::arrange::front_pid).flatten();
     let program = std::env::var_os("BW_OPEN").unwrap_or_else(|| "open".into());
     let out = Command::new(&program)
         .args(open_argv(&app, profile, port, background))
@@ -476,6 +480,9 @@ pub fn up(port: u16, profile: &Path, background: bool) -> Chrome {
         c.started = true;
         if c.state == "running" {
             c.message = format!("started the Bellwether Chrome on 127.0.0.1:{port}");
+            if background {
+                give_focus_back(before, c.pid);
+            }
             return c;
         }
         if Instant::now() >= deadline {
@@ -490,6 +497,37 @@ pub fn up(port: u16, profile: &Path, background: bool) -> Chrome {
         }
         thread::sleep(POLL);
     }
+}
+
+/// The app to bring back to the front: the one in front before the start, when the new Chrome took its place.
+pub fn focus_to_return(before: Option<i32>, now: Option<i32>, chrome: Option<i32>) -> Option<i32> {
+    let (before, chrome) = (before?, chrome?);
+    (before != chrome && now == Some(chrome)).then_some(before)
+}
+
+/// Watches the front app for `FOCUS_WATCH` after a background start and gives the front back to `before`.
+fn give_focus_back(before: Option<i32>, chrome: Option<i32>) {
+    let deadline = Instant::now() + FOCUS_WATCH;
+    while Instant::now() < deadline {
+        if let Some(pid) = focus_to_return(before, super::arrange::front_pid(), chrome) {
+            activate(pid);
+            return;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Brings the app with `pid` to the front through AppKit; no Accessibility or Automation prompt.
+fn activate(pid: i32) {
+    let script = format!(
+        "ObjC.import('AppKit'); $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid}).activateWithOptions(2)"
+    );
+    let _ = Command::new("/usr/bin/osascript")
+        .args(["-l", "JavaScript", "-e", &script])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
 }
 
 /// Sends `Browser.close` to a checked Chrome and waits for its port to close; never signals a process.
@@ -533,6 +571,19 @@ pub fn down(port: u16, profile: &Path) -> Chrome {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn focus_returns_only_when_the_new_chrome_took_it() {
+        // Herdr (10) was in front, the new Chrome (20) took it: give it back to Herdr.
+        assert_eq!(focus_to_return(Some(10), Some(20), Some(20)), Some(10));
+        // Herdr is still in front, or another app is: leave it.
+        assert_eq!(focus_to_return(Some(10), Some(10), Some(20)), None);
+        assert_eq!(focus_to_return(Some(10), Some(30), Some(20)), None);
+        // Chrome itself was in front before, or nothing is known: leave it.
+        assert_eq!(focus_to_return(Some(20), Some(20), Some(20)), None);
+        assert_eq!(focus_to_return(None, Some(20), Some(20)), None);
+        assert_eq!(focus_to_return(Some(10), Some(20), None), None);
+    }
     use super::*;
 
     fn s(v: &[&str]) -> Vec<String> {
