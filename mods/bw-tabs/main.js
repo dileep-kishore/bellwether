@@ -19,7 +19,7 @@ import {
 import { adopt, CHAT_SHOWN, flipActions, focusRecord, shownChatPanes, TERMINAL_FOCUS, wakeAt } from "./chat-tabs.js";
 import { moveIndex, tabItems } from "./model.js";
 import { createPoke } from "./refresh-driver.js";
-import { ICONS, machineTag, programIcon, statusIcon, themeColors } from "./ui.js";
+import { ICONS, button, hoverFill, machineTag, mutedOnSelected, programIcon, statusMark, themeColors } from "./ui.js";
 
 const CHAT_TABS = "bw.chat-tabs";
 const WINDOW_ID = "bw.window-id";
@@ -46,6 +46,8 @@ export default class Tabs extends View {
     this.pressed = null;
     /** The tab under the pointer while one is pressed, for the drop marker. @type {string | null} */
     this.over = null;
+    /** The tab under the pointer, for its hover fill. @type {string | null} */
+    this.hovered = null;
     /** ⌘J was pressed; the next render flips the active chat tab. */
     this.flip = false;
     /** The wake time render last asked the wake task for. @type {number | null} */
@@ -133,20 +135,25 @@ export default class Tabs extends View {
       return (
         h_flex()
           .id(`tab-${c.id}`)
-          .h(26)
-          .px(10)
+          .relative()
+          .h(24)
+          .pl(10)
+          .pr(c.active ? 4 : 10)
           .gap(6)
           .flex_none()
           .items_center()
-          .rounded(6)
+          .rounded(12)
           .text_size(12.5)
-          .border(1)
-          .border_color(c.active ? t.border : t.chrome)
-          .bg(c.active ? t.raised : t.chrome)
-          .text_color(c.active ? t.foreground : t.muted)
-          .when(marked, (el) => el.border_l(2).border_color(t.accent))
-          .when(c.settled, (el) => el.opacity(0.6))
-          .hover((s) => s.bg(t.hover))
+          .when(c.active, (el) => el.bg(t.selected).text_color(t.foreground))
+          .when(!c.active, (el) => el.text_color(t.muted))
+          // Settled reads as italic rather than faded, so its title keeps AA contrast.
+          .when(c.settled, (el) => el.italic())
+          .on_hover((/** @type {boolean} */ on, /** @type {any} */ cx) => {
+            const next = on ? c.id : this.hovered === c.id ? null : this.hovered;
+            if (next === this.hovered) return;
+            this.hovered = next;
+            cx.notify();
+          })
           .on_mouse_down("left", (_e, cx) => {
             cx.stop_propagation();
             this.pressed = c.id;
@@ -166,28 +173,35 @@ export default class Tabs extends View {
           })
           // A press on one tab and a release on another is a drag, and GPUI sends no click then.
           .on_click(() => run("tab.select", { id: c.id }))
-          .child(programIcon(c.program, t))
+          .child(hoverFill(t, `tab-hover-${c.id}`, !c.active && this.hovered === c.id, 12))
+          .when(marked, (el) =>
+            el.child(div().id(`tab-drop-${c.id}`).absolute().left(-3).top(2).bottom(2).w(2).rounded(1).bg(t.accent)),
+          )
+          .when(c.active, (el) =>
+            el.child(div().id(`tab-mark-${c.id}`).absolute().left(10).bottom(2).w(12).h(2).rounded(1).bg(t.accent)),
+          )
+          .child(programIcon(c.program, t, 13))
           .child(div().max_w(170).truncate().child(c.title))
-          .child(statusIcon(t, c.status))
+          .child(statusMark(t, c.status, 12, `tab-status-${c.id}`))
           .when(Boolean(space?.machine), (el) => el.child(machineTag(String(space?.machine), t)))
           .when(c.active, (el) =>
             el.child(
               div()
                 .id(`close-${c.id}`)
-                .size(16)
+                .size(18)
                 .flex_none()
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(4)
-                .text_color(t.dim)
+                .rounded(9)
+                .text_color(mutedOnSelected)
                 .hover((s) => s.bg(t.hover).text_color(t.foreground))
                 .on_mouse_down("left", stop)
                 .on_click((_e, cx) => {
                   cx.stop_propagation();
                   run("tab.close", { id: c.id });
                 })
-                .child(svg(ICONS.close).size(12)),
+                .child(svg(ICONS.close).size(11)),
             ),
           )
       );
@@ -203,11 +217,9 @@ export default class Tabs extends View {
         .min_w(0)
         .pl(pad)
         .pr(8)
-        .gap(4)
+        .gap(6)
         .items_center()
-        .bg(t.chrome)
-        .border_b(1)
-        .border_color(t.border)
+        .bg(t.canvas)
         // Presses here start the window drag, so they only forget a press that ended off the tabs.
         .on_mouse_down("left", () => {
           this.pressed = null;
@@ -224,30 +236,40 @@ export default class Tabs extends View {
         })
         .child(
           h_flex()
-            .id("tab-scroll")
-            .flex_1()
+            .id("tab-capsule")
+            .flex_shrink_1()
             .min_w(0)
-            .h_full()
+            .h(28)
+            .px(2)
             .items_center()
-            .gap(3)
-            .overflow_x_scrollbar()
-            .children(items.map(tab)),
+            .rounded(14)
+            .bg(t.chrome)
+            .border(1)
+            .border_color(t.border)
+            .when(items.length === 0, (el) => el.w(0).border(0).px(0))
+            .child(
+              h_flex()
+                .id("tab-scroll")
+                .min_w(0)
+                .h_full()
+                .items_center()
+                .gap(2)
+                .overflow_x_scrollbar()
+                .children(items.map(tab)),
+            ),
         )
         .child(
-          div()
-            .id("tab-new")
-            .size(26)
-            .flex_none()
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(6)
-            .text_color(t.dim)
-            .hover((s) => s.bg(t.hover).text_color(t.foreground))
-            .on_mouse_down("left", stop)
-            .on_click(() => openOverlay({ mod: "bw-new", kind: "popup", width: 232, height: 300, props }))
-            .child(svg(ICONS.plus).size(14)),
+          button(t, {
+            id: "tab-new",
+            kind: "ghost",
+            h: 26,
+            icon: svg(ICONS.plus).size(14),
+            onClick: () => openOverlay({ mod: "bw-new", kind: "popup", width: 232, height: 300, frame: "none", props }),
+          })
+            .accessibility_label("New tab")
+            .on_mouse_down("left", stop),
         )
+        .child(div().flex_1())
     );
   }
 }
