@@ -218,8 +218,11 @@ tab and Arrange buttons. It adds Start when Chrome is stopped, runs without
 the port or failed to start. Below the header:
 
 - Each tab has one row with its favicon, title, host and path. An accent bar
-  marks the active tab. Clicking a row focuses that tab, and hovering shows a
-  close button.
+  marks the active tab: with the Bellwether Chrome in front, each window's
+  focused tab; otherwise the tab Bellwether last focused or opened, since
+  Chrome then reports focus in no tab, or in every tab an agent opened in the
+  background. Clicking a row focuses that tab, and hovering shows a close
+  button.
 - The Forwards section lists each forward with its state and a Stop button.
 - Forward port adds a forward for a dev server
   (`ssh -L 127.0.0.1:<n>:127.0.0.1:<n>`) from the active space's machine.
@@ -557,6 +560,15 @@ scripts/verify/requests.sh --offline          # goldens, hooks and the focus gua
 scripts/verify/requests.sh                    # also real agents here
 scripts/verify/requests.sh --machine <name>   # also Codex on <name>; <name> must be a temporary hc machine (bwloop)
 ```
+
+A prompt's id ignores how the pane wraps it: it hashes the prompt's text
+without whitespace or rule lines, so narrowing or widening a chat's pane
+keeps one card. `scripts/verify/record-wrap.sh` records the screens the
+`rewrap` tests read: a Claude approval, a Codex approval and Codex's `/new`
+folder prompt at 80 columns, then again after an `hc attach` viewer narrows
+the same terminal. It runs Claude haiku and Codex in a private core
+(`HC_SESSION=bw-wrap`) in scratch repositories, scrubs the screens into
+`tests/fixtures/screens/`, and removes the core and the folders.
 
 `scripts/verify/feed-cost.sh [runs]` times `bw feed --log … --pictures` on
 the largest Claude and Codex logs on this Mac: a first read, an unchanged
