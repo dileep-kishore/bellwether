@@ -596,17 +596,22 @@ repository.
    terminal focus; a Codex async question is answered as one message.
    Command: `test -f` (with `hc exec --on macmini` there), `hc read` before
    and after, `herdr-app shot`.
-4. Changes equal Git, here and on macmini (reference comparison). Staged,
-   Changes and Committed lists and every patch equal `git diff --cached
-   --no-textconv`, `git diff --no-textconv` plus `git ls-files --others
-   --exclude-standard`, and `git diff --no-textconv $(git merge-base
-   origin/main HEAD) HEAD`, for a fixture with an untracked file, a rename,
-   a binary file, a textconv marker that is never written, a typed ref,
-   tip-to-tip, and no `origin/main`.
-   Command: `scripts/verify/git.sh`, `scripts/verify/git.sh --on macmini`.
+4. Changes equal Git, here and on macmini (reference comparison). With
+   `--no-ext-diff --no-textconv --no-color` on every reference command:
+   Staged and its patches equal `git diff --cached`; Changes equals `git
+   diff` plus `git ls-files --others --exclude-standard`, each untracked
+   file's patch equal to `git diff --no-index -- /dev/null <file>`;
+   Committed equals `git diff $(git merge-base <base> HEAD) HEAD` in Merge
+   base mode and `git diff <base> HEAD` in Tip mode, where `<base>` is the
+   resolved default or a typed `<ref>^{commit}`; with no default base the
+   helper reports none and the panel opens the picker. Fixtures: an
+   untracked file, a rename, a binary file, a textconv marker that is never
+   written, a typed ref, Tip mode, and no `origin/main`.
+   Command: `scripts/verify/git.sh`, `scripts/verify/git.sh --machine
+   macbook`.
 5. Issues follow the linked project and Attach reaches the right chat (app
-   run). With `bellwether` (no `origin`) and a scratch repository with an
-   `origin` each linked to a Linear project, the default list's
+   run). With a scratch repository with no `origin` and one with an
+   `origin`, each linked to a Linear project, the default list's
    identifiers equal a GraphQL query for that project's open issues; Mine
    and All change it accordingly; Attach then Send in chat A puts `Linear
    issue <id>: <title>` first in A's next user message and leaves chat B

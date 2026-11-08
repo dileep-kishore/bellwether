@@ -732,3 +732,35 @@ for this build; tests that need the Herdr window are deferred, other tests
   favicon), marks the active one, and offers focus and close, New tab,
   Arrange, and the forwards in effect." Evidence: phase 4 Codex review
   P4A-1 and P4A-2; commits `e165704`, `0950294`.
+- 2026-11-07: done check 4's remote half runs on `bwloop` from the Mac
+  mini's window. Original: "Command: `scripts/verify/git.sh`,
+  `scripts/verify/git.sh --on macmini`." Evidence: the Mac mini is now the
+  window machine and the MacBook is not driven
+  (`docs/plans/2026-11-06-bellwether-phases-intent.md`, request and
+  defaults).
+- 2026-11-07: done check 5 links a scratch repository with no `origin`
+  instead of `bellwether`. Original: "With `bellwether` (no `origin`) and a
+  scratch repository with an `origin` each linked to a Linear project".
+  Evidence: `git remote -v` names `git@github.com:dileep-kishore/bellwether.git`
+  since PR #1.
+- 2026-11-07: done check 4's remote half runs on `macbook`, superseding
+  the `bwloop` entry above. Original: "`scripts/verify/git.sh --machine
+  bwloop`". Evidence: `bwloop` is a temporary `via` machine with no spaces
+  (`~/.config/herdr-app/AGENTS.md`, machines); the user chose `macbook`
+  (`docs/plans/2026-11-06-bellwether-phases-intent.md`, question 5).
+- 2026-11-07: done check 4 names one reference command per comparison
+  mode and an untracked file's patch. Original: "Staged, Changes and
+  Committed lists and every patch equal `git diff --cached --no-textconv`,
+  `git diff --no-textconv` plus `git ls-files --others --exclude-standard`,
+  and `git diff --no-textconv $(git merge-base origin/main HEAD) HEAD`".
+  Evidence: plan design review, finding v02 (a scratch repository without
+  `origin/main` turns the merge-base command into `git diff HEAD`; Tip mode
+  and a typed ref differ from it).
+- 2026-11-07: the done checks run with the window on the Mac mini: "this
+  Mac" reads as the Mac mini, "macmini" as `macbook`, and the overhaul
+  spec's "stage window on the MacBook" as the stage window on the Mac
+  mini; Claude halves on another machine stay owed, since Claude started
+  by another machine's core cannot read the login keychain. The checks'
+  wording is unchanged. Evidence: plan design review, finding v07; the
+  user's request and question 5 in
+  `docs/plans/2026-11-06-bellwether-phases-intent.md`.
