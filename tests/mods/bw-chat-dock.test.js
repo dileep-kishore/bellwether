@@ -312,6 +312,22 @@ describe("dock", () => {
     expect(calls(m, "answer")).toHaveLength(1);
   });
 
+  test("a terminal focus the hidden chat never drew guards for 3 s after it left, from bw-tabs's record", async () => {
+    const m = await ready(CLAUDE, data());
+    const approve = () => button(m, REQUEST.id, "approve");
+    expect(approve().attrs.disabled).toBe(false);
+    // ⌘J to the terminal and back: Herdr drew no hidden chat meanwhile; bw-tabs saw focus leave t8 at +60 s.
+    fake.shared["bw.terminal-focus"] = { focused: null, left: { t8: T0 + 60_000 } };
+    setSystemTime(new Date(T0 + 60_200));
+    m.render();
+    expect(approve().attrs.disabled).toBe(true);
+    await m.click(`answer-${REQUEST.id}-approve`);
+    expect(calls(m, "answer")).toHaveLength(0);
+    setSystemTime(new Date(T0 + 63_000));
+    m.render();
+    expect(approve().attrs.disabled).toBe(false);
+  });
+
   test("fresh mount is guarded; the loop wakes when the guard ends", async () => {
     setSystemTime(new Date(T0));
     const d = data();

@@ -379,6 +379,79 @@ export function entryForTerminal(value, terminal) {
   return Object.values(readChatTabs(value).tabs).find((e) => e.terminal === terminal) ?? null;
 }
 
+/** `shared` key: the bw-chat panes on screen, which bw-tabs stores because Herdr draws no hidden copy. */
+export const CHAT_SHOWN = "bw.chat-shown";
+
+/**
+ * The bw-chat panes on screen: in the active space's active tab, zoomed or in a tab with no zoom. Sorted.
+ * @param {any[]} spaces SpaceInfo[]
+ * @param {any[]} panes PaneInfo[]
+ * @returns {string[]}
+ */
+export function shownChatPanes(spaces, panes) {
+  const tab = spaces.find((s) => s.active)?.tabs.find((/** @type {any} */ t) => t.active);
+  if (!tab) return [];
+  return panes
+    .filter((p) => p.mod === "bw-chat" && p.tab === tab.id && (p.zoomed || !tab.zoomed))
+    .map((p) => p.pane)
+    .sort();
+}
+
+/**
+ * Whether a layout tree shows `mod` in a block, floating blocks included.
+ * @param {any} node `layout()` @param {string} mod
+ * @returns {boolean}
+ */
+export function hasMod(node, mod) {
+  if (!isObj(node)) return false;
+  if (isObj(node.content) && node.content.mod === mod) return true;
+  return [
+    ...(Array.isArray(node.children) ? node.children : []),
+    ...(Array.isArray(node.floating) ? node.floating : []),
+  ].some((c) => hasMod(c, mod));
+}
+
+/**
+ * Whether `pane` is on screen by bw-tabs's stored list; `fallback` when there is no list or no pane.
+ * @param {unknown} stored the value of `shared(CHAT_SHOWN)`
+ * @param {string | null} pane this chat's pane
+ * @param {boolean} fallback
+ */
+export function shownFrom(stored, pane, fallback) {
+  if (pane === null || stored === undefined || stored === null) return fallback;
+  return Array.isArray(stored) && stored.includes(pane);
+}
+
+/** `shared` key: the focused terminal and when focus last left each one, which bw-tabs keeps for the chats'
+ *  focus guard, because Herdr draws no hidden chat to see its terminal take focus. */
+export const TERMINAL_FOCUS = "bw.terminal-focus";
+const FOCUS_KEEP_MS = 60_000;
+
+/**
+ * The focus record after `focused()?.terminal` is `focused` at `now`, or null when it is unchanged.
+ * Leaves older than a minute are dropped.
+ * @param {unknown} stored @param {string | null} focused @param {number} now
+ * @returns {{ focused: string | null, left: Record<string, number> } | null}
+ */
+export function focusRecord(stored, focused, now) {
+  const was =
+    isObj(stored) && strOrNull(/** @type {any} */ (stored).focused) ? /** @type {any} */ (stored).focused : null;
+  if (isObj(stored) ? was === focused : focused === null) return null;
+  const old = isObj(stored) && isObj(/** @type {any} */ (stored).left) ? /** @type {any} */ (stored).left : {};
+  /** @type {Record<string, number>} */
+  const left = {};
+  for (const [t, at] of Object.entries(old)) if (isNum(at) && now - at < FOCUS_KEEP_MS && t !== focused) left[t] = at;
+  if (was !== null && was !== focused) left[was] = now;
+  return { focused, left };
+}
+
+/** When focus last left `terminal` by the record, or null. @param {unknown} stored @param {string | null} terminal */
+export function leftAt(stored, terminal) {
+  if (terminal === null || !isObj(stored)) return null;
+  const at = isObj(/** @type {any} */ (stored).left) ? /** @type {any} */ (stored).left[terminal] : undefined;
+  return isNum(at) ? at : null;
+}
+
 /**
  * Shown: its tab is the active tab of the active space, and its chat pane is zoomed or the tab is not.
  * @param {Pick<Entry, "tab" | "chatPane"> | null} entry

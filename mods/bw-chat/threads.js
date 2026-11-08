@@ -63,8 +63,11 @@ function threadRow(row, t, current, onRow) {
 
 /**
  * The card at the timeline's top right, at most half the pane's height and scrolling.
- * @param {Row[]} rows @param {{ t: Theme, current: string | null, onRow: (row: Row, cx: any) => void }} o
- *   `current` is the row id the view shows; null for the parent
+ * Herdr drops an absolute element's insets when that element scrolls, and a percentage cap collapses
+ * the scrolling box, so the card only places itself and an inner box capped in pixels scrolls.
+ * @param {Row[]} rows
+ * @param {{ t: Theme, current: string | null, onRow: (row: Row, cx: any) => void, paneHeight: number }} o
+ *   `current` is the row id the view shows; null for the parent. `paneHeight` is 0 before the first layout.
  */
 export function threadsCard(rows, o) {
   const { t } = o;
@@ -74,16 +77,27 @@ export function threadsCard(rows, o) {
     .top(EDGE)
     .right(EDGE)
     .w(CARD_W)
-    .max_h("50%")
-    .p(4)
-    .gap(0)
     .rounded(8)
     .bg(t.raised)
     .border(1)
     .border_color(t.border)
     .shadow_md()
-    .overflow_y_scrollbar()
-    .children(rows.map((r) => threadRow(r, t, (o.current ?? null) === (r.kind === "parent" ? null : r.id), o.onRow)));
+    .child(
+      v_flex()
+        .id("threads-rows")
+        .max_h(cardMaxHeight(o.paneHeight))
+        .p(4)
+        .gap(0)
+        .overflow_y_scrollbar()
+        .children(
+          rows.map((r) => threadRow(r, t, (o.current ?? null) === (r.kind === "parent" ? null : r.id), o.onRow)),
+        ),
+    );
+}
+
+/** Half the pane, or 320 px before the pane has been measured. @param {number} paneHeight */
+export function cardMaxHeight(paneHeight) {
+  return paneHeight > 0 ? Math.round(paneHeight / 2) : 320;
 }
 
 /** The folded card. @param {string} text pillText(rows) @param {Theme} t @param {(cx: any) => void} onClick */

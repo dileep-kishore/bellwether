@@ -76,28 +76,31 @@ async function fireAfter(m, i) {
   await m.cx.flush();
 }
 
+/** bw-tabs's shared writes other than the shown chats and focus record it keeps for hidden bw-chat copies. @param {any} m */
+const kept = (m) => m.log.shared.filter(([k]) => k !== "bw.chat-shown" && k !== "bw.terminal-focus");
+
 describe("bw-tabs chat adoption", () => {
   test("bw-tabs adopts the new tab: split, then zoom once across renders", async () => {
     const m = await mount("bw-tabs", { live: pendingClaude(Date.now()) });
     expect(m.log.run).toEqual([split]);
-    const adopted = m.log.shared.at(-1)[1];
+    const adopted = kept(m).at(-1)[1];
     expect(adopted.pending).toEqual([]);
     expect(adopted.tabs.tb8).toMatchObject({ terminal: "t8", terminalPane: "p8", chatPane: null, kind: "claude" });
     expect(adopted.tabs["macmini/tb5"]).toEqual(live("chat-tab").shared[KEY].tabs["macmini/tb5"]);
 
-    const writes = m.log.shared.length;
+    const writes = kept(m).length;
     m.render();
     expect(m.log.run).toEqual([split]);
-    expect(m.log.shared.length).toBe(writes);
+    expect(kept(m).length).toBe(writes);
 
     fake.panes = [...fake.panes, chatPane];
     m.render();
     expect(m.log.run).toEqual([split, ["pane.zoom", { pane: "p9" }]]);
-    expect(m.log.shared.at(-1)[1].tabs.tb8).toMatchObject({ chatPane: "p9", zoomed: true });
+    expect(kept(m).at(-1)[1].tabs.tb8).toMatchObject({ chatPane: "p9", zoomed: true });
     m.render();
     m.render();
     expect(m.log.run).toEqual([split, ["pane.zoom", { pane: "p9" }]]);
-    expect(m.log.shared.length).toBe(writes + 1);
+    expect(kept(m).length).toBe(writes + 1);
     expect(m.log.notify).toEqual([]);
   });
 
@@ -107,7 +110,7 @@ describe("bw-tabs chat adoption", () => {
     const m = await mount("bw-tabs", { live: data });
     const id = m.log.shared.find(([k]) => k === "bw.window-id")?.[1];
     expect(typeof id).toBe("string");
-    expect(m.log.shared[0][0]).toBe("bw.window-id");
+    expect(kept(m)[0][0]).toBe("bw.window-id");
     expect(m.log.run).toEqual([["pane.split", { ...split[1], props: { ...split[1].props, window: id } }]]);
   });
 
@@ -115,7 +118,7 @@ describe("bw-tabs chat adoption", () => {
     const m = await mount("bw-tabs", { live: live("chat-tab") });
     m.render();
     expect(m.log.run).toEqual([]);
-    expect(m.log.shared).toEqual([]);
+    expect(kept(m)).toEqual([]);
     expect(m.cx.afters).toEqual([]);
   });
 
@@ -127,7 +130,7 @@ describe("bw-tabs chat adoption", () => {
     expect(m.log.notify).toEqual([
       { title: "Claude Code chat did not start", body: "No new tab appeared within 30 s.", level: "warning" },
     ]);
-    expect(m.log.shared.at(-1)[1].pending).toEqual([]);
+    expect(kept(m).at(-1)[1].pending).toEqual([]);
     m.render();
     expect(m.log.notify).toHaveLength(1);
     expect(m.log.run).toEqual([]);
@@ -251,7 +254,7 @@ describe("bw-tabs ⌘J", () => {
     const data = live("chat-tab");
     data.shared = {};
     const m = await mount("bw-tabs", { live: { ...data, nextCommand: c.next } });
-    expect(Object.keys(m.log.shared.at(-1)[1].tabs).sort()).toEqual(["macmini/tb5", "tb8"]);
+    expect(Object.keys(kept(m).at(-1)[1].tabs).sort()).toEqual(["macmini/tb5", "tb8"]);
     expect(m.log.run).toEqual([]);
     c.send("chat-flip");
     await m.cx.flush();
@@ -300,6 +303,36 @@ describe("bw-tabs ⌘J", () => {
     await m.cx.flush();
     m.render();
     expect(m.log.run).toHaveLength(3);
+  });
+});
+
+describe("bw-tabs shown chats", () => {
+  test("stores the chat panes on screen for hidden bw-chat copies, and writes again only when they change", async () => {
+    const m = await mount("bw-tabs", { live: live("chat-tab") });
+    expect(fake.shared["bw.chat-shown"]).toEqual(["p9"]);
+    const writes = () => m.log.shared.filter(([k]) => k === "bw.chat-shown").length;
+    const before = writes();
+    m.render();
+    expect(writes()).toBe(before);
+    fake.panes = fake.panes.map((p) =>
+      p.pane === "p9" ? { ...p, zoomed: false } : p.pane === "p8" ? { ...p, zoomed: true } : p,
+    );
+    m.render();
+    expect(fake.shared["bw.chat-shown"]).toEqual([]);
+    expect(writes()).toBe(before + 1);
+  });
+});
+
+describe("bw-tabs terminal focus", () => {
+  test("records when focus leaves a terminal, for a chat copy that was not drawn meanwhile", async () => {
+    setSystemTime(new Date(1794032000000));
+    const m = await mount("bw-tabs", { live: { ...live("chat-tab"), focused: { pane: "p8", terminal: "t8" } } });
+    expect(fake.shared["bw.terminal-focus"]).toEqual({ focused: "t8", left: {} });
+    setSystemTime(new Date(1794032005000));
+    fake.focused = { pane: "p9", terminal: null };
+    m.render();
+    expect(fake.shared["bw.terminal-focus"]).toEqual({ focused: null, left: { t8: 1794032005000 } });
+    setSystemTime();
   });
 });
 

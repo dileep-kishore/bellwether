@@ -31,3 +31,16 @@ for (const name of mods) {
     }
   });
 }
+
+// herdr-app check renders with no window, so window() is null there.
+describe("with no window, as herdr-app check renders", () => {
+  for (const name of mods) {
+    test(name, async () => {
+      const m = await mount(name, {
+        props: (propsSets[name] ?? [{}])[0],
+        live: { ...live(fixtures[0]), window: null },
+      });
+      expect(isElement(m.render())).toBe(true);
+    });
+  }
+});

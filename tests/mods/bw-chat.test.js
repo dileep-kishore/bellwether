@@ -497,6 +497,34 @@ describe("bw-chat", () => {
     expect(remote.cx.sleeps.at(-1).ms).toBeGreaterThan(9900);
   });
 
+  test("hidden with no render, as Herdr leaves a hidden copy, the loop backs off to 10 s from bw-tabs's list", async () => {
+    const m = await mount("bw-chat", { props: CLAUDE, live: live("chat-tab") });
+    const ms = () => m.cx.sleeps.at(-1).ms;
+    expect(ms()).toBeLessThanOrEqual(2000);
+
+    // bw-tabs, which stays on screen, stores the chat panes it sees shown; this copy draws nothing meanwhile.
+    fake.shared["bw.chat-shown"] = [];
+    m.cx.sleeps.at(-1).wake();
+    await m.cx.flush();
+    expect(ms()).toBeGreaterThan(9900);
+
+    fake.shared["bw.chat-shown"] = ["p9"];
+    m.cx.sleeps.at(-1).wake();
+    await m.cx.flush();
+    expect(ms()).toBeLessThanOrEqual(2000);
+  });
+
+  test("in a layout without bw-tabs a stale shown list is ignored and render decides", async () => {
+    const d = live("chat-tab");
+    // Left behind by bw-tabs in Bellwether while this chat was hidden; Herdr's main layout has no bw-tabs.
+    d.shared["bw.chat-shown"] = [];
+    d.layout = { id: "root", type: "row", children: [{ id: "main", type: "block", content: { tab: "active" } }] };
+    const m = await mount("bw-chat", { props: CLAUDE, live: d });
+    m.cx.sleeps.at(-1).wake();
+    await m.cx.flush();
+    expect(m.cx.sleeps.at(-1).ms).toBeLessThanOrEqual(2000);
+  });
+
   test("terminal gone is named, composer disabled, Close tab", async () => {
     const data = live("chat-tab");
     data.panes = data.panes.filter((p) => p.pane !== "p8");

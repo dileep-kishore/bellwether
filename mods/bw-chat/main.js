@@ -4,8 +4,21 @@
 // through the helper on the space's machine; pictures and hook setup through this Mac's helper.
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, VirtualListScrollHandle } from "gpui-base";
-import { exec, focused, home, nextCommand, panes, run, setShared, shared, spaces, terminals } from "herdr";
-import { isShown } from "./chat-tabs.js";
+import {
+  exec,
+  focused,
+  home,
+  layout,
+  nextCommand,
+  panes,
+  props as herdrProps,
+  run,
+  setShared,
+  shared,
+  spaces,
+  terminals,
+} from "herdr";
+import { CHAT_SHOWN, hasMod, isShown, leftAt, shownFrom, TERMINAL_FOCUS } from "./chat-tabs.js";
 import { Composer } from "./composer.js";
 import { dock } from "./dock.js";
 import {
@@ -22,7 +35,7 @@ import {
 } from "./dock-model.js";
 import { columnWidth, rowHeight } from "./estimate.js";
 import { applyFeed, applyOlder, emptyFeed, expectation, freshChat, newConversation, olderFrom } from "./feedstate.js";
-import { createGuard, guardedUntil, isGuarded, observe } from "./focus-guard.js";
+import { createGuard, guardedUntil, isGuarded, observe, observeLeft } from "./focus-guard.js";
 import { createHelper, parseLines } from "./helper.js";
 import { createPictures } from "./pictures.js";
 import { createPoke } from "./refresh-driver.js";
@@ -95,8 +108,9 @@ const NO_KEYS_WITH = ["control", "alt", "platform", "function"];
 const WENT_OUT = new Set(["answered", "declined", "uncertain", "sent", "already-answered"]);
 
 export default class Chat extends View {
-  /** @param {unknown} props @param {any} cx */
-  init(props, cx) {
+  /** @param {unknown} _props Herdr passes undefined; props() holds this pane's props. @param {any} cx */
+  init(_props, cx) {
+    const props = /** @type {unknown} */ (herdrProps());
     /** What the props name, in the namespace of the window that wrote them. @type {Target | null} */
     this.id = targetOf(props);
     /** @type {string | null} */
@@ -151,6 +165,8 @@ export default class Chat extends View {
     /** @type {WeakMap<object, { w: number, open: boolean, h: number }>} */
     this.heights = new WeakMap();
     this.width = 0;
+    /** The pane's height from on_size_change; 0 before the first layout. */
+    this.paneHeight = 0;
     this.follow = true;
     this.topSeen = false;
     this.wantOlder = false;
@@ -163,6 +179,10 @@ export default class Chat extends View {
     // Read once here so the first feed and the loop's first sleep are right; render keeps them current.
     const ps = panes();
     this.locate(spaces(), ps);
+    /** This chat's own pane, as the last render saw it. @type {string | null} */
+    this.chatPane = null;
+    /** The layout has bw-tabs, the writer of the shown list, as the last render saw it. */
+    this.listed = false;
     /** @type {boolean} */
     this.shown = this.readShown(spaces(), ps);
     this.status = this.statusOf(ps);
@@ -225,6 +245,9 @@ export default class Chat extends View {
           const now = Date.now();
           // The guard ended since the last frame: draw the buttons enabled again.
           if (this.drawnGuarded && !isGuarded(this.guard, now)) cx.notify();
+          // A hidden copy is not drawn, so render cannot tell it went out of sight; bw-tabs's list can.
+          // Only bw-tabs writes the list, so in a layout without it the list is stale and render decides.
+          if (this.listed) this.shown = shownFrom(shared(CHAT_SHOWN), this.chatPane, this.shown);
           let wait = Math.max(0, pollMs(this.shown) - (now - started));
           if (this.answerable() && isGuarded(this.guard, now))
             wait = Math.max(1000, Math.min(wait, guardedUntil(this.guard) - now));
@@ -325,7 +348,9 @@ export default class Chat extends View {
     const tab = this.tab();
     if (tab === null) return false;
     const chat = ps.find((p) => p.tab === tab && p.mod === "bw-chat");
-    return isShown({ tab, chatPane: chat?.pane ?? null }, all, ps);
+    this.chatPane = chat?.pane ?? null;
+    this.listed = hasMod(layout(), "bw-tabs");
+    return isShown({ tab, chatPane: this.chatPane }, all, ps);
   }
 
   /**
@@ -959,9 +984,10 @@ export default class Chat extends View {
       .size_full()
       .min_w(0)
       .bg(t.background)
-      .on_size_change((/** @type {{ width: number }} */ size, /** @type {any} */ cx) => {
-        if (Math.abs(size.width - this.width) < 1) return;
+      .on_size_change((/** @type {{ width: number, height: number }} */ size, /** @type {any} */ cx) => {
+        if (Math.abs(size.width - this.width) < 1 && Math.abs((size.height || 0) - this.paneHeight) < 1) return;
         this.width = size.width;
+        this.paneHeight = size.height || 0;
         cx.notify();
       });
     if (!this.id) {
@@ -992,12 +1018,10 @@ export default class Chat extends View {
     const target = this.target;
     const view = this.view;
     const own = isTerminalView(view);
-    this.guard = observe(
-      this.guard,
-      focused()?.terminal ?? null,
-      own ? view.terminal : (target?.terminal ?? null),
-      now,
-    );
+    const ours = own ? view.terminal : (target?.terminal ?? null);
+    this.guard = observe(this.guard, focused()?.terminal ?? null, ours, now);
+    // The terminal may have had focus while this copy was hidden and not drawn; bw-tabs saw it leave.
+    this.guard = observeLeft(this.guard, leftAt(shared(TERMINAL_FOCUS), ours));
     const term = target ? (ps.find((p) => p.pane === target.pane) ?? null) : null;
     const tab = this.tab();
     const f = this.viewFeed();
@@ -1122,7 +1146,7 @@ export default class Chat extends View {
       const current = view.child ?? (own ? view.terminal : null);
       body.child(
         cardOpen(rows, this.toggle)
-          ? threadsCard(rows, { t, current, onRow: (row, cx) => this.openRow(row, cx) })
+          ? threadsCard(rows, { t, current, onRow: (row, cx) => this.openRow(row, cx), paneHeight: this.paneHeight })
           : threadsPill(pillText(rows), t, (cx) => {
               this.toggle = toggleCard(this.rows, this.toggle);
               cx.notify();

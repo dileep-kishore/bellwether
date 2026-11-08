@@ -3,3 +3,6 @@ target/
 node_modules/
 docs/drafts/
 *.error
+# herdr-app check writes these type files into each mod folder it checks.
+mods/*/jsconfig.json
+mods/*/*.d.ts

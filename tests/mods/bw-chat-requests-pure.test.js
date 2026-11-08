@@ -16,7 +16,14 @@ import {
   titleOf,
   toggle,
 } from "../../mods/bw-chat/dock-model.js";
-import { FOCUS_QUIET_MS, createGuard, guardedUntil, isGuarded, observe } from "../../mods/bw-chat/focus-guard.js";
+import {
+  FOCUS_QUIET_MS,
+  createGuard,
+  guardedUntil,
+  isGuarded,
+  observe,
+  observeLeft,
+} from "../../mods/bw-chat/focus-guard.js";
 import { emptyFeed, expectation, applyFeed } from "../../mods/bw-chat/feedstate.js";
 
 const ROOT = "a9baa480-8207-4b0a-b31c-1a2d7b062db3";
@@ -628,5 +635,16 @@ describe("focus guard", () => {
   test("no target is never focused", () => {
     const g = observe(createGuard(0), null, null, 5000);
     expect(isGuarded(g, 5000)).toBe(false);
+  });
+});
+
+describe("observeLeft", () => {
+  test("a later recorded leave restarts the quiet time; an older one or focus held changes nothing", () => {
+    const g = { focused: false, since: 1000 };
+    expect(observeLeft(g, 5000)).toEqual({ focused: false, since: 5000 });
+    expect(observeLeft(g, 500)).toBe(g);
+    expect(observeLeft(g, null)).toBe(g);
+    const held = { focused: true, since: 1000 };
+    expect(observeLeft(held, 5000)).toBe(held);
   });
 });

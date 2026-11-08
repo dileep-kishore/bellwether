@@ -10,7 +10,10 @@ src=$(cd "$(dirname "$0")/../.." && pwd)
 . "$src/scripts/verify/lib-scratch.sh"
 D=$(scratch_path "${BW_STAGE:-/private/tmp/bw-stage}") || { echo "BW_STAGE must be a folder inside /private/tmp (down deletes it)" >&2; exit 1; }
 A=$D/app
-APP=/Applications/Herdr.app/Contents/MacOS/Herdr
+# Herdr installs to /Applications or, without admin rights, to ~/Applications.
+BUNDLE=/Applications/Herdr.app
+[ -d "$BUNDLE" ] || BUNDLE=$HOME/Applications/Herdr.app
+APP=$BUNDLE/Contents/MacOS/Herdr
 
 # Only the stage's variables: a calling agent's shell exports its own core, app home and session markers
 # (CLAUDE_CODE_CHILD_SESSION turns off Claude's transcripts), which would leak into every terminal.
@@ -44,7 +47,7 @@ up() {
 }
 
 app() {
-  v=$(defaults read /Applications/Herdr.app/Contents/Info CFBundleShortVersionString)
+  v=$(defaults read "$BUNDLE/Contents/Info" CFBundleShortVersionString)
   jq -n --arg v "$v" '{last_run: $v, presented: [$v]}' > "$A/update-notes.json"
   # A session of its own, so the window outlives the shell that started it.
   ( cd "$HOME"; stage python3 -I -c 'import os, sys; os.setsid(); os.execv(sys.argv[1], sys.argv[1:])' "$APP" > "$D/app.log" 2>&1 < /dev/null & )
