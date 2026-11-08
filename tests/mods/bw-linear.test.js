@@ -367,3 +367,224 @@ describe("inline issue", () => {
     expect(m.cx.clipboard).toEqual(["feature/pla-2"]);
   });
 });
+
+describe("review fixes", () => {
+  /** Two spaces, A on /r/a and B on /r/b; `hold[x]` delays that repository's rev-parse; `fail[x]` names its failure. */
+  function twoSpaces(
+    /** @type {{ hold?: Record<string, Promise<void>>, fail?: Record<string, string>, linear?: (a: string[]) => any }} */ o = {},
+  ) {
+    const exec = async (/** @type {string} */ cmd, /** @type {string[]} */ args) => {
+      if (cmd === "git") {
+        const folder = args[1] ?? "";
+        const w = folder.startsWith("/r/a") || args.includes("/r/a/.git") ? "a" : "b";
+        if (args.includes("rev-parse")) {
+          if (o.hold?.[w]) await o.hold[w];
+          if (o.fail?.[w] === "not_git") return { code: 128, stdout: "", stderr: "fatal: not a git repository" };
+          if (o.fail?.[w]) throw new Error(o.fail[w]);
+          return { code: 0, stdout: `/r/${w}/.git\n/r/${w}\n`, stderr: "" };
+        }
+        return { code: 1, stdout: "", stderr: "" };
+      }
+      if (cmd !== "sh" || !HELPER_SCRIPTS.includes(args[1])) return { code: 127, stdout: "", stderr: "" };
+      const a = args.slice(3);
+      if (a[0] === "version") return VERSION;
+      const r = o.linear?.(a);
+      if (r) return r;
+      if (a[1] === "issue") return out([{ ...issue(a[a.indexOf("--id") + 1]), description: "d", bytes: 1 }]);
+      const p = a.includes("--project") ? a[a.indexOf("--project") + 1] : null;
+      return out(p === "PA" ? [issue("A-1"), PAGE] : p === "PB" ? [issue("B-1"), PAGE] : [issue("M-1"), PAGE]);
+    };
+    const sp = (/** @type {string} */ id, /** @type {string} */ folder, /** @type {boolean} */ active) => ({
+      id,
+      index: 1,
+      name: id,
+      named: false,
+      folder,
+      machine: null,
+      branch: "main",
+      active,
+      status: null,
+      tabs: [{ id: `t${id}`, index: 1, name: "1", named: false, active: true, status: null, panes: 1 }],
+    });
+    const pane = (/** @type {string} */ id, /** @type {string} */ folder) => ({
+      pane: `p${id}`,
+      terminal: "t",
+      tab: `t${id}`,
+      title: "zsh",
+      cwd: folder,
+      branch: "main",
+      focused: true,
+    });
+    let l = writeLink(
+      undefined,
+      { machine: null, commonDir: "/r/a/.git", origin: null },
+      { projectId: "PA", name: "Project A", at: 1 },
+    );
+    l = writeLink(
+      l,
+      { machine: null, commonDir: "/r/b/.git", origin: null },
+      { projectId: "PB", name: "Project B", at: 1 },
+    );
+    return {
+      machines: [{ name: null, layout: "ready" }],
+      spaces: [sp("sA", "/r/a", true), sp("sB", "/r/b", false)],
+      panes: [pane("sA", "/r/a"), pane("sB", "/r/b")],
+      exec,
+      shared: { [LINKS]: l },
+    };
+  }
+  const activate = (/** @type {string} */ id) => {
+    for (const s of fake.spaces) s.active = s.id === id;
+  };
+  /** @returns {[Promise<void>, () => void]} */
+  const gate = () => {
+    let open = () => {};
+    const p = new Promise((r) => (open = () => r(undefined)));
+    return [/** @type {Promise<void>} */ (p), open];
+  };
+  const shown = (/** @type {any} */ el) => ["A-1", "B-1", "M-1"].filter((i) => byId(el, `issue-${i}`) !== null);
+  async function settle(/** @type {any} */ m) {
+    for (let i = 0; i < 4; i++) {
+      await m.cx.flush();
+      m.render();
+    }
+  }
+
+  test("a space switch drops the old repository: no picker for it while the new one is read", async () => {
+    const [holdB, openB] = gate();
+    const m = await mount("bw-linear", { live: twoSpaces({ hold: { b: holdB } }) });
+    showInLayout("issues");
+    await settle(m);
+    expect(textOf(byId(m.render(), "issues-project"))).toContain("Project A");
+    activate("sB");
+    await settle(m);
+    expect(textOf(byId(m.render(), "issues-project"))).toContain("Reading the repository");
+    expect(m.click("issues-project")).rejects.toThrow("no on_click handler");
+    openB();
+    await settle(m);
+    expect(textOf(byId(m.render(), "issues-project"))).toContain("Project B");
+    expect(shown(m.render())).toEqual(["B-1"]);
+  });
+
+  test("a lookup that ends after the space changed is dropped", async () => {
+    const [holdA, openA] = gate();
+    const m = await mount("bw-linear", { live: twoSpaces({ hold: { a: holdA } }) });
+    showInLayout("issues");
+    await settle(m);
+    activate("sB");
+    await settle(m);
+    openA();
+    await settle(m);
+    expect(linearCalls(m).filter((a) => a.includes("PA"))).toEqual([]);
+    expect(shown(m.render())).toEqual(["B-1"]);
+  });
+
+  test("hidden while the repository is read: no Linear call starts", async () => {
+    const [holdA, openA] = gate();
+    const m = await mount("bw-linear", { live: twoSpaces({ hold: { a: holdA } }) });
+    showInLayout("issues");
+    await settle(m);
+    showInLayout("browser");
+    openA();
+    await m.cx.flush();
+    await m.cx.flush();
+    expect(linearCalls(m)).toEqual([]);
+    // Shown again, it reads at once rather than after the 60 s wait.
+    showInLayout("issues");
+    await settle(m);
+    expect(linearCalls(m)).toEqual([["issues", "--scope", "project", "--project", "PA"]]);
+  });
+
+  test("a failed read for another project or search drops the old list", async () => {
+    let offline = false;
+    const data = twoSpaces({
+      linear: (a) =>
+        offline && a[0] === "linear" && a[1] !== "issue"
+          ? { code: 1, stdout: '{"type":"error","code":"offline","message":"Linear is unreachable"}\n', stderr: "" }
+          : null,
+    });
+    const m = await mount("bw-linear", { live: data });
+    showInLayout("issues");
+    await settle(m);
+    expect(shown(m.render())).toEqual(["A-1"]);
+    offline = true;
+    // A refresh of the same list keeps it through the failure.
+    await m.click("issues-refresh");
+    await settle(m);
+    expect(shown(m.render())).toEqual(["A-1"]);
+    fake.shared[LINKS] = writeLink(
+      fake.shared[LINKS],
+      { machine: null, commonDir: "/r/a/.git", origin: null },
+      {
+        projectId: "PB",
+        name: "Project B",
+        at: 2,
+      },
+    );
+    await settle(m);
+    expect(textOf(byId(m.render(), "issues-project"))).toContain("Project B");
+    expect(shown(m.render())).toEqual([]);
+    expect(textOf(byId(m.render(), "issues-error"))).toContain("unreachable");
+  });
+
+  test("filter, search, a new link and a refused key close the open issue; refresh rereads it", async () => {
+    let refuse = false;
+    const data = twoSpaces({
+      linear: (a) =>
+        refuse && a[1] === "issues"
+          ? { code: 1, stdout: '{"type":"error","code":"key_refused","message":"x"}\n', stderr: "" }
+          : null,
+    });
+    const m = await mount("bw-linear", { live: data });
+    showInLayout("issues");
+    await settle(m);
+    const openA1 = async () => {
+      await m.click("issue-A-1");
+      await settle(m);
+      expect(byId(m.render(), "issue-detail")).not.toBe(null);
+    };
+    await openA1();
+    const before = linearCalls(m).filter((a) => a[0] === "issue").length;
+    await m.click("issues-refresh");
+    await settle(m);
+    expect(linearCalls(m).filter((a) => a[0] === "issue").length).toBe(before + 1);
+    expect(byId(m.render(), "issue-detail")).not.toBe(null);
+    await m.click("issues-scope-mine");
+    await settle(m);
+    expect(byId(m.render(), "issue-detail")).toBe(null);
+    expect(shown(m.render())).toEqual(["M-1"]);
+    await m.click("issue-M-1");
+    await settle(m);
+    const state = m.view.search;
+    state.set_value("zz");
+    await state.handlers.submit({}, m.cx);
+    await settle(m);
+    expect(byId(m.render(), "issue-detail")).toBe(null);
+    await m.click("issue-M-1");
+    await settle(m);
+    refuse = true;
+    state.set_value("");
+    await state.handlers.submit({}, m.cx);
+    await m.click("issues-scope-project");
+    await settle(m);
+    await m.click("issues-refresh");
+    await settle(m);
+    expect(byId(m.render(), "issue-detail")).toBe(null);
+    expect(textOf(byId(m.render(), "issues-error"))).toContain("Linear refused the key");
+  });
+
+  test("a space outside Git reads nothing from Linear; an unreachable machine says so", async () => {
+    const m = await mount("bw-linear", {
+      live: twoSpaces({ fail: { a: "not_git", b: "ssh: Could not resolve hostname tsuki" } }),
+    });
+    showInLayout("issues");
+    await settle(m);
+    await runFor(m, 130_000);
+    expect(linearCalls(m)).toEqual([]);
+    expect(textOf(byId(m.render(), "issues-empty"))).toContain("Open a space in a Git repository");
+    activate("sB");
+    await settle(m);
+    expect(linearCalls(m)).toEqual([]);
+    expect(textOf(byId(m.render(), "issues-empty"))).toContain("ssh: Could not resolve hostname tsuki");
+  });
+});

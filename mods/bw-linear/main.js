@@ -95,6 +95,7 @@ export default class Issues extends View {
     this.search.on("submit", (/** @type {unknown} */ _e, /** @type {any} */ cx) => {
       if (this.pick) return;
       this.query = this.search.value().trim();
+      this.open = null;
       this.refresh(cx);
     });
     /** Projects for the picker. @type {{ id: string, name: string }[] | null} */
@@ -115,6 +116,8 @@ export default class Issues extends View {
     this.repo = null;
     /** @type {string | null} why the space has no repository */
     this.repoError = null;
+    /** The space's folder is outside Git, as opposed to a machine that did not answer. */
+    this.notGit = false;
     /** @type {Scope | null} the filter the user picked; null is the default */
     this.scope = null;
     /** @type {{ key: string, issues: Issue[], next: string | null, ageS: number | null } | null} */
@@ -180,6 +183,7 @@ export default class Issues extends View {
     this.repoWanted = true;
     this.note = null;
     this.poke.poke();
+    if (this.open && cx) this.openIssue(this.open.identifier, cx);
     cx?.notify();
   }
 
@@ -208,18 +212,38 @@ export default class Issues extends View {
     if (this.repoFor !== spaceKey || this.repoWanted) {
       this.repoWanted = false;
       const r = await readRepo(want.machine, want.folder);
+      // The space changed while Git answered: this answer is another space's, and the next read is due.
+      const now = this.want;
+      if (!now || JSON.stringify([now.id, now.machine, now.folder]) !== spaceKey) {
+        this.poke.poke();
+        return;
+      }
       if (r.ok === true) {
         this.repo = r.repo;
         this.repoError = null;
+        this.notGit = false;
       } else if (this.repoFor !== spaceKey) {
         this.repo = null;
-        this.repoError = r.state === "not_git" ? "This space is not in a Git repository." : r.message;
+        this.notGit = r.state === "not_git";
+        this.repoError = this.notGit ? "This space is not in a Git repository." : r.message;
       }
       this.repoFor = spaceKey;
       if (this.repo) {
         const moved = moveLink(shared(LINKS), this.repo);
         if (moved) setShared(LINKS, moved);
       }
+    }
+    // Linear is read only for a repository; a space outside Git, or on a machine that did not answer, shows why.
+    if (!this.repo) {
+      this.list = null;
+      this.drawn = false;
+      cx.notify();
+      return;
+    }
+    // Hidden while Git answered: no read starts, and render pokes the parked loop once the panel shows again.
+    if (!isShown(layout())) {
+      this.parked = true;
+      return;
     }
     const args = listArgs(this.scopeNow(), this.link()?.projectId ?? null, this.query);
     const key = this.listKey();
@@ -240,8 +264,12 @@ export default class Issues extends View {
     }
     if (answer.ok === false) {
       this.failure = answer;
-      // A refused or missing key leaves no list on screen: it would look current.
-      if (answer.code === "no_key" || answer.code === "key_refused") this.list = null;
+      // A refused or missing key leaves no list or issue on screen: they would look current. Another
+      // project's or search's list is not this one's.
+      if (answer.code === "no_key" || answer.code === "key_refused") {
+        this.list = null;
+        this.open = null;
+      } else if (this.list?.key !== key) this.list = null;
     } else {
       const page = readList(answer.lines);
       this.failure = null;
@@ -334,6 +362,10 @@ export default class Issues extends View {
     this.chatTab = chatTabOf(all, ps);
     this.liveTabs = all.flatMap((s) => (s.tabs ?? []).map((/** @type {any} */ tb) => tb.id));
     if (changed) {
+      // The old space's repository must not drive the header, the picker or a read for the new space.
+      this.repo = null;
+      this.repoError = null;
+      this.notGit = false;
       this.open = null;
       this.list = null;
       this.failure = null;
@@ -343,6 +375,10 @@ export default class Issues extends View {
     const linkNow = JSON.stringify(this.link());
     const was = this.linkSeen;
     const relinked = repoId !== null && was?.repo === repoId && was.link !== linkNow;
+    if (relinked) {
+      this.open = null;
+      this.list = null;
+    }
     this.linkSeen = { repo: repoId, link: linkNow };
     // Shown or hidden, a new space or link, or drawn again after the loop parked: one poke, then parked is clear.
     if (shown !== this.shown || changed || relinked || (shown && this.parked)) {
@@ -479,6 +515,7 @@ export default class Issues extends View {
                     .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => {
                       this.scope = id;
                       this.list = null;
+                      this.open = null;
                       this.refresh(cx);
                     }),
                 )
@@ -517,7 +554,10 @@ export default class Issues extends View {
       box.child(div().id(id).px(16).py(24).text_center().text_size(12.5).text_color(t.muted).child(text));
     if (this.failure && !this.list) return center(failureText(this.failure), "issues-error");
     if (!this.repo && this.repoError)
-      return center("Open a space in a Git repository to see its issues.", "issues-empty");
+      return center(
+        this.notGit ? "Open a space in a Git repository to see its issues." : this.repoError,
+        "issues-empty",
+      );
     if (!this.list) return center(this.loading ? "Reading Linear…" : "", "issues-wait");
     if (this.failure)
       box.child(
