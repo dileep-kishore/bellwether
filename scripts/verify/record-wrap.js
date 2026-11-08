@@ -68,19 +68,27 @@ async function startSized(name, cwd, argv, cols) {
   /** @type {any} */
   let reply = null;
   const deadline = Date.now() + 20000;
-  while (!reply && Date.now() < deadline) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += new TextDecoder().decode(value);
-    for (const line of buf.split("\n")) {
-      try {
-        const j = JSON.parse(line);
-        if (j.id === 2) reply = j;
-      } catch {}
+  try {
+    while (!reply) {
+      const left = deadline - Date.now();
+      if (left <= 0) break;
+      // A silent stream must not outlast the deadline: the read races a timer.
+      const next = await Promise.race([reader.read(), Bun.sleep(left).then(() => null)]);
+      if (!next || next.done) break;
+      buf += new TextDecoder().decode(next.value);
+      for (const line of buf.split("\n")) {
+        try {
+          const j = JSON.parse(line);
+          if (j.id === 2) reply = j;
+        } catch {}
+      }
     }
+  } finally {
+    reader.releaseLock();
+    p.stdin.end();
+    p.kill();
+    await p.exited;
   }
-  p.stdin.end();
-  p.kill();
   const address = reply?.result?.address ?? reply?.result?.terminal?.address;
   if (!address) throw new Error(`terminal.run ${name}: ${JSON.stringify(reply)}`);
   return new Term(address, address, hcHere, async () => []);

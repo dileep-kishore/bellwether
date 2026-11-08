@@ -25,23 +25,23 @@ cleanup() {
   HC_SESSION=$core "$hc" server stop > /dev/null 2>&1
   sleep 2
   [ -n "$core_pid" ] && kill -0 "$core_pid" 2> /dev/null && { echo "FAIL cleanup: core $core (pid $core_pid) still runs"; status=1; }
-  left=$(lsof -a -d cwd -Fn 2> /dev/null | grep -c "^n$L/")
-  [ "$left" -gt 0 ] && { echo "FAIL cleanup: $left process(es) still run in $L"; status=1; }
-  for d in "$L"/claude-*; do
-    [ -d "$d" ] || continue
-    p=$(printf %s "$d" | sed 's/[^A-Za-z0-9]/-/g')
-    rm -rf "$HOME/.claude/projects/$p" "/private/tmp/claude-$(id -u)/$p"
-  done
-  scratch_rm "$L" || { echo "FAIL cleanup: $L is still there"; status=1; }
+  # Claude's logs for the scratch repositories stay with $L while a process still uses it.
+  logs=$(for d in "$L"/claude-*; do [ -d "$d" ] && printf '%s\n' "$d" | sed 's/[^A-Za-z0-9]/-/g'; done)
+  if scratch_rm_idle "$L" $core_pid; then
+    for p in $logs; do rm -rf "$HOME/.claude/projects/$p" "/private/tmp/claude-$(id -u)/$p"; done
+  else
+    echo "FAIL cleanup: kept $L and its Claude logs for the processes above"
+    status=1
+  fi
   exit "$status"
 }
 
-[ -e "$L" ] && { scratch_rm "$L" || { echo "FAIL setup: $L is left from another run and has no marker"; exit 1; }; }
+[ -e "$L" ] && { scratch_rm_idle "$L" || { echo "FAIL setup: $L is left from another run and was not deleted (above)"; exit 1; }; }
 scratch_make "$L" || { echo "FAIL setup: scratch $L"; exit 1; }
 trap 'cleanup $?' EXIT
 trap 'exit 1' HUP INT TERM
 
-core_pid=$(clean HC_SESSION=$core "$hc" server status --json | jq -r .pid) && [ -n "$core_pid" ] ||
+core_pid=$(clean HC_SESSION=$core "$hc" server status --json | jq -er .pid) && [ -n "$core_pid" ] ||
   { echo "FAIL setup: private core $core"; exit 1; }
 out=$src/tests/fixtures/screens
 clean bun "$src/scripts/verify/record-wrap.js" --scratch "$L" --core "$core" --out "$out" || exit 1
