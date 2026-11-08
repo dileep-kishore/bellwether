@@ -7,7 +7,7 @@ import { h_flex, v_flex, Scrollbar, v_virtual_list } from "gpui-base";
 import { BUBBLE, GUTTER, PIC_GAP, PIC_MAX } from "./estimate.js";
 import { markdownView } from "./mdblocks.js";
 import { megabytes } from "./target.js";
-import { ICONS } from "./ui.js";
+import { ICONS, mutedOnSelected, raisedHover, statusMark } from "./ui.js";
 
 /** @typedef {import("./ui.js").Theme} Theme */
 
@@ -78,20 +78,16 @@ function notice(d, text, glyph) {
     );
 }
 
-const check = (/** @type {Draw} */ d) => svg(ICONS.check).size(12).flex_none().text_color(d.t.done);
-const spinner = (/** @type {Draw} */ d) =>
-  svg(ICONS["ring-spin"]).size(12).flex_none().text_color(d.t.working).spin(900);
+const check = (/** @type {Draw} */ d) => statusMark(d.t, "done", 12);
+const spinner = (/** @type {Draw} */ d) => statusMark(d.t, "working", 12);
+// The person is needed: a Peach mark that breathes until the request is answered.
+const waiting = (/** @type {Draw} */ d) => statusMark(d.t, "blocked", 12);
 
 /** @param {Row} row @param {Draw} d */
 function perm(row, d) {
   if (row.perm?.state !== "pending") return notice(d, oneLine(row.text || row.perm?.title) || "A tool ran", check(d));
   // herdr-core shows every call without a result this way; only the terminal's status says it waits on the person.
-  if (d.blocked)
-    return notice(
-      d,
-      `${d.agent} is waiting for you · Answer in terminal (⌘J)`,
-      svg(ICONS.question).size(12).flex_none().text_color(d.t.blocked),
-    );
+  if (d.blocked) return notice(d, `${d.agent} is waiting for you · Answer in terminal (⌘J)`, waiting(d));
   return notice(d, `Running · ${oneLine(row.perm?.command || row.text) || "a tool"}`, spinner(d));
 }
 
@@ -103,7 +99,7 @@ function question(row, d) {
       q.delivery === "message"
         ? `${d.agent} is waiting for your answer · Reply below`
         : `${d.agent} is waiting for you · Answer in terminal (⌘J)`;
-    return notice(d, text, svg(ICONS.question).size(12).flex_none().text_color(d.t.blocked));
+    return notice(d, text, waiting(d));
   }
   const asked = oneLine(q?.questions?.[0]?.text);
   const answers = Array.isArray(q?.answers) && q.answers.length ? ` · ${q.answers.join(", ")}` : "";
@@ -143,7 +139,7 @@ function calls(row, d) {
                 .truncate()
                 .font_family("Menlo")
                 .text_size(11.5)
-                .text_color(d.t.dim)
+                .text_color(d.t.muted)
                 .child(oneLine(k.output)),
             ),
           )
@@ -151,6 +147,23 @@ function calls(row, d) {
       ),
     );
 }
+
+/**
+ * A 28 px Surface 0 chip, content-wide, inside a full-width row. Rows of a virtual list take no
+ * handlers, so its hover is a plain style swap; Subtext 1 keeps secondary text at 4.5:1 on it.
+ * @param {Draw} d
+ */
+const chipLine = (d) =>
+  h_flex()
+    .h(28)
+    .max_w_full()
+    .min_w(0)
+    .px(10)
+    .gap(8)
+    .items_center()
+    .rounded(14)
+    .bg(d.t.raised)
+    .hover((s) => s.bg(raisedHover).text_color(mutedOnSelected));
 
 /** @param {Row} row @param {Draw} d */
 function tools(row, d) {
@@ -160,18 +173,22 @@ function tools(row, d) {
   const line = h_flex()
     .h(28)
     .w_full()
-    .gap(8)
     .items_center()
-    .text_size(13)
-    .text_color(row.error ? d.t.blocked : d.t.muted)
-    .child(svg(chipIcon(first?.symbol)).size(14).flex_none())
-    .child(div().min_w(0).truncate().child(text))
-    .child(row.live ? spinner(d) : row.error ? svg(ICONS.close).size(12).flex_none().text_color(d.t.blocked) : check(d))
     .child(
-      svg(open ? ICONS["chevron-down"] : ICONS["chevron-right"])
-        .size(10)
-        .flex_none()
-        .text_color(d.t.dim),
+      chipLine(d)
+        .text_size(12.5)
+        .text_color(row.error ? d.t.blocked : d.t.muted)
+        .child(
+          row.live ? spinner(d) : row.error ? svg(ICONS.close).size(12).flex_none().text_color(d.t.blocked) : check(d),
+        )
+        .child(svg(chipIcon(first?.symbol)).size(14).flex_none())
+        .child(div().min_w(0).truncate().child(text))
+        .child(
+          svg(open ? ICONS["chevron-down"] : ICONS["chevron-right"])
+            .size(10)
+            .flex_none()
+            .text_color(d.t.dim),
+        ),
     );
   return open ? v_flex().w_full().child(line).child(calls(row, d)) : line;
 }
@@ -181,14 +198,21 @@ function changed(row, d) {
   return h_flex()
     .h(28)
     .w_full()
-    .gap(6)
     .items_center()
-    .text_size(12.5)
-    .text_color(d.t.muted)
-    .child(svg(icon("changes")).size(14).flex_none())
-    .child(row.text || "Changed files")
-    .child("·")
-    .child(div().text_color(d.t.accent).child("Open in Changes"));
+    .child(
+      chipLine(d)
+        .text_size(12.5)
+        .text_color(d.t.muted)
+        .child(svg(icon("changes")).size(14).flex_none())
+        .child(
+          div()
+            .min_w(0)
+            .truncate()
+            .child(row.text || "Changed files"),
+        )
+        .child("·")
+        .child(div().flex_none().font_medium().text_color(d.t.accent).child("Open in Changes")),
+    );
 }
 
 /** A picture's drawn size: the column's width, at most PIC_MAX tall, as estimate.js counts it.
@@ -203,7 +227,7 @@ function picSize(p, col) {
 function picture(p, d) {
   const { w, h } = picSize(p, d.col);
   const file = d.pictures.fileOf(p.digest);
-  if (file) return image(file).w(w).h(h).flex_none().mb(PIC_GAP).rounded(8);
+  if (file) return image(file).w(w).h(h).flex_none().mb(PIC_GAP).rounded(10);
   const state = d.pictures.stateOf(p.digest);
   const bytes = d.pictures.bytesOf(p.digest);
   const text =
@@ -220,12 +244,12 @@ function picture(p, d) {
     .gap(6)
     .items_center()
     .justify_center()
-    .rounded(8)
+    .rounded(10)
     .bg(d.t.chrome)
     .border(1)
     .border_color(d.t.border)
     .text_size(12)
-    .text_color(d.t.dim)
+    .text_color(d.t.muted)
     .child(svg(icon("picture")).size(14).flex_none())
     .child(text);
 }
@@ -273,7 +297,7 @@ function body(row, d) {
         .items_center()
         .justify_center()
         .text_size(11.5)
-        .text_color(t.dim)
+        .text_color(t.muted)
         .child(row.text || "");
     case "footer":
       return div()
@@ -281,7 +305,7 @@ function body(row, d) {
         .h(30)
         .pt(2)
         .text_size(11.5)
-        .text_color(t.dim)
+        .text_color(t.muted)
         .child(row.text || "");
     case "status":
       return h_flex()

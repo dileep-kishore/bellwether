@@ -330,6 +330,13 @@ describe("bw-chat", () => {
     expect(text).toContain("Wrote `blue` to colour.txt.");
     expect(text).toContain("Edited files");
     expect(text).toContain("Changed 1 file · Open in Changes");
+    // Tool lines and the changed-files line are 28 px Surface 0 chips; Open in Changes is Mauve.
+    const chips = findAll(m.el, (e) => e.attrs.rounded === 14 && e.attrs.bg === "#raised" && e.attrs.h === 28);
+    expect(chips.map((c) => textOf(c))).toContain("Edited files");
+    expect(chips.some((c) => textOf(c) === "Changed 1 file · Open in Changes")).toBe(true);
+    expect(
+      findAll(m.el, (e) => e.attrs.text_color === "#accent" && textOf(e) === "Open in Changes").length,
+    ).toBeGreaterThan(0);
     expect(text).toContain("06:12 · Worked 8s · 1 tool");
     const bubble = findAll(m.el, (e) => e.attrs.rounded === 16 && textOf(e).includes("Call request_user_input once"));
     expect(bubble).toHaveLength(1);
@@ -776,6 +783,9 @@ describe("bw-chat", () => {
     m.render();
     expect(textOf(m.el)).toContain("Claude is waiting for you · Answer in terminal (⌘J)");
     expect(textOf(m.el)).not.toMatch(/Allow|Deny|Approve/);
+    // The waiting line's mark breathes in Peach until the person answers.
+    const breathing = findAll(m.el, (e) => e.attrs.loop !== undefined);
+    expect(breathing.map((e) => [e.attrs.text_color, e.attrs.loop[0]])).toEqual([["#blocked", "opacity"]]);
     fire(list(m), "on_item_click", "perm-tu1", m.cx);
     expect(m.log.run).toEqual([["bw-tabs.chat-flip"]]);
   });

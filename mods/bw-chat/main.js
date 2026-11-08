@@ -55,7 +55,7 @@ import {
 import { subagentBar, threadsButton, threadsCard, threadsPill } from "./threads.js";
 import { barText, cardOpen, pillText, threadRows, toggleCard } from "./threads-model.js";
 import { timeline, waitsInTerminal } from "./timeline.js";
-import { ICONS, machineTag, programIcon, themeColors } from "./ui.js";
+import { ICONS, button as uiButton, machineTag, programIcon, themeColors } from "./ui.js";
 
 /** @typedef {import("./ui.js").Theme} Theme */
 
@@ -149,6 +149,10 @@ export default class Chat extends View {
     this.sendingIds = new Set();
     /** @type {Map<string, string>} the last `bw answer` result by request */
     this.answerNotes = new Map();
+    /** The threads card row under the pointer. @type {string | null} */
+    this.threadHover = null;
+    /** Dock cards laid out once; a card fades in on its first layout. @type {Set<string>} */
+    this.cardsShown = new Set();
     /** @type {Set<string>} requests whose keys or message went out; no second click while they stay pending */
     this.wentOut = new Set();
     /** @type {Map<string, Draft>} */
@@ -904,22 +908,7 @@ export default class Chat extends View {
   /** @param {Theme} t @param {Problem} p @param {any} term @param {string | null} tab */
   buttons(t, p, term, tab) {
     const button = (/** @type {string} */ id, /** @type {string} */ label, /** @type {() => void} */ act) =>
-      div()
-        .id(id)
-        .h(26)
-        .px(10)
-        .flex_none()
-        .flex()
-        .items_center()
-        .rounded(6)
-        .cursor_pointer()
-        .border(1)
-        .border_color(t.border)
-        .text_size(12)
-        .text_color(t.foreground)
-        .hover((s) => s.bg(t.hover))
-        .on_click(act)
-        .child(label);
+      uiButton(t, { id, label, h: 26, onClick: () => act() });
     return h_flex()
       .gap(8)
       .items_center()
@@ -971,18 +960,18 @@ export default class Chat extends View {
           h_flex()
             .id("flip")
             .h(24)
-            .px(8)
+            .px(9)
             .gap(6)
             .flex_none()
             .items_center()
-            .rounded(6)
+            .rounded(12)
             .cursor_pointer()
             .text_size(12)
             .text_color(t.muted)
             .hover((s) => s.bg(t.hover))
             .on_click(() => this.showTerminal())
             .child("Terminal")
-            .child(div().text_color(t.dim).child("⌘J")),
+            .child(div().text_color(t.foreground).child("⌘J")),
         ),
       );
   }
@@ -1010,7 +999,7 @@ export default class Chat extends View {
           .gap(6)
           .px(24)
           .child(div().text_size(13.5).text_color(t.foreground).child("This chat names no terminal"))
-          .child(div().text_size(12).text_color(t.dim).child("Start a chat from + in the tab bar.")),
+          .child(div().text_size(12).text_color(t.muted).child("Start a chat from + in the tab bar.")),
       );
     }
 
@@ -1104,7 +1093,7 @@ export default class Chat extends View {
           .px(32)
           .child(div().text_size(13.5).text_color(t.foreground).child(problem.title))
           .when(Boolean(problem.message), (el) =>
-            el.child(div().max_w(560).text_size(11.5).text_color(t.dim).truncate().child(problem.message)),
+            el.child(div().max_w(560).text_size(11.5).text_color(t.muted).truncate().child(problem.message)),
           )
           .child(this.buttons(t, problem, term, tab)),
       );
@@ -1156,7 +1145,20 @@ export default class Chat extends View {
       const current = view.child ?? (own ? view.terminal : null);
       body.child(
         cardOpen(rows, this.toggle)
-          ? threadsCard(rows, { t, current, onRow: (row, cx) => this.openRow(row, cx), paneHeight: this.paneHeight })
+          ? threadsCard(rows, {
+              t,
+              current,
+              onRow: (row, cx) => this.openRow(row, cx),
+              paneHeight: this.paneHeight,
+              hovered: this.threadHover,
+              onHover: (id, on, cx) => {
+                // Leaving one row and entering the next arrive in either order.
+                const next = on ? id : this.threadHover === id ? null : this.threadHover;
+                if (next === this.threadHover) return;
+                this.threadHover = next;
+                cx.notify();
+              },
+            })
           : threadsPill(pillText(rows), t, (cx) => {
               this.toggle = toggleCard(this.rows, this.toggle);
               cx.notify();
@@ -1217,6 +1219,8 @@ export default class Chat extends View {
           : { ...b, enabled: b.enabled && !this.wentOut.has(c.id) && (b.id !== "submit" || complete(this.draftOf(c))) },
       ),
     }));
+    // A card that left the dock fades in again if it comes back.
+    for (const id of this.cardsShown) if (!cards.some((c) => c.id === id)) this.cardsShown.delete(id);
     const active = activeQuestion(this.requests);
     const docked = dock(
       {
@@ -1228,6 +1232,7 @@ export default class Chat extends View {
         focus: this.focus,
         other: this.other,
         notes: this.answerNotes,
+        shown: this.cardsShown,
       },
       {
         onButton: (c, b, cx) => this.clickCard(c, b, cx),
@@ -1235,6 +1240,10 @@ export default class Chat extends View {
         onStep: (c, step, cx) => this.showStep(c, step, cx),
         onKey: (c, e, cx) => this.cardKey(c, e, cx),
         onNotice: (b, cx) => this.clickNotice(b, cx),
+        onShown: (id, cx) => {
+          this.cardsShown.add(id);
+          cx.notify();
+        },
       },
     );
     if (docked) root.child(docked);

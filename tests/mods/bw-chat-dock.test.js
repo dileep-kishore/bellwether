@@ -98,6 +98,22 @@ afterEach(() => {
 });
 
 describe("dock", () => {
+  test("a card fades in after its first layout, and an answered card's check fades in", async () => {
+    let lines = ROOT_LINES;
+    const m = await ready(CLAUDE, data({ feed: () => out(lines) }));
+    const card = () => byId(m.el, `card-${REQUEST.id}`);
+    expect(card().attrs).toMatchObject({ opacity: 0, top: 6, rounded: 12 });
+    await fire(card(), "on_size_change", { width: 600, height: 120 }, m.cx);
+    expect(byId(m.render(), `card-${REQUEST.id}`).attrs).toMatchObject({ opacity: 1, top: 0 });
+    expect(byId(m.el, `card-done-${REQUEST.id}`).attrs).toMatchObject({ opacity: 0, transition: ["opacity", 180] });
+    expect(byId(m.el, `card-glyph-${REQUEST.id}`).attrs).toMatchObject({ opacity: 1, text_color: "#blocked" });
+    lines = rootWith([{ ...REQUEST, state: "answered", resolved_ms: T0 + 3000 }]);
+    await nextPoll(m);
+    expect(textOf(card())).toContain("Approved");
+    expect(byId(m.el, `card-done-${REQUEST.id}`).attrs.opacity).toBe(1);
+    expect(byId(m.el, `card-glyph-${REQUEST.id}`).attrs.opacity).toBe(0);
+  });
+
   test("dock shows approval under its sub-agent and Approve calls answer on the space's machine", async () => {
     const d = live("chat-remote");
     const req = {
@@ -152,7 +168,7 @@ describe("dock", () => {
     const card = byId(m.el, "card-r3.remote");
     expect(textOf(card)).toContain("Approval needed from worker");
     expect(textOf(card)).toContain("touch child.txt");
-    expect(card.attrs.rounded).toBe(8);
+    expect(card.attrs.rounded).toBe(12);
     expect([card.attrs.px, card.attrs.py]).toEqual([16, 12]);
     expect(buttonIds(m, "r3.remote")).toEqual(["approve", "always", "deny", "terminal"]);
     expect(textOf(button(m, "r3.remote", "always"))).toBe("Yes, and don't ask again for touch");

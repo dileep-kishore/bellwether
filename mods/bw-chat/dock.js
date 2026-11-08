@@ -4,7 +4,7 @@ import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, Input } from "gpui-base";
 import { READ_W } from "./estimate.js";
 import { icon } from "./timeline.js";
-import { ICONS } from "./ui.js";
+import { ICONS, MOTION, appear, button } from "./ui.js";
 
 /** @typedef {import("./ui.js").Theme} Theme */
 
@@ -36,6 +36,7 @@ import { ICONS } from "./ui.js";
  * @property {(card: Card, step: number, cx: any) => void} onStep
  * @property {(card: Card, event: any, cx: any) => void} onKey
  * @property {(button: string, cx: any) => void} onNotice
+ * @property {(id: string, cx: any) => void} onShown a card was laid out for the first time
  */
 
 /**
@@ -48,32 +49,21 @@ import { ICONS } from "./ui.js";
  * @property {any} focus the FocusHandle the active card tracks
  * @property {any} other the InputState of the active card's Other field
  * @property {Map<string, string>} notes `bw answer` results by request id
+ * @property {Set<string>} shown cards laid out once, which fade in
  */
 
 const MONO = "Menlo";
 
-/** @param {string} id @param {string} label @param {boolean} enabled @param {boolean} primary @param {Theme} t @param {(cx: any) => void} act */
+/**
+ * A card's button: primary is Mauve, the rest Surface 0. A disabled one still reports its click,
+ * so the chat's own check (focus guard, sending) is what refuses it.
+ * @param {string} id @param {string} label @param {boolean} enabled @param {boolean} primary @param {Theme} t
+ * @param {(cx: any) => void} act
+ */
 function pushButton(id, label, enabled, primary, t, act) {
-  return div()
-    .id(id)
-    .h(28)
-    .px(12)
-    .flex_none()
-    .flex()
-    .items_center()
-    .rounded(6)
-    .text_size(13)
-    .when(primary, (el) => el.bg(enabled ? t.accent : t.chrome).text_color(enabled ? t.background : t.dim))
-    .when(!primary, (el) =>
-      el
-        .border(1)
-        .border_color(t.border)
-        .text_color(enabled ? t.foreground : t.dim),
-    )
-    .disabled(!enabled)
-    .when(enabled, (el) => el.cursor_pointer().hover((s) => s.opacity(0.85)))
-    .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => act(cx))
-    .child(label);
+  return button(t, { id, label, kind: primary ? "primary" : "secondary", enabled }).on_click(
+    (/** @type {unknown} */ _e, /** @type {any} */ cx) => act(cx),
+  );
 }
 
 /** @param {any} q */
@@ -136,7 +126,7 @@ function questionBody(c, v, h) {
           .px(8)
           .gap(8)
           .items_center()
-          .rounded(6)
+          .rounded(8)
           .when(on, (el) => el.bg(t.hover))
           .when(pending, (el) =>
             el
@@ -149,7 +139,7 @@ function questionBody(c, v, h) {
               .w(12)
               .flex_none()
               .text_size(11)
-              .text_color(t.dim)
+              .text_color(t.muted)
               .child(i < 9 ? String(i + 1) : ""),
           )
           .child(glyph)
@@ -165,7 +155,7 @@ function questionBody(c, v, h) {
                   .child(String(o?.label ?? "")),
               )
               .when(Boolean(o?.description), (el) =>
-                el.child(div().text_size(12).text_color(t.dim).whitespace_normal().child(String(o.description))),
+                el.child(div().text_size(12).text_color(t.muted).whitespace_normal().child(String(o.description))),
               ),
           );
       }),
@@ -186,7 +176,7 @@ function questionBody(c, v, h) {
                 .px(8)
                 .flex()
                 .items_center()
-                .rounded(6)
+                .rounded(8)
                 .text_size(12)
                 .cursor_pointer()
                 .when(i === step, (s) => s.bg(t.hover).text_color(t.foreground))
@@ -210,28 +200,62 @@ function card(c, v, h) {
   const command = c.command.trim();
   const tool = c.kind === "approval" ? c.tool.trim() : "";
   const detail = c.detail.trim() && c.detail.trim() !== command ? c.detail.trim() : "";
-  return v_flex()
-    .id(`card-${c.id}`)
-    .w_full()
+  // Approval asks in Peach, a question in Blue; an answered card's check fades in over the icon.
+  const answered = c.state === "answered" || c.state === "declined";
+  const hue = c.kind === "approval" ? t.blocked : t.working;
+  const mark = div()
+    .id(`card-icon-${c.id}`)
+    .relative()
+    .size(24)
     .flex_none()
     .rounded(8)
-    .bg(t.raised)
-    .border(1)
-    .border_color(t.border)
-    .px(16)
-    .py(12)
-    .gap(8)
+    .bg(t.chrome)
+    .flex()
+    .items_center()
+    .justify_center()
+    .child(
+      svg(glyph)
+        .id(`card-glyph-${c.id}`)
+        .size(14)
+        .text_color(pending ? hue : t.dim)
+        .opacity(answered ? 0 : 1)
+        .transition("opacity", MOTION.fade),
+    )
+    .child(
+      svg(ICONS.check)
+        .id(`card-done-${c.id}`)
+        .absolute()
+        .top(5)
+        .left(5)
+        .size(14)
+        .text_color(t.done)
+        .opacity(answered ? 1 : 0)
+        .transition("opacity", MOTION.fade),
+    );
+  return appear(
+    v_flex()
+      .id(`card-${c.id}`)
+      .w_full()
+      .flex_none()
+      .rounded(12)
+      .bg(t.raised)
+      .border(1)
+      .border_color(t.border)
+      .shadow_sm()
+      .px(16)
+      .py(12)
+      .gap(8)
+      .on_size_change((/** @type {unknown} */ _s, /** @type {any} */ cx) => {
+        if (!v.shown.has(c.id)) h.onShown(c.id, cx);
+      }),
+    v.shown.has(c.id),
+  )
     .child(
       h_flex()
         .w_full()
         .gap(8)
-        .items_start()
-        .child(
-          svg(glyph)
-            .size(16)
-            .flex_none()
-            .text_color(pending ? t.blocked : t.muted),
-        )
+        .items_center()
+        .child(mark)
         .child(
           div()
             .flex_1()
@@ -252,7 +276,7 @@ function card(c, v, h) {
           .w_full()
           .max_h(288)
           .overflow_y_scrollbar()
-          .rounded(6)
+          .rounded(8)
           .bg(t.chrome)
           .px(10)
           .py(8)
@@ -266,7 +290,7 @@ function card(c, v, h) {
       ),
     )
     .when(Boolean(detail), (el) =>
-      el.child(div().w_full().text_size(12).text_color(t.dim).whitespace_normal().child(detail)),
+      el.child(div().w_full().text_size(12).text_color(t.muted).whitespace_normal().child(detail)),
     )
     .map((el) => {
       const body = c.kind === "question" || c.kind === "question_async" ? questionBody(c, v, h) : null;
@@ -304,7 +328,7 @@ function notice(n, t, h) {
     .id("hooks-notice")
     .w_full()
     .flex_none()
-    .rounded(8)
+    .rounded(12)
     .bg(t.raised)
     .border(1)
     .border_color(t.border)
@@ -322,7 +346,7 @@ function notice(n, t, h) {
           .w_full()
           .max_h(288)
           .overflow_y_scrollbar()
-          .rounded(6)
+          .rounded(8)
           .bg(t.chrome)
           .px(10)
           .py(8)

@@ -3,7 +3,7 @@
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { icon } from "./timeline.js";
-import { statusIcon } from "./ui.js";
+import { hoverFill, mutedOnSelected, pill, statusMark } from "./ui.js";
 
 /** @typedef {import("./ui.js").Theme} Theme */
 
@@ -22,11 +22,13 @@ export const rowId = (row) => (row.kind === "parent" ? "row-parent" : `row-${row
 
 /**
  * @param {Row} row @param {Theme} t @param {boolean} current the view shows this row
- * @param {(row: Row, cx: any) => void} onRow
+ * @param {boolean} hovered @param {{ onRow: (row: Row, cx: any) => void, onHover: (id: string, on: boolean, cx: any) => void }} h
  */
-function threadRow(row, t, current, onRow) {
+function threadRow(row, t, current, hovered, h) {
+  const id = rowId(row);
   return h_flex()
-    .id(rowId(row))
+    .id(id)
+    .relative()
     .h(ROW_H)
     .w_full()
     .flex_none()
@@ -34,31 +36,36 @@ function threadRow(row, t, current, onRow) {
     .pr(8)
     .gap(6)
     .items_center()
-    .rounded(6)
+    .rounded(8)
     .cursor_pointer()
-    .when(current, (el) => el.bg(t.hover))
-    .hover((s) => s.bg(t.hover))
-    .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => onRow(row, cx))
-    .child(statusIcon(t, GLYPH[row.state], 12))
+    .when(current, (el) => el.bg(t.selected))
+    .on_hover((/** @type {boolean} */ on, /** @type {any} */ cx) => h.onHover(id, on, cx))
+    .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => h.onRow(row, cx))
+    .child(hoverFill(t, `hover-${id}`, hovered && !current, 8))
+    .when(current, (el) =>
+      el.child(div().id(`bar-${id}`).absolute().left(0).top(7).bottom(7).w(2).rounded(1).bg(t.accent)),
+    )
+    .child(statusMark(t, GLYPH[row.state], 12, `mark-${id}`))
     .child(div().flex_none().text_size(13).text_color(t.foreground).child(row.type))
-    .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.dim).child(row.description))
-    .when(Boolean(row.since), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(row.since)))
-    .when(row.requests > 0, (el) =>
+    .child(
+      div()
+        .flex_1()
+        .min_w(0)
+        .truncate()
+        .text_size(13)
+        .text_color(current ? mutedOnSelected : t.muted)
+        .child(row.description),
+    )
+    .when(Boolean(row.since), (el) =>
       el.child(
         div()
-          .id(`badge-${row.id}`)
           .flex_none()
-          .h(16)
-          .px(5)
-          .flex()
-          .items_center()
-          .rounded(8)
-          .bg(t.blocked)
           .text_size(11)
-          .text_color(t.background)
-          .child(String(row.requests)),
+          .text_color(current ? mutedOnSelected : t.muted)
+          .child(row.since),
       ),
-    );
+    )
+    .when(row.requests > 0, (el) => el.child(pill(t, String(row.requests), "request", `badge-${row.id}`)));
 }
 
 /**
@@ -66,8 +73,10 @@ function threadRow(row, t, current, onRow) {
  * Herdr drops an absolute element's insets when that element scrolls, and a percentage cap collapses
  * the scrolling box, so the card only places itself and an inner box capped in pixels scrolls.
  * @param {Row[]} rows
- * @param {{ t: Theme, current: string | null, onRow: (row: Row, cx: any) => void, paneHeight: number }} o
+ * @param {{ t: Theme, current: string | null, onRow: (row: Row, cx: any) => void, paneHeight: number,
+ *   hovered?: string | null, onHover?: (id: string, on: boolean, cx: any) => void }} o
  *   `current` is the row id the view shows; null for the parent. `paneHeight` is 0 before the first layout.
+ *   `hovered` is the element id of the row under the pointer.
  */
 export function threadsCard(rows, o) {
   const { t } = o;
@@ -77,8 +86,8 @@ export function threadsCard(rows, o) {
     .top(EDGE)
     .right(EDGE)
     .w(CARD_W)
-    .rounded(8)
-    .bg(t.raised)
+    .rounded(12)
+    .bg(t.popover)
     .border(1)
     .border_color(t.border)
     .shadow_md()
@@ -90,7 +99,12 @@ export function threadsCard(rows, o) {
         .gap(0)
         .overflow_y_scrollbar()
         .children(
-          rows.map((r) => threadRow(r, t, (o.current ?? null) === (r.kind === "parent" ? null : r.id), o.onRow)),
+          rows.map((r) =>
+            threadRow(r, t, (o.current ?? null) === (r.kind === "parent" ? null : r.id), o.hovered === rowId(r), {
+              onRow: o.onRow,
+              onHover: o.onHover ?? (() => {}),
+            }),
+          ),
         ),
     );
 }
@@ -107,16 +121,17 @@ export function threadsPill(text, t, onClick) {
     .absolute()
     .top(EDGE)
     .right(EDGE)
-    .h(26)
-    .px(10)
+    .h(28)
+    .px(12)
     .gap(6)
     .items_center()
-    .rounded(13)
-    .bg(t.raised)
+    .rounded(14)
+    .bg(t.popover)
     .border(1)
     .border_color(t.border)
+    .shadow_sm()
     .cursor_pointer()
-    .hover((s) => s.bg(t.hover))
+    .hover((s) => s.bg(t.raised))
     .text_size(12)
     .text_color(t.muted)
     .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => onClick(cx))
@@ -132,7 +147,7 @@ export function threadsButton(count, t, onClick) {
     .gap(6)
     .flex_none()
     .items_center()
-    .rounded(6)
+    .rounded(12)
     .cursor_pointer()
     .text_size(12)
     .text_color(t.muted)
@@ -169,7 +184,7 @@ export function subagentBar(text, parentName, t, onBack) {
         .gap(4)
         .flex_none()
         .items_center()
-        .rounded(6)
+        .rounded(13)
         .cursor_pointer()
         .text_size(13)
         .text_color(t.foreground)
