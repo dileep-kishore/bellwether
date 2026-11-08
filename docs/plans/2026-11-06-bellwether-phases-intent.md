@@ -294,8 +294,8 @@ Answer:
 - 2026-11-07: phase 4b also fixes four faults its window run found, each a
   Bellwether FAIL under step 5: a background Chrome start gives the front
   back to the app that had it (`5556569`), a long answer button stays inside
-  its card (`69c62a1`), a wrapped Claude tip stays out of a card's detail
-  (`2296b9d`). The Browser header's "Run…" cut did not reproduce and was
+  its card (`c13f902`), a wrapped Claude tip stays out of a card's detail
+  (`7aea120`). The Browser header's "Run…" cut did not reproduce and was
   left as it is.
 - 2026-11-07: build note, not a plan change: a chat tab's terminal keeps
   its split share while the chat is zoomed (15 columns in a 949 px window),
