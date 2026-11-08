@@ -12,6 +12,7 @@
  * @property {number} width
  * @property {number} [height]
  * @property {Record<string, unknown>} [props]
+ * @property {"none"} frame the mod draws its own card, so the whole card can fade in
  */
 
 /**
@@ -49,14 +50,15 @@ export function projectMenu(p) {
   return {
     mod: "bw-menu",
     kind: "popup",
-    width: 220,
+    width: 248,
+    frame: "none",
     props: { project: { key, machine, commonDir, main, name, open } },
   };
 }
 
 /** @returns {OverlaySpec} */
 export function addProject() {
-  return { mod: "bw-add", kind: "dialog", width: 420, height: 220 };
+  return { mod: "bw-add", kind: "dialog", width: 420, height: 220, frame: "none" };
 }
 
 /**
@@ -64,5 +66,12 @@ export function addProject() {
  * @returns {OverlaySpec}
  */
 export function newInMain(p) {
-  return { mod: "bw-new", kind: "popup", width: 232, height: 300, props: { machine: p.machine, folder: p.main } };
+  return {
+    mod: "bw-new",
+    kind: "popup",
+    width: 232,
+    height: 300,
+    frame: "none",
+    props: { machine: p.machine, folder: p.main },
+  };
 }

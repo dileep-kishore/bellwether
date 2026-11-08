@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { live, mount } from "../harness/mount.js";
-import { byId, textOf } from "../harness/kit-stub.js";
+import { byId, findAll, textOf } from "../harness/kit-stub.js";
 import { fake } from "../harness/herdr-stub.js";
 import { adopt } from "../../shared/chat-tabs.js";
 import { HELPER_SCRIPTS, HELPER_VERSION, PROTOCOL } from "../../shared/helper.js";
@@ -301,9 +301,9 @@ describe("bw-new: browser additions", () => {
     await m.click("row-codex");
     const row = byId(m.el, "row-codex");
     expect(textOf(row)).toContain("Preparing browser…");
-    const icon = /** @type {any} */ (row).kids[0];
+    const [icon] = findAll(row, (e) => e.tag === "svg" && e.attrs.spin !== undefined);
     expect(icon.attrs.path).toContain("ring-spin");
-    expect(icon.attrs.spin).toBe(900);
+    expect(icon.attrs).toMatchObject({ spin: 900, text_color: "#accent" });
     expect(textOf(byId(m.el, "row-claude"))).not.toContain("Preparing browser…");
   });
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { live, mount } from "../harness/mount.js";
 import { fake } from "../harness/herdr-stub.js";
-import { byId, textOf } from "../harness/kit-stub.js";
+import { byId, fire, textOf } from "../harness/kit-stub.js";
 import { chatLaunch, contextOf, menuEntries } from "../../mods/bw-new/entries.js";
 
 const agent = (key, name, installed) => ({
@@ -356,10 +356,11 @@ describe("bw-new", () => {
     expect(m.log.shared.filter(([k]) => k === "bw.chat-tabs")).toEqual([]);
   });
 
-  test("draws a 232 px popover column with its three section headings", async () => {
+  test("draws its own popover card with its three section headings, fading in after layout", async () => {
     const m = await mount("bw-new", { props: { space: "s1" }, live: live("two-machines") });
-    expect(m.el.attrs.w).toBe(232);
-    expect(m.el.attrs.bg).toBe("#popover");
+    expect(m.el.attrs).toMatchObject({ bg: "#popover", rounded: 12, border_color: "#border", opacity: 0, top: 6 });
+    await fire(m.el, "on_size_change", { width: 232, height: 300 }, m.cx);
+    expect(m.render().attrs).toMatchObject({ opacity: 1, top: 0 });
     const text = textOf(m.el);
     expect(text.indexOf("New chat")).toBeLessThan(text.indexOf("New terminal"));
     expect(text.indexOf("New terminal")).toBeLessThan(text.indexOf("Worktree"));

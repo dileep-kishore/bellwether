@@ -1,11 +1,11 @@
 // The Add project dialog, opened by bw-projects' header: a machine, a folder on it, then
 // rev-parse there to find the repository it belongs to.
 import { View, div, svg } from "gpui-kit";
-import { Input, InputState, h_flex, v_flex } from "gpui-base";
+import { Input, InputState, h_flex } from "gpui-base";
 import { closeOverlay, exec, home, machines, pickFolder, props, setShared, shared, window } from "herdr";
 import { readPlace } from "./git.js";
 import { projectKey, readStored, rememberProjects } from "./projects-model.js";
-import { ICONS, themeColors } from "./ui.js";
+import { ICONS, appear, button, card, themeColors } from "./ui.js";
 
 const KEY = "bw.projects";
 
@@ -33,6 +33,8 @@ export default class Add extends View {
     this.waiting = "";
     this.error = "";
     this.busy = false;
+    /** The card fades in once it has been laid out. */
+    this.shown = false;
     this.input = InputState.new({ placeholder: "/path/to/repository" });
     this.input.on("change", (/** @type {unknown} */ _e, /** @type {any} */ cx) => {
       this.error = "";
@@ -121,118 +123,119 @@ export default class Add extends View {
     ];
     const blocked = this.busy || this.waiting !== "";
 
-    const button = (
-      /** @type {string} */ id,
-      /** @type {string} */ label,
-      /** @type {boolean} */ primary,
-      /** @type {(cx: any) => void} */ act,
-    ) =>
-      div()
-        .id(id)
-        .h(30)
-        .px(12)
-        .flex()
-        .flex_none()
-        .items_center()
-        .rounded(6)
-        .text_size(12)
-        .cursor_pointer()
-        .when(primary, (el) => el.bg(blocked ? t.raised : t.solid).text_color(blocked ? t.dim : t.solid_foreground))
-        .when(!primary, (el) =>
-          el
-            .border(1)
-            .border_color(t.border)
-            .text_color(t.foreground)
-            .hover((s) => s.bg(t.hover)),
-        )
-        .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => act(cx))
-        .child(label);
-
-    return v_flex()
-      .id("bw-add")
-      .size_full()
-      .p(16)
-      .gap(12)
-      .bg(t.popover)
-      .text_size(13)
-      .text_color(t.foreground)
-      .child(div().font_semibold().child("Add project"))
-      .child(
-        h_flex()
-          .gap(6)
-          .flex_wrap()
-          .children(
-            choices.map((c) => {
-              const on = c.name === this.machine;
-              return h_flex()
-                .id(`add-machine-${c.id}`)
-                .h(26)
-                .px(9)
-                .gap(6)
-                .items_center()
-                .rounded(6)
-                .cursor_pointer()
-                .text_size(12)
-                .border(1)
-                .border_color(on ? t.accent : t.border)
-                .text_color(on ? t.foreground : t.muted)
-                .when(on, (el) => el.bg(t.selected))
-                .when(!on, (el) => el.hover((s) => s.bg(t.hover)))
-                .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => {
-                  if (this.machine === c.name) return;
-                  if (this.waiting) this.input.set_value("");
-                  this.machine = c.name;
-                  this.error = "";
-                  cx.notify();
-                })
-                .child(svg(c.icon).size(12).flex_none())
-                .child(c.label);
-            }),
-          ),
-      )
-      .child(
-        h_flex()
-          .gap(8)
-          .items_center()
-          .child(
-            Input.new(this.input)
-              .flex_1()
-              .h(32)
-              .px(10)
-              .items_center()
-              .rounded(6)
-              .border(1)
-              .border_color(t.input)
-              .bg(t.background)
-              .text_color(t.foreground),
-          )
-          .when(this.machine === null, (el) =>
-            el.child(
-              button("add-choose", "Choose…", false, (cx) => {
-                if (!this.busy) this.choose(cx);
+    return appear(
+      card(t, "bw-add", { fill: "popover" })
+        .size_full()
+        .p(18)
+        .gap(12)
+        .text_size(13)
+        .text_color(t.foreground)
+        .on_size_change((/** @type {unknown} */ _s, /** @type {any} */ cx) => {
+          if (this.shown) return;
+          this.shown = true;
+          cx.notify();
+        })
+        .child(div().text_size(14).font_semibold().child("Add project"))
+        .child(
+          h_flex()
+            .id("add-machines")
+            .flex_none()
+            .p(2)
+            .gap(2)
+            .flex_wrap()
+            .rounded(14)
+            .bg(t.raised)
+            .self_start()
+            .children(
+              choices.map((c) => {
+                const on = c.name === this.machine;
+                return h_flex()
+                  .id(`add-machine-${c.id}`)
+                  .h(24)
+                  .px(10)
+                  .gap(6)
+                  .items_center()
+                  .rounded(12)
+                  .cursor_pointer()
+                  .text_size(12)
+                  .text_color(on ? t.foreground : t.muted)
+                  .when(on, (el) => el.bg(t.selected))
+                  .when(!on, (el) => el.hover((s) => s.bg(t.hover)))
+                  .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) => {
+                    if (this.machine === c.name) return;
+                    if (this.waiting) this.input.set_value("");
+                    this.machine = c.name;
+                    this.error = "";
+                    cx.notify();
+                  })
+                  .child(
+                    svg(c.icon)
+                      .size(12)
+                      .flex_none()
+                      .text_color(on ? t.accent : t.dim),
+                  )
+                  .child(c.label);
               }),
             ),
-          ),
-      )
-      .child(
-        div()
-          .text_size(11.5)
-          .text_color(this.error || this.waiting ? t.blocked : t.dim)
-          .child(
-            this.error ||
-              this.waiting ||
-              (this.machine === null
-                ? "A folder in a Git repository on this Mac."
-                : `An absolute path on ${this.machine}.`),
-          ),
-      )
-      .child(h_flex().flex_1())
-      .child(
-        h_flex()
-          .justify_end()
-          .gap(8)
-          .child(button("add-cancel", "Cancel", false, () => this.dismiss()))
-          .child(button("add-go", this.busy ? "Adding…" : "Add", true, (cx) => this.add(cx))),
-      );
+        )
+        .child(
+          h_flex()
+            .gap(8)
+            .items_center()
+            .child(
+              Input.new(this.input)
+                .flex_1()
+                .h(32)
+                .px(12)
+                .items_center()
+                .rounded(10)
+                .border(1)
+                .border_color(t.input)
+                .bg(t.background)
+                .text_color(t.foreground),
+            )
+            .when(this.machine === null, (el) =>
+              el.child(
+                button(t, {
+                  id: "add-choose",
+                  label: "Choose…",
+                  h: 32,
+                  onClick: (_e, cx) => {
+                    if (!this.busy) this.choose(cx);
+                  },
+                }),
+              ),
+            ),
+        )
+        .child(
+          div()
+            .text_size(12)
+            .text_color(this.error || this.waiting ? t.blocked : t.muted)
+            .child(
+              this.error ||
+                this.waiting ||
+                (this.machine === null
+                  ? "A folder in a Git repository on this Mac."
+                  : `An absolute path on ${this.machine}.`),
+            ),
+        )
+        .child(h_flex().flex_1())
+        .child(
+          h_flex()
+            .justify_end()
+            .gap(8)
+            .child(button(t, { id: "add-cancel", label: "Cancel", kind: "ghost", onClick: () => this.dismiss() }))
+            .child(
+              button(t, {
+                id: "add-go",
+                label: this.busy ? "Adding…" : "Add",
+                kind: "primary",
+                enabled: !blocked,
+                onClick: (_e, cx) => this.add(cx),
+              }),
+            ),
+        ),
+      this.shown,
+    );
   }
 }

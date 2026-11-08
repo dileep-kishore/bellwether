@@ -25,7 +25,7 @@ import {
   terminalLaunch,
 } from "./entries.js";
 import { createHelper } from "./helper.js";
-import { ICONS, programIcon, themeColors } from "./ui.js";
+import { ICONS, appear, card, hoverFill, programIcon, spinner, themeColors } from "./ui.js";
 
 // The last agents each machine reported, keyed by machine name ("" for this Mac), shown at once.
 const KNOWN = "bw.known-agents";
@@ -44,6 +44,10 @@ export default class NewMenu extends View {
     /** @type {import("./entries.js").KnownAgent[] | null} */
     this.agents = Array.isArray(cached) ? cached : null;
     this.failed = false;
+    /** The card fades in once it has been laid out. */
+    this.shown = false;
+    /** The row under the pointer. @type {string | null} */
+    this.hovered = null;
     /** The row whose agent waits for its browser flags; every click is ignored meanwhile. @type {string | null} */
     this.preparing = null;
     /** The prepared agent `render` starts next. @type {{ action: import("./entries.js").RowAction, ctx: import("./entries.js").MenuContext, overlay: string | null, argv: string[], notice: string | null } | null} */
@@ -135,23 +139,33 @@ export default class NewMenu extends View {
     const rows = menuEntries({ agents: this.agents, failed: this.failed, ctx: contextOf(p, spaces(), panes()) });
 
     const busy = this.preparing !== null;
+    const tile = (/** @type {any} */ glyph) =>
+      div().size(22).flex_none().rounded(6).bg(t.raised).flex().items_center().justify_center().child(glyph);
     const icon = (/** @type {import("./entries.js").Row} */ r) => {
-      if (r.id === this.preparing) return svg(ICONS["ring-spin"]).size(14).flex_none().text_color(t.muted).spin(900);
-      if (r.section === "Worktree") return svg(ICONS.branch).size(14).flex_none().text_color(t.muted);
-      return programIcon(r.agent, t);
+      if (r.id === this.preparing) return tile(spinner(t, 14));
+      if (r.section === "Worktree") return tile(svg(ICONS.branch).size(14).flex_none().text_color(t.muted));
+      return tile(programIcon(r.agent, t));
     };
     const line = (/** @type {import("./entries.js").Row} */ r) => {
       const hint = r.id === this.preparing ? "Preparing browser…" : r.hint;
+      const live = r.enabled && !busy;
       return h_flex()
         .id(`row-${r.id}`)
+        .relative()
         .h(30)
-        .px(8)
+        .px(6)
         .gap(9)
         .flex_none()
         .items_center()
-        .rounded(6)
-        .text_color(r.enabled ? t.foreground : t.dim)
-        .when(r.enabled && !busy, (el) => el.cursor_pointer().hover((s) => s.bg(t.selected)))
+        .rounded(8)
+        .text_color(r.enabled ? t.foreground : t.muted)
+        .on_hover((/** @type {boolean} */ on, /** @type {any} */ cx) => {
+          const next = on ? r.id : this.hovered === r.id ? null : this.hovered;
+          if (next === this.hovered) return;
+          this.hovered = next;
+          cx.notify();
+        })
+        .when(live, (el) => el.cursor_pointer())
         .on_click((/** @type {any} */ _e, /** @type {any} */ cx) => {
           if (!r.enabled || this.preparing !== null) return;
           // The space can close after this render drew the row.
@@ -168,19 +182,38 @@ export default class NewMenu extends View {
           if (r.action[0] === "run") run(r.action[1], r.action[2]);
           else if (r.action[0] === "overlay") openOverlay(r.action[1]);
         })
+        .child(hoverFill(t, `hover-${r.id}`, live && this.hovered === r.id, 8))
         .child(icon(r))
         .child(div().flex_1().min_w(0).truncate().child(r.label))
-        .when(hint !== "", (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(hint)));
+        .when(hint !== "", (el) =>
+          el.child(
+            div()
+              .flex_none()
+              .text_size(11)
+              .text_color(r.id === this.preparing ? t.accent : t.muted)
+              .child(hint),
+          ),
+        );
     };
-    const heading = (/** @type {string} */ name) => div().px(8).pt(6).pb(3).text_size(11).text_color(t.dim).child(name);
+    const heading = (/** @type {string} */ name) =>
+      div().px(8).pt(6).pb(3).text_size(11).font_medium().text_color(t.muted).child(name);
 
     const sections = [...new Set(rows.map((r) => r.section))];
-    return v_flex()
-      .id("bw-new")
-      .w(232)
-      .p(4)
-      .bg(t.popover)
-      .text_size(12.5)
-      .children(sections.map((s) => v_flex().children([heading(s), ...rows.filter((r) => r.section === s).map(line)])));
+    return appear(
+      card(t, "bw-new", { fill: "popover" })
+        .size_full()
+        .p(4)
+        .overflow_hidden()
+        .text_size(12.5)
+        .on_size_change((/** @type {unknown} */ _s, /** @type {any} */ cx) => {
+          if (this.shown) return;
+          this.shown = true;
+          cx.notify();
+        })
+        .children(
+          sections.map((s) => v_flex().children([heading(s), ...rows.filter((r) => r.section === s).map(line)])),
+        ),
+      this.shown,
+    );
   }
 }
