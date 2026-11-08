@@ -453,7 +453,8 @@ click its Refresh button.
 While the panel is shown, it reads a worktree on this Mac when `watchFolder`
 reports a change in the worktree or its common dir, at most once a second,
 and every 30 s without a change. It reads a worktree on another machine every
-1.5 s. Each read also returns a digest of the selected file's patch, and the
+1.5 s, through the helper's watcher there (below), so a poll that finds no
+change runs no Git. Each read also returns a digest of the selected file's patch, and the
 panel reloads the patch only when that digest changes. A hidden panel makes
 no helper call, and showing the panel again reads at once.
 
@@ -467,7 +468,7 @@ that writes to the repository.
 ### Commands
 
 ```sh
-bw diff files --path <dir> [--base <ref>] [--mode merge-base|tip] [--select staged|changes|committed --file <path> [--old <path>]]
+bw diff files --path <dir> [--base <ref>] [--mode merge-base|tip] [--select staged|changes|committed --file <path> [--old <path>]] [--watch [--since <token>]]
 bw diff patch --path <dir> --section staged|changes|committed --file <path> [--old <path>] [--untracked] [--from <rev> --to <rev>] [--page <n>]
 bw diff refs --path <dir> [--verify <ref>]
 bw diff fetch --path <dir> [--remote <name> | --base <ref>]
@@ -483,9 +484,24 @@ Committed needs `--from` and `--to`, and an untracked file needs
 line with `--verify`. `fetch` prints a `diff-fetched` line naming the remote.
 A failure prints one `error` line and exits 1.
 
+`files --watch` starts a watcher for the worktree when none runs: a detached
+`bw diff watch` that counts file events in the worktree and its common dir,
+keeps its state under `~/.cache/bellwether/git-watch/`, and exits after 60 s
+with no `files --watch` call. Each full read then ends with a `diff-token`
+line. A call that sends that token back with `--since` prints one
+`diff-unchanged` line instead of the lists while the watcher saw no event,
+the arguments are the same and the watcher's process is alive; any other
+call reads Git. The watcher starts without `HC_SCOPE`, the variable
+herdr-core uses to end what an `hc exec` call started, so it outlives the
+call. Only a remote panel uses it: a local panel already reads when
+`watchFolder` fires.
+
 Every Git call runs with
 `--no-optional-locks -c core.fsmonitor=false -c diff.autoRefreshIndex=false`,
-so a read never refreshes the index or starts fsmonitor. Every diff adds
+so a read never refreshes the index or starts fsmonitor. It also sets
+`core.preloadIndex=false`: Git's parallel stat costs four to five times the
+CPU of one thread at the same wall time. Changes' `git diff --numstat` names
+only the paths `git status` listed, up to 1,000. Every diff adds
 `--no-ext-diff --no-textconv --no-color`, so a repository's own config never
 runs a diff program. The helper also clears `GIT_DIR`, `GIT_WORK_TREE`,
 `GIT_INDEX_FILE`, `GIT_COMMON_DIR` and `GIT_EXTERNAL_DIFF`, and reads a
@@ -796,6 +812,16 @@ folder prompt at 80 columns, then again after an `hc attach` viewer narrows
 the same terminal. It runs Claude haiku and Codex in a private core
 (`HC_SESSION=bw-wrap`) in scratch repositories, scrubs the screens into
 `tests/fixtures/screens/`, and removes the core and the folders.
+
+`scripts/verify/poll-cost.sh [--machine <name>] [--bw <path>] [runs]` is done
+check E's cost half: it times `bw feed` on the largest Claude log and Codex
+rollout and `bw diff files` on the largest Git checkout under the home
+folder (by index size), a full read and a watcher's unchanged poll, each
+`runs` times under `/usr/bin/time -l`. With `--machine` it feeds
+`poll-cost-probe.sh` to `hc exec -i` and runs the helper installed there.
+It skips Desktop, Documents and Downloads, which macOS guards with a prompt
+on that machine's display. Its table names the files it read, never their
+text. `docs/research/2026-11-08-phase7-poll-cost.md` holds the results.
 
 `scripts/verify/feed-cost.sh [runs]` times `bw feed --log … --pictures` on
 the largest Claude and Codex logs on this Mac: a first read, an unchanged
