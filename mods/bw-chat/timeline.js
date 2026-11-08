@@ -240,6 +240,8 @@ function body(row, d) {
   switch (row.k) {
     case "user": {
       const w = Math.floor(d.col * BUBBLE);
+      // The bubble takes its width from its TextView, which keeps the width it last wrapped at under its
+      // id: without the width in the id, a bubble drawn narrow stays narrow in a wider pane and is cut.
       return h_flex()
         .w_full()
         .justify_end()
@@ -252,7 +254,7 @@ function body(row, d) {
             .rounded(16)
             .bg(t.raised)
             .text_color(t.foreground)
-            .child(markdownView(row.id, row.text || "", t, w - 28)),
+            .child(markdownView(`${row.id}-w${w}`, row.text || "", t, w - 28)),
         );
     }
     case "assistant":
