@@ -3,8 +3,8 @@
 # machine matches Git, a closed row opens its exact folder, counts follow an edit within 2 s, and an
 # unreachable machine keeps its rows.
 #   scripts/verify/projects.sh [--offline | --machine <name>]
-# This Mac's repositories go in /private/tmp/bw-verify-projects; <name>'s in $HOME/bw-verify/projects
-# there, built by sending make-repos.sh as `hc exec --on <name> sh -c <script> sh <root>`.
+# This Mac's repositories go in /private/tmp/bw-verify-projects; <name>'s in $BW_PROJECTS_REMOTE_ROOT
+# (default $HOME/bw-verify/projects there), built by sending make-repos.sh as `hc exec --on <name> sh -c <script> sh <root>`.
 # --offline uses no other machine: gamma is built under the local root and served by a local exec
 # named bw-stand-in, and the remote half of counts-within-2s is skipped. No flag does the same and
 # prints a PENDING line for the remote half.
@@ -46,7 +46,7 @@ set -- --root "$local_root" --beta "$beta"
 if [ -n "$machine" ]; then
   home=$("$hc" exec --on "$machine" -- sh -c 'printf %s "$HOME"' 2>&1) && [ -n "$home" ] ||
     { echo "FAIL setup: hc exec --on $machine cannot read its HOME: $home"; exit 1; }
-  R=$home/bw-verify/projects
+  R=${BW_PROJECTS_REMOTE_ROOT:-$home/bw-verify/projects}
   out=$("$hc" exec --on "$machine" -- sh -c "$(cat "$src/scripts/verify/make-repos.sh")" sh "$R" 2>&1) ||
     { echo "FAIL setup: make-repos.sh $R on $machine: $out"; exit 1; }
   set -- "$@" --machine "$machine" --remote-root "$(root_of "$out")"
