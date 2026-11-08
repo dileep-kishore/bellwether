@@ -448,7 +448,9 @@ helper sends the patch in pages under 4 MiB, and a "Show more" button loads
 the next page. A line too large for a page shows as "Line too large to show"
 with its size. "Open as tab" opens the patch as a middle tab named after the
 file, such as `notes.txt · diff`. That tab loads once, and again when you
-click its Refresh button.
+click its Refresh button. A Committed on branch tab keeps the commit range it
+opened with, named by short hashes in its header, and Refresh reads that range
+again.
 
 While the panel is shown, it reads a worktree on this Mac when `watchFolder`
 reports a change in the worktree or its common dir, at most once a second,

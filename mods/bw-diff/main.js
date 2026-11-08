@@ -59,6 +59,9 @@ const icon = (name) => `mods/bw-diff/icons/${name}.svg`;
 /** @param {Selection | null} s */
 const selKey = (s) => (s ? JSON.stringify([s.section, s.path, s.oldPath, s.untracked]) : "");
 
+/** @param {unknown} e */
+const errorText = (e) => (e instanceof Error ? e.message : String(e));
+
 /** @returns {Set<string>} */
 function loadFolded() {
   try {
@@ -124,13 +127,25 @@ export default class Changes extends View {
         // A hidden panel calls nothing, and a job may wait on another's call; update() pokes again once
         // Changes is shown.
         const may = () => this.alive && (this.tab !== null || isShown(layout()));
+        // One task's exception ends here, so the loop still serves later loads.
         if (may() && this.refsWanted) {
           this.refsWanted = false;
-          await this.loadRefs(cx);
+          try {
+            await this.loadRefs(cx);
+          } catch (e) {
+            this.picker = { ...this.picker, loading: false, error: errorText(e) };
+            cx.notify();
+          }
         }
         if (may() && this.patchWanted) {
           this.patchWanted = false;
-          await this.loadPatch(cx);
+          try {
+            await this.loadPatch(cx);
+          } catch (e) {
+            if (this.patch) this.patch = { ...this.patch, loading: false, error: errorText(e) };
+            else this.note = errorText(e);
+            cx.notify();
+          }
         }
       }
     });
@@ -339,11 +354,12 @@ export default class Changes extends View {
     const listed = this.view?.digest?.digest ?? null;
     cx.notify();
     const answer = await this.helper.call(src.machine, args);
-    if (this.patchSource()?.key !== src.key) {
+    // A pick away and back clears the patch but keeps the key, so a page answered for the old state is dropped.
+    const now = this.patch?.key === src.key ? this.patch : null;
+    if (!now || this.patchSource()?.key !== src.key) {
       if (this.selected) this.wantPatch(0);
       return;
     }
-    const now = /** @type {PatchState} */ (this.patch);
     const line = answer.ok ? /** @type {any} */ (answer.lines.find((l) => l.type === "diff-patch")) : null;
     if (!line) {
       const message = answer.ok === false ? answer.message : "bw diff patch printed no page";
@@ -371,7 +387,14 @@ export default class Changes extends View {
   /** @param {import("./model.js").Row} row @param {any} cx */
   pick(row, cx) {
     this.note = null;
-    if (selKey(this.selected) === selKey(selectionOf(row))) return;
+    if (selKey(this.selected) === selKey(selectionOf(row))) {
+      // Clicking the selected row again retries a failed read, which a refresh skips while the digest holds.
+      if (this.patch?.error && !this.patch.loading) {
+        this.wantPatch(0);
+        cx.notify();
+      }
+      return;
+    }
     this.selected = selectionOf(row);
     this.patch = null;
     this.wantPatch(0);
@@ -1052,6 +1075,8 @@ export default class Changes extends View {
     const detail = [
       SECTION_TITLE[tab.section],
       tab.section === "committed" && tab.base ? `${tab.mode === "tip" ? "tip of" : "since"} ${tab.base}` : null,
+      // The range pinned at open, which Refresh reads again: a later commit or base move is not in this tab.
+      tab.section === "committed" && tab.from && tab.to ? `${tab.from.slice(0, 7)}..${tab.to.slice(0, 7)}` : null,
       this.tabMachineName,
     ]
       .filter(Boolean)
