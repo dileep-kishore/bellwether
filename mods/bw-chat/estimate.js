@@ -328,8 +328,9 @@ export function colWidths(width, rows, n) {
   return out;
 }
 
+// A pane narrower than the gutters gets an empty column rather than one wider than the pane, which clips.
 export const columnWidth = (/** @type {number} */ paneWidth) =>
-  Math.max(240, Math.min(READ_W, (paneWidth || 800) - GUTTER * 2));
+  Math.max(0, Math.min(READ_W, (paneWidth || 800) - GUTTER * 2));
 
 // A picture whose size the log did not record gets the tallest guess.
 /** @param {{ width?: number, height?: number }} p @param {number} width */
