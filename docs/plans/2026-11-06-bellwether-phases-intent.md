@@ -281,4 +281,25 @@ Answer:
   (`docs/drafts/window-check-results/p3-codex-folder-prompt-narrow.txt`);
   `same_call` already compares commands by words
   (`crates/bw/src/requests/matchers.rs:184-227`).
+- 2026-11-07: phase 4b step 1 hashes a Claude approval's tool and command
+  only, matches a Codex question with whitespace dropped, and reads `2.Yes`
+  as an option. Original (amendment above): "builds the prompt id with all
+  whitespace and rule glyphs removed". Evidence: the window run on the Mac
+  mini (`docs/drafts/phase5-onward/done-checks.md`, check A): at 16 columns
+  Claude cut option 2's text short and wrapped the question
+  (`tests/fixtures/screens/claude-approval-pair-16.txt`), and a chat tab's
+  hidden terminal is 15 columns, where Codex breaks "conversation"
+  (`tests/fixtures/screens/codex-new-folder-15.txt`); commits `cbbca18`,
+  `54819c1`.
+- 2026-11-07: phase 4b also fixes four faults its window run found, each a
+  Bellwether FAIL under step 5: a background Chrome start gives the front
+  back to the app that had it (`5556569`), a long answer button stays inside
+  its card (`69c62a1`), a wrapped Claude tip stays out of a card's detail
+  (`2296b9d`). The Browser header's "Run…" cut did not reproduce and was
+  left as it is.
+- 2026-11-07: build note, not a plan change: a chat tab's terminal keeps
+  its split share while the chat is zoomed (15 columns in a 949 px window),
+  so a Codex sub-agent's approval, whose options Codex scrolls out of view
+  at that width, falls back to "Answer in terminal". Herdr has no command
+  to size a pane; the README's Known limits says so.
 
