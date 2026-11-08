@@ -464,3 +464,66 @@ fn claude_always_is_offered_only_for_a_yes_and_option() {
         "Yes, allow all edits during this session (shift+tab)"
     );
 }
+
+/// Words and wrap points dropped: what a command reads as after a rewrap.
+fn unwrapped(s: &str) -> String {
+    s.split_whitespace().collect()
+}
+
+#[test]
+fn rewrap_claude_approval_keeps_its_id() {
+    // One prompt read at 80 columns, then after its terminal narrowed to 52 (scripts/verify/record-wrap.sh).
+    let wide = approval_on_screen("claude", &screen("screens/claude-approval-80.txt"))
+        .expect("80 columns");
+    let narrow = approval_on_screen("claude", &screen("screens/claude-approval-52.txt"))
+        .expect("52 columns");
+    assert_eq!(narrow.screen_id, wide.screen_id);
+    assert_eq!(unwrapped(&narrow.command), unwrapped(&wide.command));
+    assert_eq!(
+        unwrapped(&wide.command),
+        "touchwrapped-output-file-with-a-long-name-for-the-rewrap-test.txt"
+    );
+    assert_eq!(
+        actions(&narrow).iter().map(|a| a.0).collect::<Vec<_>>(),
+        actions(&wide).iter().map(|a| a.0).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn rewrap_codex_approval_keeps_its_id() {
+    let wide = codex_box(&screen("screens/codex-approval-80.txt")).expect("80 columns");
+    let narrow = codex_box(&screen("screens/codex-approval-52.txt")).expect("52 columns");
+    assert_eq!(codex_id(&narrow), codex_id(&wide));
+    assert_eq!(unwrapped(&narrow.command), unwrapped(&wide.command));
+}
+
+#[test]
+fn rewrap_codex_folder_prompt_is_read_and_keeps_its_id() {
+    // At 24 columns the question wraps over two lines and the descriptions are gone.
+    let wide = folder_box(&screen("screens/codex-new-folder-80.txt")).expect("80 columns");
+    let narrow = folder_box(&screen("screens/codex-new-folder-24.txt")).expect("24 columns");
+    let names =
+        |f: &codex_folder::FolderBox| f.options.iter().map(|o| o.0.clone()).collect::<Vec<_>>();
+    assert_eq!(
+        names(&narrow),
+        ["Use current Git worktree", "Create new Git worktree"]
+    );
+    assert_eq!(names(&narrow), names(&wide));
+    assert_eq!(folder_id(&narrow), folder_id(&wide));
+}
+
+#[test]
+fn rewrap_other_command_changes_the_id() {
+    let s = screen("screens/claude-approval-80.txt");
+    let other = s.replace("wrapped-output-file", "wrapped-outpvt-file");
+    let a = approval_on_screen("claude", &s).unwrap();
+    let b = approval_on_screen("claude", &other).unwrap();
+    assert_ne!(a.screen_id, b.screen_id);
+    let c = codex_box(&screen("screens/codex-approval-80.txt")).unwrap();
+    let d = codex_box(
+        &screen("screens/codex-approval-80.txt")
+            .replace("wrapped-output-file", "wrapped-outpvt-file"),
+    )
+    .unwrap();
+    assert_ne!(codex_id(&c), codex_id(&d));
+}

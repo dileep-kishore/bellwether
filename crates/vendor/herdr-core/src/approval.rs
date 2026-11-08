@@ -278,10 +278,28 @@ pub fn screen_box(screen: &str) -> Option<ScreenBox> {
     Some(ScreenBox { header, tool, command: command.iter().map(ungutter).collect::<Vec<_>>().join("\n"), lines: bx, clipped: false })
 }
 
-/// Id of the permission prompt on screen: a hash of the tool name and the whole box. None: no prompt.
+/// Id of the permission prompt on screen: a hash of the tool name, the command and the question with its options,
+/// as `id_text` gives them, so a rewrap at another pane width keeps the id. The description and tips above the
+/// command are left out: they wrap into lines no filter can tell apart. A clipped box hashes every line. None: no
+/// prompt.
 pub fn screen_prompt(screen: &str) -> Option<String> {
     let b = screen_box(screen)?;
-    Some(hash_id(&format!("tool:{}\n{}", b.tool, b.lines.join("\n"))))
+    let ask = b.lines.iter().rposition(|l| l.contains(PROMPT_MARKER));
+    let text = match ask {
+        Some(at) if !b.clipped => format!("{}\n{}", id_text(&[b.command.clone()]), id_text(&b.lines[at..])),
+        _ => id_text(&b.lines),
+    };
+    Some(hash_id(&format!("tool:{}\n{}", b.tool, text)))
+}
+
+/// `lines` with every whitespace character and the rule glyphs `╌ ─ │` removed: what stays the same when an
+/// agent redraws its prompt at another width, breaking lines between words or inside one.
+pub fn id_text(lines: &[String]) -> String {
+    lines
+        .iter()
+        .flat_map(|l| l.chars())
+        .filter(|c| !c.is_whitespace() && !matches!(c, '╌' | '─' | '│'))
+        .collect()
 }
 
 /// FNV-1a, "screen-<hex>".

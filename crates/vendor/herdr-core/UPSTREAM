@@ -91,3 +91,14 @@ Changes:
   `root_scope_still_skips_sidechain_lines`,
   `codex_child_starts_at_its_history_ordinal`,
   `codex_child_without_scope_repeats_the_parent`.
+- 2026-11-07, src/approval.rs: `screen_prompt` hashes the tool name,
+  the command and the box from its question on, through `id_text`
+  (new), which drops every whitespace character and the rule glyphs
+  `╌ ─ │`. A narrower or wider pane made Claude redraw the box with
+  other line breaks and rules of another length, so the id changed
+  and the chat showed a second card. The description and tips above
+  the command are left out, since they wrap into lines no filter can
+  tell apart; a clipped box hashes every line. Tests:
+  crates/bw/tests/matchers.rs `rewrap_claude_approval_keeps_its_id`,
+  `rewrap_other_command_changes_the_id`; upstream tests in
+  src/approval/tests.rs still pass.

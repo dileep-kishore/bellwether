@@ -6,7 +6,7 @@
 
 use herdr_core::approval::hash_id;
 
-use super::codex_approval::{blocks, footer_is, options, plain};
+use super::codex_approval::{blocks, footer_is, options, question_end};
 
 pub const QUESTION: &str = "Where should the new conversation run?";
 pub const FOOTER: &str = "enter select · esc back";
@@ -25,8 +25,8 @@ pub struct FolderBox {
 
 pub fn folder_box(screen: &str) -> Option<FolderBox> {
     let raw: Vec<&str> = screen.split('\n').collect();
-    let ask = raw.iter().rposition(|l| plain(l) == QUESTION)?;
-    let found = blocks(&raw[ask + 1..]);
+    let after = question_end(&raw, QUESTION)?;
+    let found = blocks(&raw[after..]);
     let [option_lines, footer] = found.as_slice() else {
         return None;
     };
@@ -56,6 +56,8 @@ pub fn folder_box(screen: &str) -> Option<FolderBox> {
     })
 }
 
+/// The question and the option names: a narrow pane drops the descriptions, so they are not part of the id.
 pub fn folder_id(b: &FolderBox) -> String {
-    hash_id(&format!("codex-folder\n{}", b.lines.join("\n")))
+    let names: Vec<&str> = b.options.iter().map(|(name, _)| name.as_str()).collect();
+    hash_id(&format!("codex-folder\n{QUESTION}\n{}", names.join("\n")))
 }
