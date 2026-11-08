@@ -207,14 +207,27 @@ async function main() {
       "/Volumes/WorkSSD/Personal/bellwether",
       ...(opt.fake ? [`${scratch}/cache`] : []),
     ].filter((p) => existsSync(p));
-    const script =
-      's=$1; shift; "$s" find-generic-password -s bellwether.linear -w | cut -c1-12 | rg -F -l -uu --no-messages -f - -- "$@"';
+    // The key's prefix stays in shell variables and a pipe. A failed key read, a short key or an rg error
+    // ends the script with a status other than rg's 0 (found) and 1 (not found), which fails the check.
+    const script = [
+      "s=$1; shift",
+      'k=$("$s" find-generic-password -s bellwether.linear -w) || exit 3',
+      'p=$(printf "%s" "$k" | cut -c1-12); k=""',
+      "case $p in ????????????) ;; *) exit 4 ;; esac",
+      'printf "%s\\n" "$p" | rg -F -l -uu -f - -- "$@"',
+    ].join("\n");
     const r = await spawn(["sh", "-c", script, "sh", security, ...places]);
     // The made-up key is written in this script and in its own fake security; the real key is in neither.
     const own = (/** @type {string} */ l) =>
       opt.fake && (l.startsWith(`${scratch}/security`) || l.endsWith("scripts/verify/linear-run.js"));
     const hits = r.stdout.split("\n").filter((l) => l && !own(l));
-    if (r.code === 2 && !r.stdout) fail("key-nowhere-on-disk", `rg failed: ${r.stderr.trim().slice(0, 200)}`);
+    if (r.code !== 0 && r.code !== 1)
+      fail(
+        "key-nowhere-on-disk",
+        r.code === 3 || r.code === 4
+          ? `could not read a 12-character key prefix (status ${r.code}); nothing was searched`
+          : `rg exited ${r.code}: ${r.stderr.trim().slice(0, 200)}`,
+      );
     else if (hits.length) fail("key-nowhere-on-disk", `${hits.length} files hold it, e.g. ${hits[0]}`);
     else
       pass(
