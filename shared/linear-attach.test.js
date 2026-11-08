@@ -82,10 +82,10 @@ describe("text", () => {
   });
 
   test("issue texts come first, then the message", () => {
-    const a = "Linear issue PLA-1: One\nhttps://u\n---\n";
-    const b = "Linear issue PLA-2: Two\nhttps://v\n---\n";
+    const a = "Linear issue PLA-1: One\nhttps://u\n\n---\n";
+    const b = "Linear issue PLA-2: Two\nhttps://v\n\n---\n";
     expect(composeMessage([a, b], "fix it")).toBe(`${a}${b}fix it`);
-    expect(composeMessage([a], "")).toBe("Linear issue PLA-1: One\nhttps://u\n---");
+    expect(composeMessage([a], "")).toBe("Linear issue PLA-1: One\nhttps://u\n\n---");
     expect(composeMessage([], "hi")).toBe("hi");
   });
 });

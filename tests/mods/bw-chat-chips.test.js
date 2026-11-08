@@ -29,7 +29,7 @@ function golden(name, terminal, path) {
 }
 
 const text = (/** @type {string} */ id) =>
-  `Linear issue ${id}: Title ${id}\nhttps://linear.app/x/issue/${id}\n\nBody.\n---\n`;
+  `Linear issue ${id}: Title ${id}\nhttps://linear.app/x/issue/${id}\n\nBody.\n\n---\n`;
 
 /** @param {{ linear?: (args: string[]) => any, send?: () => any, feed?: () => any }} [o] */
 function bw(o = {}) {

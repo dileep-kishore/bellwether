@@ -396,7 +396,7 @@ fn issue_text_and_the_8_kb_rule() {
     assert_eq!(l["mode"], "full");
     assert_eq!(
         l["text"],
-        "Linear issue PLA-1: One\nhttps://linear.app/x/issue/PLA-1\n\nA short description.\n---\n"
+        "Linear issue PLA-1: One\nhttps://linear.app/x/issue/PLA-1\n\nA short description.\n\n---\n"
     );
 
     let long = env.bw(fake.port, &["issue", "--id", "PLA-2", "--text"]);

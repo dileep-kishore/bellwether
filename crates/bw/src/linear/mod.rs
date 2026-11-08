@@ -240,6 +240,7 @@ fn issue(a: &args::Args) -> Result<(), Fail> {
 }
 
 /// The text that goes ahead of the user's message: the heading line, the URL, the description and `---`.
+/// A blank line comes before `---`, which right under a line of text would make that line a Markdown heading.
 pub fn issue_text(identifier: &str, title: &str, url: &str, description: &str) -> String {
     let mut s = format!("Linear issue {identifier}: {title}\n{url}\n");
     if !description.trim().is_empty() {
@@ -247,7 +248,7 @@ pub fn issue_text(identifier: &str, title: &str, url: &str, description: &str) -
         s.push_str(description.trim_end());
         s.push('\n');
     }
-    s.push_str("---\n");
+    s.push_str("\n---\n");
     s
 }
 
@@ -319,11 +320,11 @@ mod tests {
     fn text_has_heading_url_description_and_rule() {
         assert_eq!(
             issue_text("PLA-1", "T", "https://u", "d\n"),
-            "Linear issue PLA-1: T\nhttps://u\n\nd\n---\n"
+            "Linear issue PLA-1: T\nhttps://u\n\nd\n\n---\n"
         );
         assert_eq!(
             issue_text("PLA-1", "T", "https://u", ""),
-            "Linear issue PLA-1: T\nhttps://u\n---\n"
+            "Linear issue PLA-1: T\nhttps://u\n\n---\n"
         );
     }
 
