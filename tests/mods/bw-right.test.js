@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { live, mount } from "../harness/mount.js";
 import { fake } from "../harness/herdr-stub.js";
 import { byId, textOf } from "../harness/kit-stub.js";
-import { PANELS, choose, chosen, wanted } from "../../mods/bw-right/choice.js";
+import { PANELS, choose, chosen, wanted } from "../../shared/choice.js";
 
 const selects = (m) => m.log.run.filter(([cmd]) => cmd === "layout.select");
 /** Does what Herdr does on layout.select: the stack's active child changes in layout(). */

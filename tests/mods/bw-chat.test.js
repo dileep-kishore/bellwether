@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { live, mount, repo } from "../harness/mount.js";
 import { fake } from "../harness/herdr-stub.js";
+import { wanted } from "../../shared/choice.js";
 import { byId, emit, findAll, fire, inspect, layOut, textOf } from "../harness/kit-stub.js";
 import { HELPER_SCRIPTS, HELPER_VERSION, PROTOCOL } from "../../shared/helper.js";
 import { columnWidth, sizes } from "../../mods/bw-chat/estimate.js";
@@ -338,6 +339,17 @@ describe("bw-chat", () => {
     expect(list(m).attrs.sizes).toEqual(sizes(rows, columnWidth(0)));
     fire(list(m), "on_item_click", "c-cx@24227", m.cx);
     expect(m.log.run).toEqual([["layout.select", { stack: "right-body", child: "changes" }]]);
+  });
+
+  test("Open in Changes keeps Changes chosen when the space had Browser stored", async () => {
+    const data = live("chat-tab");
+    data.shared["bw.right.tab"] = { s1: "browser" };
+    const m = await mount("bw-chat", { props: CODEX_REMOTE, live: data });
+    fire(list(m), "on_item_click", "c-cx@24227", m.cx);
+    expect(m.log.run).toEqual([["layout.select", { stack: "right-body", child: "changes" }]]);
+    expect(fake.shared["bw.right.tab"]).toEqual({ s1: "changes" });
+    // bw-right's next render would select whatever is stored for the shown space.
+    expect(wanted(fake.shared["bw.right.tab"], "s1", "changes")).toBe(null);
   });
 
   test("header: program icon, name, branch, machine tag and the ⌘J hint", async () => {

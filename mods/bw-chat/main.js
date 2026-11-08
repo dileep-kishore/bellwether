@@ -19,6 +19,7 @@ import {
   terminals,
 } from "herdr";
 import { CHAT_SHOWN, hasMod, isShown, leftAt, shownFrom, TERMINAL_FOCUS } from "./chat-tabs.js";
+import { choose } from "./choice.js";
 import { Composer } from "./composer.js";
 import { dock } from "./dock.js";
 import {
@@ -58,6 +59,8 @@ import { ICONS, machineTag, programIcon, themeColors } from "./ui.js";
 
 /** @typedef {import("./ui.js").Theme} Theme */
 
+// bw-right's per-space panel choice.
+const RIGHT_TAB = "bw.right.tab";
 const WINDOW_ID = "bw.window-id";
 const DISMISSED = "bw.hooks-dismissed";
 const ROOT_ENDED = "This conversation ended; showing the new one";
@@ -850,6 +853,13 @@ export default class Chat extends View {
       cx.notify();
     } else if (row.k === "changed") {
       run("layout.select", { stack: "right-body", child: "changes" });
+      // Stored as bw-right's strip stores a click, or its next render restores the space's last choice.
+      const all = spaces();
+      const space = all.find((s) => s.active);
+      if (space) {
+        const ids = all.map((s) => s.id);
+        setShared(RIGHT_TAB, choose(shared(RIGHT_TAB), space.id, "changes", ids));
+      }
     } else if (waitsInTerminal(row)) {
       this.showTerminal();
     }
