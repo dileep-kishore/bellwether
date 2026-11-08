@@ -1,7 +1,7 @@
 // Runs the `bw` helper on the machine a space lives on. Imports nothing, so mods copy it and `bun test` runs it.
 
-export const PROTOCOL = 4;
-export const HELPER_VERSION = "0.4.1";
+export const PROTOCOL = 5;
+export const HELPER_VERSION = "0.5.0";
 // Arguments reach bw as "$@", never through the shell's parser. Another machine always runs its installed helper.
 export const HELPER_SCRIPT = 'exec "$HOME"/.local/share/bellwether/helper/current/bw "$@"';
 // This machine runs $BW_HELPER when the app was started with it (the stage window counts calls this way).
