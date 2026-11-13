@@ -110,7 +110,9 @@ pub fn validate_terminal(terminal: &str) -> Result<(), StoreError> {
         )));
     }
     if !events::safe_terminal(terminal) {
-        return Err(StoreError::usage(format!("invalid --terminal {terminal:?}")));
+        return Err(StoreError::usage(format!(
+            "invalid --terminal {terminal:?}"
+        )));
     }
     Ok(())
 }
@@ -155,7 +157,9 @@ fn ensure_core_dir(core: &str) -> Result<PathBuf, StoreError> {
             .recursive(true)
             .mode(0o700)
             .create(p)
-            .map_err(|e| StoreError::runtime("io_error", format!("cannot create {}: {e}", p.display())))?;
+            .map_err(|e| {
+                StoreError::runtime("io_error", format!("cannot create {}: {e}", p.display()))
+            })?;
         let _ = fs::set_permissions(p, fs::Permissions::from_mode(0o700));
     }
     Ok(dir)
@@ -164,12 +168,8 @@ fn ensure_core_dir(core: &str) -> Result<PathBuf, StoreError> {
 pub(crate) fn lock_terminal(core: &str, terminal: &str) -> Result<FolderLock, StoreError> {
     ensure_core_dir(core)?;
     let path = lock_file(core, terminal);
-    FolderLock::take_file(&path, LOCK_TRIES, LOCK_WAIT).ok_or_else(|| {
-        StoreError::runtime(
-            "busy",
-            format!("queue lock for {terminal} is busy"),
-        )
-    })
+    FolderLock::take_file(&path, LOCK_TRIES, LOCK_WAIT)
+        .ok_or_else(|| StoreError::runtime("busy", format!("queue lock for {terminal} is busy")))
 }
 
 pub fn read_in(core: &str, terminal: &str) -> QueueState {
@@ -228,7 +228,12 @@ pub fn has_runnable(core: &str, terminal: &str) -> bool {
     !state.held && !state.items.is_empty()
 }
 
-pub fn state_json(terminal: &str, state: &QueueState, result: Option<&str>, extra: Option<(&str, Value)>) -> Value {
+pub fn state_json(
+    terminal: &str,
+    state: &QueueState,
+    result: Option<&str>,
+    extra: Option<(&str, Value)>,
+) -> Value {
     let mut v = json!({
         "type": "queue",
         "terminal": terminal,

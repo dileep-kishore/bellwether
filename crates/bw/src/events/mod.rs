@@ -86,9 +86,7 @@ fn record(agent: &str) -> Option<PathBuf> {
     let payload: Value = serde_json::from_slice(&bytes).ok()?;
     let e = from_payload(agent, &terminal, &cache::core_name(), &payload, now_ms())?;
     let written = write(&e).ok()?;
-    if e.event == "Stop"
-        && e.agent_id.is_none()
-        && crate::queue::has_runnable(&e.core, &e.terminal)
+    if e.event == "Stop" && e.agent_id.is_none() && crate::queue::has_runnable(&e.core, &e.terminal)
     {
         spawn_stop_drain(&e.terminal, &e.id);
     }

@@ -213,14 +213,20 @@ fn line_is_interruption(v: &Value) -> bool {
     }
     if v.pointer("/payload/internal_chat_message_metadata_passthrough/content_item_kinds")
         .and_then(Value::as_array)
-        .is_some_and(|ks| ks.iter().any(|k| k.as_str() == Some("generic.turn_aborted")))
+        .is_some_and(|ks| {
+            ks.iter()
+                .any(|k| k.as_str() == Some("generic.turn_aborted"))
+        })
     {
         return true;
     }
     if v["toolDenialKind"].as_str() == Some("user-rejected") {
         return true;
     }
-    if v.pointer("/toolUseResult/interrupted").and_then(Value::as_bool) == Some(true) {
+    if v.pointer("/toolUseResult/interrupted")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
         return true;
     }
     if v["type"].as_str() == Some("user") {
@@ -425,10 +431,9 @@ fn has_newer_sibling_session(path: &Path, agent: &str, since_ms: i64) -> bool {
                     }
                     // Skip sub-agent rollouts; only another root rollout indicates /new.
                     let head = fs::read(&p).unwrap_or_default();
-                    let is_sub = herdr_core::resolver::codex_meta_full(
-                        &head[..head.len().min(64 * 1024)],
-                    )
-                    .is_some_and(|m| m.subagent);
+                    let is_sub =
+                        herdr_core::resolver::codex_meta_full(&head[..head.len().min(64 * 1024)])
+                            .is_some_and(|m| m.subagent);
                     if !is_sub && file_mtime_ms(&p).is_some_and(|m| m >= cutoff) {
                         return true;
                     }
@@ -621,21 +626,18 @@ pub fn drain_terminal(
                 &state,
             ));
         }
-        let (_, requests) = req_store::update(terminal, now_ms, |kept| {
-            cards::build(&input, kept, now_ms)
-        })
-        .unwrap_or_else(|_| cards::build(&input, &mut req_store::load(terminal), now_ms));
+        let (_, requests) =
+            req_store::update(terminal, now_ms, |kept| cards::build(&input, kept, now_ms))
+                .unwrap_or_else(|_| cards::build(&input, &mut req_store::load(terminal), now_ms));
 
         let any_pending_card = requests
             .iter()
             .any(|r| r["state"].as_str() == Some("pending"));
         let any_open_ask =
             counts::open_asks(&input.events, &input.agent, &input.root, &input.logs) > 0;
-        let any_open_question = input
-            .logs
-            .iter()
-            .flat_map(|(_, items)| items.iter())
-            .any(|it| matches!(&it.kind, ItemKind::Question(q) if q.state == QuestionState::Pending));
+        let any_open_question = input.logs.iter().flat_map(|(_, items)| items.iter()).any(
+            |it| matches!(&it.kind, ItemKind::Question(q) if q.state == QuestionState::Pending),
+        );
 
         if any_pending_card || any_open_ask || any_open_question {
             return Ok(DrainReport::from_state(
@@ -737,12 +739,9 @@ pub fn drain_terminal(
                 &item.text,
             )
         }
-        ResolvedTarget::NoLog { session: Some(sid) } => send::send_checked(
-            terminal,
-            &item.expect_kind,
-            Expect::NoLog(sid),
-            &item.text,
-        ),
+        ResolvedTarget::NoLog { session: Some(sid) } => {
+            send::send_checked(terminal, &item.expect_kind, Expect::NoLog(sid), &item.text)
+        }
         ResolvedTarget::NoLog { session: None } => {
             send::send_checked(terminal, &item.expect_kind, Expect::Fresh, &item.text)
         }

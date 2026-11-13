@@ -483,7 +483,9 @@ fn parse_gh_output(success: bool, stdout: &[u8], stderr: &[u8]) -> Result<Option
         return Ok(None);
     }
     if let Some(errs) = v["errors"].as_array().filter(|a| !a.is_empty()) {
-        let msg = errs[0]["message"].as_str().unwrap_or("GitHub GraphQL error");
+        let msg = errs[0]["message"]
+            .as_str()
+            .unwrap_or("GitHub GraphQL error");
         return Err(classify_gh_failure(msg, ""));
     }
     let repo = &v["data"]["repository"];
@@ -618,7 +620,10 @@ mod tests {
 
     #[test]
     fn validates_repo_and_branch_arguments() {
-        assert_eq!(parse_repo("dkishore/bellwether"), Some(("dkishore", "bellwether")));
+        assert_eq!(
+            parse_repo("dkishore/bellwether"),
+            Some(("dkishore", "bellwether"))
+        );
         assert_eq!(parse_repo("org-1/my.repo_2"), Some(("org-1", "my.repo_2")));
         assert_eq!(parse_repo("../evil"), None);
         assert_eq!(parse_repo("a/b/c"), None);
@@ -734,13 +739,21 @@ mod tests {
 
     #[test]
     fn classifies_unauthenticated_and_offline_errors() {
-        let auth = parse_gh_output(false, b"", b"To get started with GitHub CLI, please run:  gh auth login\n")
-            .unwrap_err();
+        let auth = parse_gh_output(
+            false,
+            b"",
+            b"To get started with GitHub CLI, please run:  gh auth login\n",
+        )
+        .unwrap_err();
         assert_eq!(auth.code, "unauthenticated");
         assert!(auth.stale_eligible);
 
-        let net = parse_gh_output(false, b"", b"Post \"https://api.github.com/graphql\": dial tcp: i/o timeout\n")
-            .unwrap_err();
+        let net = parse_gh_output(
+            false,
+            b"",
+            b"Post \"https://api.github.com/graphql\": dial tcp: i/o timeout\n",
+        )
+        .unwrap_err();
         assert_eq!(net.code, "offline");
         assert!(net.stale_eligible);
     }

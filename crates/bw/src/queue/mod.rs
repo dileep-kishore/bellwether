@@ -52,16 +52,11 @@ fn read_text_arg(a: &args::Args) -> Result<String, StoreErrorOrMsg> {
                 .lock()
                 .take((store::MAX_TEXT_BYTES as u64) + 1)
                 .read_to_end(&mut bytes)
-                .map_err(|e| {
-                    store::StoreError::runtime("io_error", format!("read stdin: {e}"))
-                })?;
+                .map_err(|e| store::StoreError::runtime("io_error", format!("read stdin: {e}")))?;
             if bytes.len() > store::MAX_TEXT_BYTES {
                 return Err(store::StoreError::runtime(
                     "too_large",
-                    format!(
-                        "queued message exceeds {} bytes",
-                        store::MAX_TEXT_BYTES
-                    ),
+                    format!("queued message exceeds {} bytes", store::MAX_TEXT_BYTES),
                 )
                 .into());
             }
@@ -145,7 +140,10 @@ pub fn run(argv: &[String]) -> ExitCode {
             };
             match store::edit_item(&core, terminal, id, text) {
                 Ok(state) => {
-                    println!("{}", store::state_json(terminal, &state, Some("edited"), None));
+                    println!(
+                        "{}",
+                        store::state_json(terminal, &state, Some("edited"), None)
+                    );
                     ExitCode::SUCCESS
                 }
                 Err(e) => emit_err(e.into()),
@@ -168,7 +166,10 @@ pub fn run(argv: &[String]) -> ExitCode {
             };
             match store::move_item(&core, terminal, id, to) {
                 Ok(state) => {
-                    println!("{}", store::state_json(terminal, &state, Some("moved"), None));
+                    println!(
+                        "{}",
+                        store::state_json(terminal, &state, Some("moved"), None)
+                    );
                     ExitCode::SUCCESS
                 }
                 Err(e) => emit_err(e.into()),
@@ -186,7 +187,10 @@ pub fn run(argv: &[String]) -> ExitCode {
             };
             match store::remove_item(&core, terminal, id) {
                 Ok(state) => {
-                    println!("{}", store::state_json(terminal, &state, Some("removed"), None));
+                    println!(
+                        "{}",
+                        store::state_json(terminal, &state, Some("removed"), None)
+                    );
                     ExitCode::SUCCESS
                 }
                 Err(e) => emit_err(e.into()),
@@ -202,7 +206,10 @@ pub fn run(argv: &[String]) -> ExitCode {
             };
             match store::clear_items(&core, terminal) {
                 Ok(state) => {
-                    println!("{}", store::state_json(terminal, &state, Some("cleared"), None));
+                    println!(
+                        "{}",
+                        store::state_json(terminal, &state, Some("cleared"), None)
+                    );
                     ExitCode::SUCCESS
                 }
                 Err(e) => emit_err(e.into()),
@@ -240,12 +247,7 @@ pub fn run(argv: &[String]) -> ExitCode {
             let Some(terminal) = a.get("terminal") else {
                 return emit_err(StoreErrorOrMsg::Usage("missing --terminal".into()));
             };
-            match drain::drain_terminal(
-                terminal,
-                a.get("on-stop"),
-                a.has("force-next"),
-                false,
-            ) {
+            match drain::drain_terminal(terminal, a.get("on-stop"), a.has("force-next"), false) {
                 Ok(report) => {
                     println!("{}", drain::report_json(&report));
                     ExitCode::SUCCESS
