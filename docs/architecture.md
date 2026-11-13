@@ -1,6 +1,6 @@
 # Architecture
 
-Bellwether has three parts: a Herdr layout, twelve `bw-*` mods that draw the window, and a Rust
+Bellwether has three parts: a Herdr layout, fifteen `bw-*` mods that draw the window, and a Rust
 helper, `bw`, that does every read and write that is slow, needs a long-lived process, or has to run
 on the machine a space lives on. This page says which part owns what, how the parts talk, and where
 each runs. [helper.md](helper.md) lists each `bw` command's flags and output lines;
@@ -13,7 +13,7 @@ flowchart LR
   subgraph W["Window machine"]
     App["Herdr app"]
     Mods["bw-* mods"]
-    BWW["bw linear, browser, picture, machine"]
+    BWW["bw linear, pr, drafts stage, browser, picture, machine"]
     Chrome["Bellwether Chrome on 127.0.0.1:9222"]
     Fwd["bw browser forward keep in a kept hc terminal"]
     App --> Mods
@@ -21,16 +21,16 @@ flowchart LR
     BWW -- "CDP" --> Chrome
     Fwd -- "local port 9222" --> Chrome
   end
-  Linear["Linear GraphQL API"]
-  BWW -- "curl, key in config on stdin" --> Linear
+  Linear["Linear & GitHub GraphQL APIs"]
+  BWW -- "curl / gh api" --> Linear
   subgraph S["Space's machine"]
     Core["hc core"]
     Term["terminals"]
     Agent["Claude or Codex"]
-    BWS["bw feed, send, cards, answer, counts, diff"]
+    BWS["bw feed, send, queue, cards, answer, counts, diff, drafts"]
     Logs["session logs"]
-    Hook["hooks/bw-event runs bw event"]
-    Events["event files"]
+    Hook["hooks/bw-event runs bw event (including Stop)"]
+    Events["event and queue files"]
     MCP["Chrome DevTools MCP"]
     Core --> Term --> Agent
     Agent --> Logs
@@ -56,50 +56,56 @@ mirror the app home's, so the copy is plain.
 ### The layout
 
 `layouts/bellwether.json` was cloned from Herdr's `main` layout (version 0.1.13). Its root is a row
-with the `bellwether` theme and three columns:
+with the `bellwether` theme (`canvas` `#1e1e2e`) and three columns:
 
 | Column | Size | Slots and the mod that fills each |
 |---|---|---|
-| `sidebar` | 248 px, 160 to 480 | `projects`: `bw-projects`. `sidebar-footer` (69 px): Herdr's `workspace-chrome` with `{ "footer": true }`. |
-| `work` | the rest, not resizable | `tabs` (32 px): `bw-tabs`. `main`: the active tab, each pane with a 30 px `bw-pane` header. `status` (28 px): `bw-status`. |
-| `right` | 360 px, 280 to 900 | `right-strip` (36 px): `bw-right`. `right-body`, a stack that starts on `changes`: `changes` is `bw-diff`, `issues` is `bw-linear`, `browser` is `bw-browser`. |
+| `sidebar` | 244 px, 200 to 420 | `projects`: `bw-projects`. `sidebar-footer` (40 px): Herdr's `workspace-chrome` with `{ "footer": true }`. |
+| `work` | the rest, not resizable | `tabs` (48 px, `window_drag: true`): `bw-tabs`. `screen`, a stack of `["chat", "panes", "needs", "overview"]` starting on `chat`, with a left-edge `floating` drawer `sidebar-peek` (`bw-projects` `{ "peek": true }`, `peek: 6`). `panes` renders the active tab with `lone: false` and a hover-revealed 28 px `bw-pane` header. |
+| `right` | 380 px (`hidden: true`), 280 to 620 | `right-strip` (36 px): `bw-right`. `right-body`, a stack starting on `changes`: `changes` is `bw-diff`, `issues` is `bw-linear`, `drafts` is `bw-drafts`, `browser` is `bw-browser`. |
 
-`bw-chat`, `bw-new`, `bw-menu` and `bw-add` have no slot. `bw-tabs` splits a `bw-chat` pane into a
-chat tab, and the other three open as overlays.
+`bw-new`, `bw-menu` and `bw-add` open as overlays, and `bw-status` remains checked for custom
+layouts.
 
 ### Theme and keys
 
 `themes/bellwether.json` is the layout's own theme, written from `shared/palette.js` by
-`scripts/gen-theme.js`. The layout's root names it, so Herdr offers it only in this layout.
-`keys/bellwether.json` binds two keys in `layout:bellwether`: `cmd-alt-b` runs
-`layout.toggle:right`, and `cmd-j` runs `bw-tabs.chat-flip`. `scripts/keys-merge.js` merges them
-into the app home's `keys.json`. [development.md](development.md) covers the palette and contrast
-checks.
+`scripts/gen-theme.js` using flattened Catppuccin Mocha steps (`Base` `#1e1e2e` for `canvas` and
+`surface`, `Mantle` `#181825` for `chrome`, `#272738` for `raised`, `#333546` for `selected`, and
+neutral `TILE_HUES`). `keys/bellwether.json` binds six keys in `layout:bellwether`: `cmd-b`
+(`layout.toggle:sidebar`), `cmd-j` (`bw-tabs.chat-flip`), `cmd-shift-'` (`bw-tabs.terminal-peek`),
+`cmd-shift-n` (`bw-tabs.needs-toggle`), `cmd-shift-o` (`bw-tabs.overview-toggle`), and `cmd-alt-b`
+(`layout.toggle:right`). `scripts/keys-merge.js` merges them into the app home's `keys.json`.
+[development.md](development.md) covers the palette and contrast checks.
 
 ## Mods
 
 Every mod follows one pattern. `render` reads Herdr's live data (`spaces()`, `panes()`,
 `terminals()`, `agents()`, `focused()`, `layout()`) and hands targets to one loop task. The loop
-task sleeps, wakes on a poke from `render` or on its timer, and runs `exec`. The Issues and Changes
-loops also read `layout()` before each call and park while their panel is hidden, because the
+task sleeps, wakes on a poke from `render` or on its timer, and runs `exec`. The Issues, Changes and
+Drafts loops also read `layout()` before each call and park while their panel is hidden, because the
 render a strip click causes can arrive before the stack switches. `REVIEW.md` makes the rest a
 rule: a mod must not poll `agents()`, `spaces()`, `panes()`, `terminals()` or `focused()`, animate
-with a timer, or block on `exec`. Motion uses Herdr's own animation.
+with a timer, or block on `exec`. Motion uses Herdr's own animation, with `loop("opacity")`
+restricted strictly to the top-bar `Needs you` count pill.
 
 | Mod | Shows | Owns |
 |---|---|---|
-| `bw-projects` | left sidebar | Each machine's projects with every Git worktree, its ahead and behind counts, its `+N −M` change counts, and one line per agent with `+N` sub-agents and a request badge. A dimmed row is a worktree with no open space, and clicking it opens one there. It runs Git on each space's machine through `shared/git.js` and `bw counts` per machine. |
-| `bw-tabs` | tab bar | The active space's tabs, drag to reorder, and "+". It turns each tab "+" started into a chat tab: it finds the tab by name, splits a `bw-chat` pane to the right of the agent's terminal and zooms the chat. It runs `⌘J` (`bw-tabs.chat-flip`) and writes which chat panes are shown and when terminal focus left. |
-| `bw-new` | overlay from "+" | The "+" menu: a Claude or Codex chat, a shell, Claude or Codex in a plain terminal, and Herdr's New worktree and Open worktree dialogs. For a Claude or Codex row it first runs `bw browser agent-args` (see [Agent flags](#agent-flags)). |
-| `bw-right` | strip over the right sidebar | The Changes, Issues and Browser strip. A click runs `layout.select` on the `right-body` stack and stores the choice per space. With a `panel` prop it draws a placeholder, and the layout has no such copy. |
+| `bw-projects` | left sidebar and left-edge peek drawer | Each machine's projects with every Git worktree, its ahead and behind counts, its `+N −M` change counts, and one line per agent with `+N` sub-agents and a request badge. It runs Git on each space's machine through `shared/git.js` and `bw counts` per machine. |
+| `bw-tabs` | 48 px top bar | Two 36 px floating capsules: space tabs and "+" on the left, and `Chat` / `Panes`, the breathing `Needs you` pill, `Overview`, and the inspector toggle on the right. Mirrors `screen.active` into `shared("bw.screen")`, tracks per-tab `bw.tab-view`, hands focus to `panes`, `bw-chat`, or `bw-needs`, and records when terminal focus left (`bw.terminal-focus`). |
+| `bw-new` | overlay from "+" | The "+" menu: a single-pane Claude or Codex chat, a shell or agent terminal on `panes`, and Herdr's New worktree and Open worktree dialogs. |
+| `bw-right` | 36 px strip over the right inspector | The Changes, Issues, Drafts and Browser segmented strip plus `×` (`layout.hide`). A click runs `layout.select` on `right-body` and stores the choice per space. |
 | `bw-menu` | overlay from a project | A project's menu: worktree dialogs, Link Linear project (opens `bw-linear` with `{ pick }`) and Remove. |
 | `bw-add` | overlay from the sidebar header | The Add project dialog: pick a machine and a folder, and `git rev-parse` there finds the repository it belongs to. |
-| `bw-status` | bar under the active tab | The shown space's machine and branch, the agent count beside the most urgent status, a "needs you" pill while any agent waits, and the command palette's key, which opens the palette on a click. |
-| `bw-pane` | each pane's header | The agent's status, the program, its title and folder, and split right, split down, zoom and close buttons that fade in while the pointer is on the header. Herdr passes it `{ pane, terminal }`. |
-| `bw-chat` | a pane in a chat tab | One agent's chat: the timeline, sub-agents, the request dock, the composer and Attach chips. See [Feeds](#feeds), [Sending a message](#sending-a-message) and [Request cards](#request-cards). |
-| `bw-diff` | Changes panel, or a middle tab | Staged, Changes and Committed on branch for the active space's worktree, and a file's patch. With `{ tab: true, … }` it is a diff opened as a tab. See [Changes](#changes). |
-| `bw-linear` | Issues panel, or the link picker | The open Linear issues of the linked project, an issue view, the link picker (with `{ pick }`) and Attach. See [Issues](#issues). |
-| `bw-browser` | Browser panel | The Bellwether Chrome's state, tabs and forwards. See [Browser](#browser). |
+| `bw-status` | standalone status bar | Retained status bar mod for custom layouts. |
+| `bw-pane` | each multi-pane terminal's hover header | The agent's status, the program, its title and folder, and split right, split down, zoom and close buttons. |
+| `bw-chat` | `chat` screen (or per-pane harness copy) | Frameless conversation view with a 24-session LRU `SessionMap`, multi-agent switcher (`bw.chat-agent`), 1-line PR strip (`bw pr status`), per-terminal prompt queue (`bw queue`), sub-agent threads, request dock, and composer. |
+| `bw-needs` | `needs` screen | Two-column cross-space triage (`Needs you`, `Ready to land`, `Working`, `Idle`) with inline `1-9` and `Other…` answers (`bw answer`), `Waiting in terminal` fallback, pinned `Open chat`, and PR skill actions. |
+| `bw-overview` | `overview` screen | Cross-space fleet grid with neutral monograms, machine badges, branch + PR badges, and one-click jumps to `chat` or `panes`. |
+| `bw-diff` | Changes panel, or a middle tab | `Uncommitted`, `Branch`, and `PR` scopes for the active space's worktree, line-anchored comments (`on_item_click` + retained composer bar), `±5` line relocation, and unselected-file preflight `bw diff patch` verification before `bw send` or `bw queue add`. |
+| `bw-linear` | Issues panel, or the link picker | The open Linear issues of the linked project, an issue view, the link picker (with `{ pick }`) and Attach. |
+| `bw-drafts` | Drafts panel | Read-only worktree HTML artifacts (`Open in Browser` with `bw drafts stage --machine` for remote spaces), header-parsed 6-column `decisions.tsv` and `.audit/*.tsv` trails, plan checklists (`docs/plans/*.md`, `tasks.md`), and allow-listed `ledger.md` Markdown. |
+| `bw-browser` | Browser panel | The Bellwether Chrome's state, tabs and forwards. |
 
 ### Shared state
 
@@ -110,19 +116,24 @@ mod.
 | Key | Written by | Read by | Holds |
 |---|---|---|---|
 | `bw.projects` | `bw-projects`, `bw-add`, `bw-menu` (Remove) | the same three | The remembered projects, `{ version: 1, projects }`. |
-| `bw.chat-tabs` | `bw-new` (a pending chat), `bw-tabs` | `bw-tabs`, `bw-new` | Each chat tab's space, machine, kind, terminal and chat pane, and pending chats. |
-| `bw.window-id` | `bw-tabs`, with the first chat pane it splits | `bw-tabs`, `bw-chat`, `bw-diff` | This app home's id, so a chat or diff tab knows whether this window made it. |
-| `bw.chat-shown` | `bw-tabs` | `bw-chat` | The chat panes on screen. Herdr draws no hidden copy, so a hidden chat learns it is hidden here. |
-| `bw.terminal-focus` | `bw-tabs` | `bw-chat` | When focus last left each terminal, for the [focus guard](#answering). |
+| `bw.chat-tabs` | `bw-new` (a pending chat), `bw-tabs` | `bw-tabs`, `bw-new`, `bw-chat`, `bw-needs`, `bw-diff` | Each chat tab's space, machine, kind and terminal, plus pending chats. |
+| `bw.screen` | `bw-tabs` | `bw-chat` | One-way mirror of `screen.active` so `bw-chat` drops poll cadence from 2 s to 10 s while off `chat`. |
+| `bw.tab-view` | `bw-tabs`, `bw-new`, `bw-needs`, `bw-overview` | `bw-tabs` | Per-tab preferred view (`"chat"` or `"panes"`). |
+| `bw.chat-agent` | `bw-chat`, `bw-needs`, `bw-overview`, `bw-projects` | `bw-chat`, `bw-diff` | `{ [tabId]: terminalAddress }`, pinning which agent `bw-chat` targets in a multi-agent tab. |
+| `bw.pr-summary` | `bw-chat`, `bw-needs`, `bw-diff` | `bw-tabs`, `bw-overview`, `bw-diff` | Per-space cached GitHub PR summary for top-bar `Needs you` counts and fleet badges. |
+| `bw.window-id` | `bw-tabs` | `bw-tabs`, `bw-chat`, `bw-diff` | This app home's id, so a diff tab knows whether this window made it. |
+| `bw.chat-shown` | `bw-tabs` | `bw-chat` | Shown chat panes in per-pane mode. |
+| `bw.terminal-focus` | `bw-tabs` | `bw-chat`, `bw-needs` | When focus last left each terminal, for the [focus guard](#answering). |
 | `bw.known-agents` | `bw-new` | `bw-new` | The agents each machine last reported, keyed by machine (`""` for this Mac). |
-| `bw.right.tab` | `bw-right`, `bw-chat` | `bw-right` | `{ [spaceId]: panelId }`, the right sidebar panel per space. |
+| `bw.right.tab` | `bw-right`, `bw-chat`, `bw-needs`, `bw-drafts` | `bw-right` | `{ [spaceId]: panelId }`, the right sidebar panel per space. |
 | `bw.diff.base` | `bw-diff` | `bw-diff` | Each project's base and mode under `projectKey(machine, commonDir)`. |
 | `bw.diff.reveal` | `bw-chat`; `bw-diff` drops it | `bw-diff` | `{ [spaceId]: { file, at } }`, the file "Open in Changes" named. |
 | `bw.linear.links` | `bw-linear` | `bw-linear` | Each repository's linked Linear project. |
 | `bw.chat.attach` | `bw-linear` (add), `bw-chat` (remove, mode, size) | `bw-chat`, `bw-linear` | Attached issue chips, keyed by the chat's tab id. |
 | `bw.hooks-dismissed` | `bw-chat` | `bw-chat` | The machines whose hooks notice got Not now. |
 
-`bw-projects` and `bw-diff` keep folded sections in `localStorage`, which no other mod reads.
+`bw-projects`, `bw-diff`, and `bw-drafts` keep folded sections in `localStorage`, which no other mod
+reads.
 
 ### Shared JavaScript
 
@@ -147,19 +158,20 @@ offline machine keeps its last rows.
 
 | Runs on | What |
 |---|---|
-| Window machine | Every mod. `bw linear`, `bw browser` (except `free-port` and `port-check`), `bw browser forward keep` in its kept terminal, `bw picture`, `bw machine status`, `install` and `setup`. The Bellwether Chrome. |
-| Space's machine | `bw feed`, `locate`, `send`, `picture-read`, `tree`, `cards`, `answer`, `counts`, `hooks`, `event`, `diff` (and its `bw diff watch` watcher), `bw agent`, `bw browser free-port` and `port-check`. The Git reads from `shared/git.js`. The agents, their logs, hook events and Chrome DevTools MCP. |
+| Window machine | Every mod. `bw linear`, `bw pr status`, `bw drafts stage`, `bw browser` (except `free-port` and `port-check`), `bw browser forward keep` in its kept terminal, `bw picture`, `bw machine status`, `install` and `setup`. The Bellwether Chrome. |
+| Space's machine | `bw feed`, `locate`, `send`, `queue` (`list`, `add`, `edit`, `move`, `remove`, `send-now`, `clear`, `resume`, `drain`), `picture-read`, `tree`, `cards`, `answer`, `counts`, `hooks`, `event`, `diff` (and its `bw diff watch` watcher), `drafts` (`list`, `read`, `register-ledger`), `bw agent`, `bw browser free-port` and `port-check`. The Git reads from `shared/git.js`. The agents, their logs, hook events and Chrome DevTools MCP. |
 
 The chat commands run on the space's machine with the terminal's local address, such as `t3`
 ([Sending a message](#sending-a-message) says why). The window machine's `bw` runs `bw agent`,
-`free-port` and `port-check` on the other machine with `hc exec`. `bw machine setup <m>` reaches
-`<m>` with `hc exec`, and `local` runs it in process. `bw picture` reads the picture through
-`bw picture-read` on the space's machine, in process when the space is local.
+`free-port`, `port-check`, and `drafts read --stage` on the other machine with `hc exec`.
+`bw machine setup <m>` reaches `<m>` with `hc exec`, and `local` runs it in process. `bw picture`
+reads the picture through `bw picture-read` on the space's machine, in process when the space is
+local.
 
 ## The bw helper
 
 `bw` is one binary built from `crates/bw`. It keeps no process between calls, except the Changes
-watcher and the forward supervisor below.
+watcher, the detached `Stop`-hook drain child, and the forward supervisor below.
 
 ### Commands and modules
 
@@ -168,6 +180,9 @@ watcher and the forward supervisor below.
 | `bw version` | `crates/bw/src/version.rs` |
 | `bw machine status`, `install`, `setup` | `machine/mod.rs`, `machine/install.rs`, `machine/hooks.rs` |
 | `bw feed`, `locate`, `send`, `picture`, `picture-read`, `tree` | `chat/` (`feed.rs`, `locate.rs`, `send.rs`, `picture.rs`, `tree.rs`) |
+| `bw queue list`, `add`, `edit`, `move`, `remove`, `send-now`, `clear`, `resume`, `drain` | `queue/` (`mod.rs`, `store.rs`, `drain.rs`) |
+| `bw pr status` | `pr/mod.rs` |
+| `bw drafts list`, `read`, `register-ledger`, `stage` | `drafts/mod.rs` |
 | `bw cards`, `answer`, `counts` | `requests/` (`cards.rs`, `answer.rs`, `counts.rs`) |
 | `bw event` | `events/mod.rs` |
 | `bw hooks` | `machine/hooks.rs` |
@@ -652,16 +667,18 @@ mini (Apple M4 Pro) and `macbook`.
 
 | Mod | Calls | While shown | While hidden | Reads at once on | CPU per call |
 |---|---|---|---|---|---|
-| `bw-chat` | `bw feed --pictures --tree --cards` on the space's machine | every 2 s | every 10 s | the chat coming into view, a send, an answer | medians 3.7 to 11.2 ms; 19 ms at most |
-| `bw-diff`, local worktree | `bw diff files` | on a `watchFolder` event, at most once a second; every 30 s without one; every 60 s when the watch is rejected | none | showing the panel, a base change, a reveal | 156 ms on 40,610 files; 92 ms on 5,406 |
-| `bw-diff`, remote worktree | `bw diff files --watch --since <token>` | every 1.5 s | none | showing the panel, a base change, a reveal | about 10 ms unchanged (12.3 ms at most); a full read after an edit |
-| `bw-projects`, Git | `shared/git.js` scripts through `exec` | local: on a `watchFolder` event (at most once a second), and every 30 s for an open worktree; remote: every 15 s, and every 1.5 s for the selected worktree | the same; the sidebar has no hidden state | a new target | 175 ms on 40,000 files for the counts script; no watcher |
+| `bw-chat` | `bw feed --pictures --tree --cards`, `bw queue list`, `bw pr status` | `bw feed` every 2 s (`bw.screen === "chat"`), `bw pr status` cached 45 s | `bw feed` every 10 s when `bw.screen !== "chat"` | the chat coming into view, a send, an answer, a queue edit | medians 3.7 to 11.2 ms; 19 ms at most |
+| `bw-needs` | `bw cards`, `bw counts`, `bw pr status` | every 2 s for blocked terminals, 10 s for counts, 45 s for PRs | none | showing `needs`, a blocked status transition, an answer | reads screens only for blocked terminals |
+| `bw-diff`, local worktree | `bw diff files` | on a `watchFolder` event, at most once a second; every 30 s without one; every 60 s when the watch is rejected | none | showing the panel, a scope or base change, a reveal | 156 ms on 40,610 files; 92 ms on 5,406 |
+| `bw-diff`, remote worktree | `bw diff files --watch --since <token>` | every 1.5 s | none | showing the panel, a scope or base change, a reveal | about 10 ms unchanged (12.3 ms at most); a full read after an edit |
+| `bw-drafts` | `bw drafts list`, `bw drafts read` on `space.machine` | local: on a `watchFolder` event (at most once a second) and every 30 s; remote: every 10 s | none | showing `drafts`, selecting a file, Refresh | bounded scan (`<= 200` files) |
+| `bw-projects`, Git | `shared/git.js` scripts through `exec` | local: on a `watchFolder` event (at most once a second), and every 30 s for an open worktree; remote: every 15 s, and every 1.5 s for the selected worktree | the same | a new target | 175 ms on 40,000 files for the counts script; no watcher |
 | `bw-projects`, counts | `bw counts`, up to 64 terminals a call, per machine | every 10 s | the same | an agent's status changing | reads no screen |
 | `bw-linear` | `bw linear issues` or `search` on this Mac | when shown, then every 60 s | none | a refresh click, a filter, a search, a new space or link, Load more | one HTTPS request |
 | `bw-browser` | `bw browser status` on this Mac | every 2 s | none | showing the panel, an action | at most 4 favicon fetches |
 | `bw-new` | `bw browser agent-args` on this Mac | once per Claude or Codex click, up to 20 s | none | a click | starts Chrome when it is stopped |
-| `bw-tabs` | no helper call | one timer for a split retry (5 s) or a pending chat's expiry (30 s), at least 1 s | the same | a change in Herdr's live data | none |
+| `bw-tabs` | no helper call | one timer for a pending chat's expiry (30 s), at least 1 s | the same | a change in Herdr's live data | none |
 
-`bw-status`, `bw-pane`, `bw-right`, `bw-menu` and `bw-add` do not poll. A remote Changes panel keeps
-one `bw diff watch` process per worktree on the space's machine while it is shown and for 60 s after;
-the watcher used under 10 ms of CPU in its first seconds.
+`bw-overview`, `bw-status`, `bw-pane`, `bw-right`, `bw-menu` and `bw-add` do not poll. A remote
+Changes panel keeps one `bw diff watch` process per worktree on the space's machine while it is shown
+and for 60 s after; the watcher used under 10 ms of CPU in its first seconds.

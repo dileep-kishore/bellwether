@@ -18,6 +18,7 @@ describe("choice", () => {
     expect(PANELS.map((p) => [p.id, p.label, p.phase])).toEqual([
       ["changes", "Changes", 5],
       ["issues", "Issues", 6],
+      ["drafts", "Drafts", 8],
       ["browser", "Browser", 4],
     ]);
   });
@@ -26,12 +27,13 @@ describe("choice", () => {
     for (const stored of [undefined, null, [], "issues", 7, { s1: "nope" }, { s2: "issues" }])
       expect(chosen(stored, "s1")).toBe("changes");
     expect(chosen({ s1: "browser" }, "s1")).toBe("browser");
+    expect(chosen({ s1: "drafts" }, "s1")).toBe("drafts");
     expect(chosen({ s1: "browser" }, null)).toBe("changes");
   });
 
   test("choose sets one space and drops spaces that are gone", () => {
-    expect(choose({ s1: "browser", gone: "issues", s2: "junk" }, "s1", "issues", ["s1", "s2"])).toEqual({
-      s1: "issues",
+    expect(choose({ s1: "browser", gone: "issues", s2: "junk" }, "s1", "drafts", ["s1", "s2"])).toEqual({
+      s1: "drafts",
     });
     expect(choose(null, "s2", "browser", ["s1", "s2"])).toEqual({ s2: "browser" });
     expect(choose({ s1: "browser" }, null, "issues", ["s1"])).toEqual({ s1: "browser" });
@@ -39,7 +41,7 @@ describe("choice", () => {
 
   test("wanted is null when the layout already shows the choice", () => {
     expect(wanted({ s1: "issues" }, "s1", "issues")).toBe(null);
-    expect(wanted({ s1: "issues" }, "s1", "changes")).toBe("issues");
+    expect(wanted({ s1: "drafts" }, "s1", "changes")).toBe("drafts");
     expect(wanted({}, "s1", "browser")).toBe("changes");
     expect(wanted({ s1: "issues" }, null, "browser")).toBe(null);
   });
@@ -49,6 +51,7 @@ describe("bw-right", () => {
   test("panel copy names the panel and its phase", async () => {
     expect(textOf((await mount("bw-right", { props: { panel: "changes" } })).el)).toBe("Changes Coming in phase 5.");
     expect(textOf((await mount("bw-right", { props: { panel: "issues" } })).el)).toBe("Issues Coming in phase 6.");
+    expect(textOf((await mount("bw-right", { props: { panel: "drafts" } })).el)).toBe("Drafts Coming in phase 8.");
   });
 
   test("the strip is a segmented pill: the shown panel is Surface 1 with a Mauve dot", async () => {
@@ -66,21 +69,28 @@ describe("bw-right", () => {
     expect(m.log.run).toEqual([]);
   });
 
-  test("strip draws three tabs, the chosen one selected", async () => {
-    const m = await mount("bw-right", { live: withStored({ s1: "issues" }) });
-    expect(textOf(m.el)).toBe("Changes Issues Browser");
-    expect(byId(m.el, "right-tab-issues").attrs.bg).toBe("#selected");
+  test("strip draws four tabs and right-aligned hide button, with the chosen tab selected", async () => {
+    const m = await mount("bw-right", { live: withStored({ s1: "drafts" }) });
+    expect(textOf(m.el)).toBe("Changes Issues Drafts Browser");
+    expect(byId(m.el, "right-tab-drafts").attrs.bg).toBe("#selected");
     expect(byId(m.el, "right-tab-changes").attrs.bg).not.toBe("#selected");
+    expect(byId(m.el, "right-hide")).not.toBe(null);
     expect(m.el.attrs.h).toBe(36);
+  });
+
+  test("right-hide button hides the right column", async () => {
+    const m = await mount("bw-right", { live: live("two-machines") });
+    await m.click("right-hide");
+    expect(m.log.run).toContainEqual(["layout.hide", { id: "right" }]);
   });
 
   test("strip click selects and remembers per space", async () => {
     const m = await mount("bw-right", { live: live("two-machines") });
-    await m.click("right-tab-issues");
-    expect(m.log.run).toContainEqual(["layout.select", { stack: "right-body", child: "issues" }]);
+    await m.click("right-tab-drafts");
+    expect(m.log.run).toContainEqual(["layout.select", { stack: "right-body", child: "drafts" }]);
     expect(selects(m)).toHaveLength(1);
-    expect(m.log.shared.at(-1)).toEqual(["bw.right.tab", { s1: "issues" }]);
-    expect(byId(m.el, "right-tab-issues").attrs.bg).toBe("#selected");
+    expect(m.log.shared.at(-1)).toEqual(["bw.right.tab", { s1: "drafts" }]);
+    expect(byId(m.el, "right-tab-drafts").attrs.bg).toBe("#selected");
   });
 
   test("switching to a space restores its tab once", async () => {
