@@ -685,3 +685,25 @@ export function isShown(entry, spaces, panes) {
 export function chatArgv(_kind, run, extras = []) {
   return [...run, ...extras];
 }
+
+/**
+ * Updates `shared("bw.chat-agent")` so `tabId` pins `terminal`, pruning closed tabs.
+ * @param {unknown} stored
+ * @param {string} tabId
+ * @param {string} terminal
+ * @param {Iterable<string>} [liveTabs]
+ * @returns {Record<string, string>}
+ */
+export function pinTabAgent(stored, tabId, terminal, liveTabs) {
+  const keep = liveTabs ? new Set(liveTabs) : null;
+  /** @type {Record<string, string>} */
+  const next = {};
+  if (isObj(stored)) {
+    for (const [k, v] of Object.entries(stored)) {
+      if (keep && !keep.has(k)) continue;
+      if (isStr(v)) next[k] = v;
+    }
+  }
+  next[tabId] = terminal;
+  return next;
+}

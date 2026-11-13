@@ -10,3 +10,6 @@ linear-attach
 git-parse
 git
 pr-model
+focus-guard
+dock-model
+dock

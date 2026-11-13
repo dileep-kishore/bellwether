@@ -1,9 +1,7 @@
-// The request dock above the composer: hooks notices on top, then one card per request, newest last.
-// Draws dock-model.js cards and question drafts; the chat decides what a click does.
+// The request dock and standalone request cards: hooks notices on top, then one card per request, newest last.
+// Draws dock-model.js cards and question drafts; the caller (`bw-chat` or `bw-needs`) decides what a click does.
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, Input } from "gpui-base";
-import { READ_W } from "./estimate.js";
-import { icon } from "./timeline.js";
 import { ICONS, MOTION, appear, button } from "./ui.js";
 
 /** @typedef {import("./ui.js").Theme} Theme */
@@ -35,7 +33,7 @@ import { ICONS, MOTION, appear, button } from "./ui.js";
  * @property {(card: Card, step: number, index: number, cx: any) => void} onOption
  * @property {(card: Card, step: number, cx: any) => void} onStep
  * @property {(card: Card, event: any, cx: any) => void} onKey
- * @property {(button: string, cx: any) => void} onNotice
+ * @property {(button: string, cx: any) => void} [onNotice]
  * @property {(id: string, cx: any) => void} onShown a card was laid out for the first time
  */
 
@@ -43,7 +41,7 @@ import { ICONS, MOTION, appear, button } from "./ui.js";
  * @typedef {object} DockView
  * @property {Theme} t themeColors()
  * @property {Card[]} cards
- * @property {Notice | null} notice
+ * @property {Notice | null} [notice]
  * @property {(card: Card) => Draft} draftOf
  * @property {string | null} active the question card that holds the keyboard and the Other field
  * @property {any} focus the FocusHandle the active card tracks
@@ -53,10 +51,13 @@ import { ICONS, MOTION, appear, button } from "./ui.js";
  */
 
 const MONO = "Menlo";
+const READ_W = 680;
+/** @param {string} name */
+const dockIcon = (name) => `mods/bw-chat/icons/${name}.svg`;
 
 /**
  * A card's button: primary is Mauve, the rest Surface 0. A disabled one still reports its click,
- * so the chat's own check (focus guard, sending) is what refuses it.
+ * so the caller's own check (focus guard, sending) is what refuses it.
  * @param {string} id @param {string} label @param {boolean} enabled @param {boolean} primary @param {Theme} t
  * @param {(cx: any) => void} act
  */
@@ -212,11 +213,14 @@ function questionBody(c, v, h) {
     );
 }
 
-/** @param {Card} c @param {DockView} v @param {DockHandlers} h */
-function card(c, v, h) {
+/**
+ * Renders one request card (`approval`, `question`, `question_async`, or `prompt`).
+ * @param {Card} c @param {DockView} v @param {DockHandlers} h
+ */
+export function requestCard(c, v, h) {
   const { t } = v;
   const pending = c.state === "pending" || c.state === "sending";
-  const glyph = c.kind === "approval" ? icon("approval") : icon("question");
+  const glyph = c.kind === "approval" ? dockIcon("approval") : dockIcon("question");
   const note = (c.state === "pending" && v.notes.get(c.id)) || c.note;
   const command = c.command.trim();
   const tool = c.kind === "approval" ? c.tool.trim() : "";
@@ -396,7 +400,7 @@ function notice(n, t, h) {
           .flex_wrap()
           .children(
             n.buttons.map((b) =>
-              pushButton(b.id, b.label, b.enabled !== false, Boolean(b.primary), t, (cx) => h.onNotice(b.id, cx)),
+              pushButton(b.id, b.label, b.enabled !== false, Boolean(b.primary), t, (cx) => h.onNotice?.(b.id, cx)),
             ),
           ),
       ),
@@ -425,6 +429,6 @@ export function dock(v, h) {
         .max_w(READ_W)
         .gap(8)
         .when(Boolean(v.notice), (el) => el.child(notice(/** @type {Notice} */ (v.notice), v.t, h)))
-        .children(v.cards.map((c) => card(c, v, h))),
+        .children(v.cards.map((c) => requestCard(c, v, h))),
     );
 }
