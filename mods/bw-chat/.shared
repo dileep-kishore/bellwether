@@ -7,3 +7,6 @@ palette
 choice
 diff-reveal
 linear-attach
+git-parse
+git
+pr-model

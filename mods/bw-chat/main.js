@@ -1,7 +1,6 @@
-// One agent's chat beside its terminal. One loop task reads `bw feed --tree --cards` on the space's machine
-// (every 2 s while shown, 10 s while hidden, start to start) and never reads live data; render reads the
-// panes, terminals and focus, decides shown, and pokes the loop when that changes. Sends and answers go
-// through the helper on the space's machine; pictures and hook setup through this Mac's helper.
+// Agent chat surface: supports both per-pane props (`props().terminal`, harness compatibility) and
+// layout-level stack mode (`props()` empty, 24-session LRU across spaces and tabs). One loop task
+// polls `bw feed --tree --cards` (2 s while shown, 10 s while hidden) without reading live Herdr data.
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, VirtualListScrollHandle } from "gpui-base";
 import {
@@ -18,10 +17,21 @@ import {
   spaces,
   terminals,
 } from "herdr";
-import { CHAT_SHOWN, hasMod, isShown, leftAt, shownFrom, TERMINAL_FOCUS } from "./chat-tabs.js";
+import {
+  CHAT_AGENT,
+  CHAT_SHOWN,
+  PR_SUMMARY,
+  SCREEN_KEY,
+  TERMINAL_FOCUS,
+  hasMod,
+  isShown,
+  leftAt,
+  shownFrom,
+} from "./chat-tabs.js";
 import { choose } from "./choice.js";
 import { chipsView } from "./chips.js";
 import { Composer } from "./composer.js";
+import { contextStrip } from "./context-strip.js";
 import { dock } from "./dock.js";
 import {
   answerArgs,
@@ -35,10 +45,11 @@ import {
   setOther,
   toggle,
 } from "./dock-model.js";
-import { columnWidth, rowHeight } from "./estimate.js";
+import { READ_W, columnWidth, rowHeight } from "./estimate.js";
 import { applyFeed, applyOlder, emptyFeed, expectation, freshChat, newConversation, olderFrom } from "./feedstate.js";
 import { REVEAL, withReveal } from "./diff-reveal.js";
 import { createGuard, guardedUntil, isGuarded, observe, observeLeft } from "./focus-guard.js";
+import { headOid, remoteOrigin } from "./git.js";
 import { createHelper, parseLines } from "./helper.js";
 import {
   ATTACH,
@@ -54,14 +65,25 @@ import {
   textArgs,
 } from "./linear-attach.js";
 import { createPictures } from "./pictures.js";
+import {
+  babysitCommand,
+  mergeCommand,
+  parsePrLines,
+  prStatusArgs,
+  toSharedPrEntry,
+  updateSharedPrSummary,
+} from "./pr-model.js";
 import { createPoke } from "./refresh-driver.js";
+import { MAX_SESSIONS, SessionMap, createSession, parseQueueLine, pinTabAgent } from "./sessions.js";
 import {
   TRUST_STEP,
   agentName,
   helperText,
   hooksState,
   hooksText,
+  isPerPaneProps,
   pollMs,
+  resolveStackTarget,
   resolveTarget,
   sendText,
   targetOf,
@@ -70,38 +92,44 @@ import {
 import { subagentBar, threadsButton, threadsCard, threadsPill } from "./threads.js";
 import { barText, cardOpen, pillText, threadRows, toggleCard } from "./threads-model.js";
 import { timeline, waitsInTerminal } from "./timeline.js";
-import { ICONS, button as uiButton, machineTag, programIcon, themeColors } from "./ui.js";
+import { ICONS, button as uiButton, findLayout, machineTag, programIcon, themeColors } from "./ui.js";
 
 /** @typedef {import("./ui.js").Theme} Theme */
-
-// bw-right's per-space panel choice.
-const RIGHT_TAB = "bw.right.tab";
-const WINDOW_ID = "bw.window-id";
-const DISMISSED = "bw.hooks-dismissed";
-const ROOT_ENDED = "This conversation ended; showing the new one";
-
 /** @typedef {import("./target.js").Target} Target */
 /** @typedef {import("./target.js").Found} Found */
+/** @typedef {import("./target.js").StackFound} StackFound */
 /** @typedef {import("./target.js").Located} Located */
+/** @typedef {import("./target.js").StackLocated} StackLocated */
 /** @typedef {import("./feedstate.js").FeedState} FeedState */
 /** @typedef {import("./dock-model.js").Request} Request */
 /** @typedef {import("./dock-model.js").Card} Card */
 /** @typedef {import("./dock-model.js").Draft} Draft */
 /** @typedef {import("./threads-model.js").Row} Row */
+/** @typedef {import("./sessions.js").SessionState} SessionState */
+/** @typedef {import("./sessions.js").SessionSlot} SessionSlot */
+/** @typedef {import("./sessions.js").QueueItem} QueueItem */
+/** @typedef {import("./pr-model.js").PrSummary} PrSummary */
 /** @typedef {{ title: string, message: string, exited: boolean }} Problem */
 /** @typedef {"claude" | "codex"} Kind */
 
+const CHAT_TABS = "bw.chat-tabs";
+const RIGHT_TAB = "bw.right.tab";
+const WINDOW_ID = "bw.window-id";
+const DISMISSED = "bw.hooks-dismissed";
+const ROOT_ENDED = "This conversation ended; showing the new one";
+const QUEUE_IDLE_POLL_MS = 10_000;
+const PR_SHOWN_POLL_MS = 30_000;
+const PR_HIDDEN_POLL_MS = 60_000;
+
 /**
- * What the chat shows: the parent's conversation, a sub-agent's own log, or a terminal sub-agent as a chat of
- * its own terminal (`terminal` in this window's namespace, `local` on the space's machine).
  * @typedef {{ child: null } | { child: string } | { child?: undefined, terminal: string, local: string, kind: Kind | null, program: string }} ViewState
  */
 
 /**
- * @typedef {object} HooksUi The hooks notice's Review and Apply steps for one machine.
- * @property {string} machine the machine name, "local" for this Mac
+ * @typedef {object} HooksUi
+ * @property {string} machine
  * @property {"loading" | "diff" | "applying" | "applied" | "failed"} phase
- * @property {any[]} [diff] the `hooks-diff` lines
+ * @property {any[]} [diff]
  * @property {string} [message]
  */
 
@@ -111,8 +139,10 @@ const isTerminalView = (v) => "terminal" in v && typeof v.terminal === "string";
 /** @param {string} address @returns {string | null} */
 const machineOfAddress = (address) => (address.includes("/") ? address.slice(0, address.indexOf("/")) : null);
 
-/** The pending question that holds the keyboard and the Other field: the oldest one a click can answer.
- * @param {Request[]} requests @returns {Request | null} */
+/**
+ * The pending question that holds the keyboard and the Other field: the oldest one a click can answer.
+ * @param {Request[]} requests @returns {Request | null}
+ */
 function activeQuestion(requests) {
   const qs = requests.filter(
     (r) => (r.kind === "question" || r.kind === "question_async") && r.state === "pending" && r.answerable,
@@ -122,110 +152,135 @@ function activeQuestion(requests) {
 }
 
 const NO_KEYS_WITH = ["control", "alt", "platform", "function"];
-// Results after which the request's keys or message reached the terminal, or another answer holds it.
 const WENT_OUT = new Set(["answered", "declined", "uncertain", "sent", "already-answered"]);
 
 export default class Chat extends View {
-  /** @param {unknown} _props Herdr passes undefined; props() holds this pane's props. @param {any} cx */
+  /** @returns {any} */
+  get scroll() {
+    return this.session?.scroll ?? null;
+  }
+
+  /** @returns {Composer | null} */
+  get composer() {
+    return this.session?.composer ?? null;
+  }
+
+  /** @param {unknown} _props @param {any} cx */
   init(_props, cx) {
-    const props = /** @type {unknown} */ (herdrProps());
-    /** What the props name, in the namespace of the window that wrote them. @type {Target | null} */
-    this.id = targetOf(props);
+    const rawProps = /** @type {unknown} */ (herdrProps());
+    this.stackMode = !isPerPaneProps(rawProps);
+    /** @type {Target | null} */
+    this.id = this.stackMode ? null : targetOf(rawProps);
     /** @type {string | null} */
-    this.window = typeof (/** @type {any} */ (props)?.window) === "string" ? /** @type {any} */ (props).window : null;
+    this.window =
+      !this.stackMode && typeof (/** @type {any} */ (rawProps)?.window) === "string"
+        ? /** @type {any} */ (rawProps).window
+        : null;
     this.alive = true;
-    if (!this.id) return;
-    this.name = agentName(this.id.kind);
-    /** The terminal in this chat's own tab, as this window names it; null while it is not found. @type {Found | null} */
-    this.target = null;
-    /** @type {Located} */
-    this.located = { state: "missing" };
-    /** The parent conversation's feed. */
-    this.feed = emptyFeed(this.id.terminal);
-    /** @type {ViewState} */
-    this.view = { child: null };
-    /** A sub-agent's or terminal sub-agent's feed while its view is open. @type {FeedState | null} */
-    this.sub = null;
-    /** @type {any} the last `tree` line */
-    this.tree = null;
-    /** @type {any} the last `cards` line */
-    this.cards = null;
-    /** @type {Request[]} */
-    this.requests = [];
-    /** @type {{ open: boolean, running: string[] } | null} */
-    this.toggle = null;
-    /** @type {Row[]} */
-    this.rows = [];
-    /** @type {Map<string, { kind: Kind | null, program: string }>} terminal sub-agents seen in render */
-    this.termInfo = new Map();
-    this.guard = createGuard(Date.now());
-    this.drawnGuarded = true;
-    /** @type {Set<string>} requests whose `bw answer` runs */
-    this.sendingIds = new Set();
-    /** @type {Map<string, string>} the last `bw answer` result by request */
-    this.answerNotes = new Map();
-    /** The threads card row under the pointer. @type {string | null} */
-    this.threadHover = null;
-    /** Dock cards laid out once; a card fades in on its first layout. @type {Set<string>} */
-    this.cardsShown = new Set();
-    /** @type {Set<string>} requests whose keys or message went out; no second click while they stay pending */
-    this.wentOut = new Set();
-    /** @type {Map<string, Draft>} */
-    this.drafts = new Map();
-    /** @type {string | null} which draft step the Other field shows */
-    this.otherKey = null;
-    /** @type {string | null} */
-    this.viewNote = null;
-    /** @type {HooksUi | null} */
-    this.hooksUi = null;
+    if (!this.stackMode && !this.id) return;
+
     this.poke = createPoke();
     this.pictures = createPictures();
     this.picturesBusy = false;
-    this.scroll = VirtualListScrollHandle.new();
-    /** @type {Set<string>} */
-    this.open = new Set();
-    /** @type {WeakMap<object, { w: number, open: boolean, h: number }>} */
-    this.heights = new WeakMap();
     this.width = 0;
-    /** The pane's height from on_size_change; 0 before the first layout. */
     this.paneHeight = 0;
-    this.follow = true;
-    this.topSeen = false;
-    this.wantOlder = false;
-    this.olderBusy = false;
-    this.sending = false;
-    /** @type {{ text: string, bad: boolean } | null} */
-    this.note = null;
-    /** The attached issue under the pointer. @type {string | null} */
+    /** @type {string | null} */
+    this.threadHover = null;
+    /** @type {string | null} */
     this.chipHover = null;
-    /** @type {string | null} the machine the helper is being installed on */
+    /** @type {HooksUi | null} */
+    this.hooksUi = null;
+    /** @type {string | null} */
     this.installing = null;
-    // Read once here so the first feed and the loop's first sleep are right; render keeps them current.
-    const ps = panes();
-    this.locate(spaces(), ps);
-    /** This chat's own pane, as the last render saw it. @type {string | null} */
+    /** @type {{ terminal: string, id: string } | null} */
+    this.editingQueue = null;
+    /** @type {Map<string, { kind: Kind | null, program: string }>} */
+    this.termInfo = new Map();
+    /** @type {string[]} */
+    this.liveSpaceIds = [];
+    /** @type {string[]} */
+    this.liveTabIds = [];
+    /** @type {string | null} */
     this.chatPane = null;
-    /** The layout has bw-tabs, the writer of the shown list, as the last render saw it. */
     this.listed = false;
-    /** @type {boolean} */
-    this.shown = this.readShown(spaces(), ps);
-    this.status = this.statusOf(ps);
-    this.composer = new Composer({ placeholder: `Message ${this.name}…`, onSend: (text, cx) => this.send(text, cx) });
-    // Retained state is made here, never in render: one keyboard target and one Other field, for the active question.
+    this.layoutScreen = "chat";
+
+    /**
+     * Allocates a retained slot during `init()` so `render()` never constructs host state.
+     * @param {number} index
+     * @param {Kind | null} [onlyKind]
+     * @returns {SessionSlot}
+     */
+    const makeSlot = (index, onlyKind = null) => {
+      const scroll = VirtualListScrollHandle.new();
+      const sendFrom = (/** @type {string} */ text, /** @type {any} */ cx, /** @type {any} */ opts) => {
+        if (this.session) this.submitText(this.session, text, cx, opts);
+      };
+      const claude =
+        onlyKind === null || onlyKind === "claude"
+          ? new Composer({ placeholder: "Message Claude…", onSend: sendFrom })
+          : /** @type {any} */ (null);
+      const codex =
+        onlyKind === null || onlyKind === "codex"
+          ? new Composer({ placeholder: "Message Codex…", onSend: sendFrom })
+          : /** @type {any} */ (null);
+      return { index, scroll, composers: { claude: claude ?? codex, codex: codex ?? claude } };
+    };
+
+    if (this.stackMode) {
+      /** @type {SessionSlot[]} */
+      const pool = [];
+      for (let i = 0; i < MAX_SESSIONS; i++) pool.push(makeSlot(i));
+      this.sessions = new SessionMap(pool, makeSlot(MAX_SESSIONS), MAX_SESSIONS);
+      this.perPaneSlot = null;
+    } else {
+      this.sessions = null;
+      this.perPaneSlot = makeSlot(0, /** @type {Target} */ (this.id).kind);
+    }
+
+    /** @type {Located} */
+    this.located = { state: "missing" };
+    /** @type {StackLocated} */
+    this.stackLocated = { state: "no_agent", space: null, tab: null, hasTerminal: false, agents: [] };
+    /** @type {SessionState | null} */
+    this.perPaneSession = null;
+    /** @type {SessionState | null} */
+    this.session = null;
+    /** @type {StackFound | null} */
+    this.target = null;
+
     this.focus = cx.focus_handle();
     this.other = InputState.new({ placeholder: "Other…" });
     this.other.on("change", (/** @type {unknown} */ _e, /** @type {any} */ cx) => {
-      const a = activeQuestion(this.requests);
+      const s = this.session;
+      if (!s) return;
+      const a = activeQuestion(s.requests);
       if (!a) return;
-      const d = this.draftOf(a);
+      const d = this.draftOf(s, a);
       const v = this.other.value();
       if (v === (d.other[d.step] ?? "")) return;
-      this.drafts.set(a.id, setOther(d, d.step, v));
+      s.drafts.set(a.id, setOther(d, d.step, v));
       cx?.notify?.();
     });
 
+    this.editInput = InputState.new({ placeholder: "Edit queued message…" });
+    this.editInput.on("change", (/** @type {unknown} */ _e, /** @type {any} */ cx) => cx?.notify?.());
+    this.editInput.on("submit", (/** @type {unknown} */ _e, /** @type {any} */ cx) => {
+      const ed = this.editingQueue;
+      const s = this.session;
+      if (!ed || !s || s.terminal !== ed.terminal) return;
+      this.saveQueueEdit(s, ed.id, cx);
+    });
+
+    const now = Date.now();
+    const all = spaces();
+    const ps = panes();
+    this.locateCurrent(all, ps, now);
+    /** @type {boolean} */
+    this.shown = false;
+    this.shown = this.readShown(all, ps);
+
     const bw = `${home()}/.local/share/bellwether/helper/current/bw`;
-    // The loop task's own cx, so an install can redraw before it finishes.
     /** @type {any} */
     let loopCx = null;
     this.helper = createHelper({
@@ -251,38 +306,61 @@ export default class Chat extends View {
       try {
         while (this.alive) {
           const started = Date.now();
+          const s = this.session;
+          const target = this.target;
           try {
-            if (this.target) {
-              await this.readFeed(cx);
-              if (this.wantOlder) await this.readOlder(cx);
-              this.startPictures(cx);
+            if (s && target) {
+              await this.readFeed(s, target, cx);
+              if (s.wantOlder) await this.readOlder(s, target, cx);
+              this.startPictures(s, target, cx);
+              if (this.stackMode) {
+                if (s.wantDrain && !s.draining) {
+                  await this.drainQueueFallback(s, cx);
+                } else {
+                  await this.maybeReadQueue(s, started, cx);
+                }
+                await this.maybeReadPr(s, started, cx);
+              }
             }
           } catch (e) {
-            // A thrown error would end the loop and freeze the chat; name it and keep polling.
-            applyFeed(this.viewFeed(), {
-              ok: false,
-              state: "failed",
-              message: e instanceof Error ? e.message : String(e),
-            });
-            cx.notify();
+            if (s) {
+              applyFeed(this.viewFeedOf(s), {
+                ok: false,
+                state: "failed",
+                message: e instanceof Error ? e.message : String(e),
+              });
+              cx.notify();
+            }
           }
-          const now = Date.now();
-          // The guard ended since the last frame: draw the buttons enabled again.
-          if (this.drawnGuarded && !isGuarded(this.guard, now)) cx.notify();
-          // A hidden copy is not drawn, so render cannot tell it went out of sight; bw-tabs's list can.
-          // Only bw-tabs writes the list, so in a layout without it the list is stale and render decides.
-          if (this.listed) this.shown = shownFrom(shared(CHAT_SHOWN), this.chatPane, this.shown);
-          let wait = Math.max(0, pollMs(this.shown) - (now - started));
-          if (this.answerable() && isGuarded(this.guard, now))
-            wait = Math.max(1000, Math.min(wait, guardedUntil(this.guard) - now));
+          const doneAt = Date.now();
+          const cur = this.session;
+          if (cur?.drawnGuarded && !isGuarded(cur.guard, doneAt)) cx.notify();
+          if (this.stackMode) {
+            const screenVal = shared(SCREEN_KEY);
+            const activeScreen = typeof screenVal === "string" ? screenVal : this.layoutScreen;
+            this.shown = Boolean(this.target) && activeScreen === "chat";
+          } else if (this.listed) {
+            this.shown = shownFrom(shared(CHAT_SHOWN), this.chatPane, this.shown);
+          }
+          let wait = Math.max(0, pollMs(this.shown) - (doneAt - started));
+          if (cur && this.answerableOf(cur) && isGuarded(cur.guard, doneAt)) {
+            wait = Math.max(1000, Math.min(wait, guardedUntil(cur.guard) - doneAt));
+          }
           await this.poke.wait(cx.sleep(wait));
         }
       } finally {
         loopCx = null;
       }
     });
+
     cx.spawn(async () => {
-      while (this.alive) if ((await nextCommand()) === "focus") this.composer.focus();
+      while (this.alive) {
+        if ((await nextCommand()) !== "focus") continue;
+        const s = this.session;
+        if (!s) continue;
+        if (activeQuestion(s.requests)) this.focus.focus();
+        else s.composer.focus();
+      }
     });
   }
 
@@ -291,102 +369,199 @@ export default class Chat extends View {
     this.poke?.poke();
   }
 
-  /** @returns {FeedState} the feed the view shows */
-  viewFeed() {
-    return this.view.child || isTerminalView(this.view) ? /** @type {FeedState} */ (this.sub) : this.feed;
+  /** @param {SessionState} s @returns {FeedState} */
+  viewFeedOf(s) {
+    return s.view.child || isTerminalView(s.view) ? /** @type {FeedState} */ (s.sub) : s.feed;
   }
 
-  /** @param {any[]} ps PaneInfo[] */
-  statusOf(ps) {
-    const t = this.target;
-    return t ? (ps.find((p) => p.pane === t.pane)?.status ?? null) : null;
-  }
-
-  /** A pending request a click could answer once the guard ends. */
-  answerable() {
-    return this.requests.some((r) => r.state === "pending" && r.answerable);
+  /** @param {SessionState} s */
+  answerableOf(s) {
+    return s.requests.some((r) => r.state === "pending" && r.answerable);
   }
 
   /**
-   * Finds this chat's terminal again; a different one than before starts the feed over, so rows and a
-   * send never mix two terminals. Returns whether the target changed.
-   * @param {any[]} all SpaceInfo[] @param {any[]} ps PaneInfo[]
+   * Resolves the current target and active `SessionState` in either stack mode or per-pane props mode.
+   * Returns whether the active target or status changed.
+   * @param {any[]} all SpaceInfo[]
+   * @param {any[]} ps PaneInfo[]
+   * @param {number} now
+   * @returns {boolean}
    */
-  locate(all, ps) {
+  locateCurrent(all, ps, now) {
+    this.liveSpaceIds = all.map((sp) => sp.id);
+    this.liveTabIds = all.flatMap((sp) => (sp.tabs ?? []).map((/** @type {any} */ tb) => tb.id));
+
+    if (this.stackMode) {
+      const prevSession = this.session;
+      const prevStatus = prevSession?.status ?? null;
+      const located = resolveStackTarget(all, ps, shared(CHAT_TABS), shared(CHAT_AGENT));
+      this.stackLocated = located;
+      if (located.state !== "found") {
+        const changed = this.target !== null || this.session !== null;
+        this.target = null;
+        this.session = null;
+        return changed;
+      }
+      const { session, created } = /** @type {SessionMap} */ (this.sessions).acquire(
+        located.target,
+        shared(ATTACH),
+        now,
+      );
+      const nextStatus = located.target.status ?? null;
+      if (
+        !created &&
+        session.status === "working" &&
+        (nextStatus === "done" || nextStatus === "idle") &&
+        session.queue.items.length > 0 &&
+        !session.queue.held &&
+        !session.draining
+      ) {
+        session.wantDrain = true;
+      }
+      session.status = nextStatus;
+      const switched = prevSession !== session;
+      this.session = session;
+      this.target = located.target;
+      if (switched) {
+        if (this.editingQueue && this.editingQueue.terminal !== session.terminal) {
+          this.editingQueue = null;
+          this.editInput.set_value("");
+        }
+        this.syncOther(session);
+      }
+      return switched || created || prevStatus !== nextStatus || session.wantDrain;
+    }
+
     const id = /** @type {Target} */ (this.id);
+    if (!this.perPaneSession) {
+      this.perPaneSession = createSession(
+        {
+          ...id,
+          tab: "",
+          pane: "",
+          spaceId: "",
+          folder: "",
+          branch: null,
+          status: null,
+          title: agentName(id.kind),
+          program: null,
+          focused: false,
+        },
+        /** @type {SessionSlot} */ (this.perPaneSlot),
+        now,
+      );
+    }
     const located = resolveTarget(id, this.window !== null && this.window === shared(WINDOW_ID), all, ps);
     this.located = located;
-    const next = located.state === "found" ? located.target : null;
     const prev = this.target;
-    this.target = next;
-    if (!next || !prev) return next !== prev;
-    if (next.machine === prev.machine && next.local === prev.local) return false;
-    this.feed = emptyFeed(next.terminal);
-    this.setView({ child: null }, null);
-    // Another terminal: no request, answer or guard of the old one may carry over.
-    this.tree = null;
-    this.toggle = null;
-    this.requests = [];
-    this.cards = null;
-    this.answerNotes.clear();
-    this.wentOut.clear();
-    this.guard = createGuard(Date.now());
-    return true;
+    if (located.state !== "found") {
+      this.target = null;
+      this.session = this.perPaneSession;
+      return prev !== null;
+    }
+    const found = located.target;
+    const pane = ps.find((p) => p.pane === found.pane) ?? null;
+    const space = all.find((sp) => (sp.tabs ?? []).some((/** @type {any} */ tb) => tb.id === found.tab)) ?? null;
+    /** @type {StackFound} */
+    const stackTarget = {
+      ...found,
+      spaceId: String(space?.id ?? ""),
+      folder: String(pane?.cwd || space?.folder || ""),
+      branch: typeof pane?.branch === "string" && pane.branch ? pane.branch : (space?.branch ?? null),
+      status: pane?.status ?? null,
+      title: String(pane?.title || agentName(found.kind)),
+      program: pane?.program ?? null,
+      focused: Boolean(pane?.focused),
+    };
+    const switchedTerminal = Boolean(
+      prev && (prev.machine !== stackTarget.machine || prev.local !== stackTarget.local),
+    );
+    if (switchedTerminal) {
+      this.perPaneSession = createSession(stackTarget, /** @type {SessionSlot} */ (this.perPaneSlot), now);
+    } else {
+      this.perPaneSession.machine = stackTarget.machine;
+      this.perPaneSession.local = stackTarget.local;
+      this.perPaneSession.terminal = stackTarget.terminal;
+      this.perPaneSession.tab = stackTarget.tab;
+      this.perPaneSession.pane = stackTarget.pane;
+      this.perPaneSession.spaceId = stackTarget.spaceId;
+      this.perPaneSession.folder = stackTarget.folder;
+      this.perPaneSession.branch = stackTarget.branch;
+    }
+    const prevStatus = this.perPaneSession.status;
+    this.perPaneSession.status = stackTarget.status;
+    this.session = this.perPaneSession;
+    this.target = stackTarget;
+    if (switchedTerminal) this.syncOther(this.session);
+    return prev === null || switchedTerminal || prevStatus !== stackTarget.status;
   }
 
   /**
-   * Opens another view. Leaving or entering a terminal sub-agent's view drops the requests and starts a new
-   * focus guard, since its dock answers another terminal.
-   * @param {ViewState} next @param {any} cx null from render or the loop
+   * Opens another view inside `s`. Leaving or entering a terminal sub-agent's view drops its requests and
+   * starts a fresh 3 s focus guard.
+   * @param {SessionState} s
+   * @param {ViewState} next
+   * @param {any} cx
    */
-  setView(next, cx) {
-    const was = this.view;
+  setView(s, next, cx) {
+    const was = s.view;
     const wasT = isTerminalView(was) ? was.terminal : null;
     const nextT = isTerminalView(next) ? next.terminal : null;
-    this.view = next;
-    this.sub = next.child || nextT ? emptyFeed(nextT ?? this.target?.terminal ?? "") : null;
-    this.open.clear();
-    this.follow = true;
-    this.wantOlder = false;
-    this.note = null;
-    this.viewNote = null;
+    s.view = next;
+    s.sub = next.child || nextT ? emptyFeed(nextT ?? s.terminal) : null;
+    s.open.clear();
+    s.follow = true;
+    s.wantOlder = false;
+    s.note = null;
+    s.viewNote = null;
     if (wasT !== nextT) {
-      this.requests = [];
-      this.cards = null;
-      this.answerNotes.clear();
-      this.wentOut.clear();
-      this.guard = createGuard(Date.now());
+      s.requests = [];
+      s.cards = null;
+      s.answerNotes.clear();
+      s.wentOut.clear();
+      s.guard = createGuard(Date.now());
     }
+    if (this.session === s) this.syncOther(s);
     this.poke.poke();
     cx?.notify();
   }
 
-  /** The chat's tab: its terminal's, or the one it was left alone in. */
-  tab() {
+  /** @returns {string | null} */
+  currentTab() {
+    if (this.stackMode) {
+      return this.stackLocated.tab;
+    }
     const l = this.located;
     return l.state === "found" ? l.target.tab : l.state === "exited" ? l.tab : null;
   }
 
   /** @param {any[]} all SpaceInfo[] @param {any[]} ps PaneInfo[] */
   readShown(all, ps) {
-    const tab = this.tab();
+    const tree = layout();
+    this.listed = hasMod(tree, "bw-tabs");
+    if (this.stackMode) {
+      const screenNode = findLayout(tree, "screen");
+      const rawScreen = typeof screenNode?.active === "string" ? screenNode.active : "chat";
+      this.layoutScreen = rawScreen;
+      if (!this.target) return false;
+      if (rawScreen !== "chat") return false;
+      const sharedScreen = shared(SCREEN_KEY);
+      if (this.listed && typeof sharedScreen === "string") return sharedScreen === "chat";
+      return true;
+    }
+    const tab = this.currentTab();
     if (tab === null) return false;
     const chat = ps.find((p) => p.tab === tab && p.mod === "bw-chat");
     this.chatPane = chat?.pane ?? null;
-    this.listed = hasMod(layout(), "bw-tabs");
     return isShown({ tab, chatPane: this.chatPane }, all, ps);
   }
 
-  /**
-   * A sub-agent view's answer names a root other than the one the chat shows: Claude's `/clear` or Codex's `/new`.
-   * @param {any[]} lines
-   */
-  rootEnded(lines) {
-    const root = this.feed.session;
+  /** @param {SessionState} s @param {any[]} lines */
+  rootEnded(s, lines) {
+    const root = s.feed.session;
     if (!root) return false;
-    /** @param {unknown} s */
-    const other = (s) => typeof s === "string" && s !== "" && s !== root;
-    // A new root whose log exists already answers tree + no_child + cards, with no log line.
+    /** @param {unknown} x */
+    const other = (x) => typeof x === "string" && x !== "" && x !== root;
     return lines.some(
       (l) =>
         (l?.type === "tree" && other(l.root)) ||
@@ -394,103 +569,94 @@ export default class Chat extends View {
     );
   }
 
-  /**
-   * Keeps the `tree`, `cards` and `request` lines of one answer. Returns whether any changed.
-   * @param {any[]} lines @param {boolean} withTree the poll asked for the tree
-   */
-  applySide(lines, withTree) {
+  /** @param {SessionState} s @param {any[]} lines @param {boolean} withTree */
+  applySide(s, lines, withTree) {
     let changed = false;
     if (withTree) {
-      // No tree line comes while the root has no log: no sub-agents to list then.
       const tree = lines.find((l) => l?.type === "tree") ?? null;
-      if (JSON.stringify(tree) !== JSON.stringify(this.tree)) changed = true;
-      this.tree = tree;
+      if (JSON.stringify(tree) !== JSON.stringify(s.tree)) changed = true;
+      s.tree = tree;
     }
     const cards = lines.find((l) => l?.type === "cards") ?? null;
     const requests = cards
       ? /** @type {Request[]} */ (lines.filter((l) => l?.type === "request" && typeof l.id === "string"))
       : [];
-    if (
-      JSON.stringify(cards) !== JSON.stringify(this.cards) ||
-      JSON.stringify(requests) !== JSON.stringify(this.requests)
-    )
+    if (JSON.stringify(cards) !== JSON.stringify(s.cards) || JSON.stringify(requests) !== JSON.stringify(s.requests)) {
       changed = true;
-    this.cards = cards;
-    this.requests = requests;
+    }
+    s.cards = cards;
+    s.requests = requests;
     const ids = new Set(requests.map((r) => r.id));
-    for (const id of [...this.drafts.keys()]) if (!ids.has(id)) this.drafts.delete(id);
-    for (const id of [...this.answerNotes.keys()]) if (!ids.has(id)) this.answerNotes.delete(id);
+    for (const id of [...s.drafts.keys()]) if (!ids.has(id)) s.drafts.delete(id);
+    for (const id of [...s.answerNotes.keys()]) if (!ids.has(id)) s.answerNotes.delete(id);
     const pending = new Set(requests.filter((r) => r.state === "pending").map((r) => r.id));
-    for (const id of [...this.wentOut]) if (!pending.has(id)) this.wentOut.delete(id);
-    this.syncOther();
+    for (const id of [...s.wentOut]) if (!pending.has(id)) s.wentOut.delete(id);
+    if (this.session === s) this.syncOther(s);
     return changed;
   }
 
-  /** Reads the view's feed. When the root ended it shows the parent, whose read the poke in `setView` starts.
-   * @param {any} cx @returns {Promise<void>} */
-  async readFeed(cx) {
-    const t = /** @type {Found} */ (this.target);
-    const view = this.view;
-    const feed = this.viewFeed();
+  /** @param {SessionState} s @param {StackFound} target @param {any} cx */
+  async readFeed(s, target, cx) {
+    const view = s.view;
+    const feed = this.viewFeedOf(s);
     const own = isTerminalView(view);
-    const args = ["feed", "--terminal", own ? view.local : t.local, "--pictures"];
-    // A terminal sub-agent has a session tree of its own, which is not this chat's.
+    const args = ["feed", "--terminal", own ? view.local : target.local, "--pictures"];
     if (!own) args.push("--tree");
     args.push("--cards");
     if (view.child) args.push("--session", view.child);
     if (feed.cursor) args.push("--cursor", feed.cursor);
-    const answer = await this.helper.call(t.machine, args);
-    if (this.view !== view || this.viewFeed() !== feed) return;
+    const answer = await this.helper.call(target.machine, args);
+    if (s.view !== view || this.viewFeedOf(s) !== feed) return;
     const installed = this.installing !== null;
     this.installing = null;
-    if (view.child && answer.ok && this.rootEnded(answer.lines)) {
-      this.setView({ child: null }, null);
-      this.viewNote = ROOT_ENDED;
-      this.tree = null;
+    if (view.child && answer.ok && this.rootEnded(s, answer.lines)) {
+      this.setView(s, { child: null }, null);
+      s.viewNote = ROOT_ENDED;
+      s.tree = null;
       cx.notify();
       return;
     }
     const at = applyFeed(feed, answer);
-    const side = answer.ok && this.applySide(answer.lines, !own);
+    const side = answer.ok && this.applySide(s, answer.lines, !own);
+    if (at >= 0 && answer.ok && answer.lines.some((l) => l?.type === "row" && l.k === "changed")) {
+      s.prCheckedAt = 0;
+    }
     if (at >= 0 || installed) {
-      if (this.follow) this.toNewest();
+      if (s.follow) this.toNewest(s);
       cx.notify();
-    } else if (side) cx.notify();
-  }
-
-  /** The first row is on screen and the log goes back further: read the part before and put it on top.
-   * @param {any} cx */
-  async readOlder(cx) {
-    this.wantOlder = false;
-    const t = /** @type {Found} */ (this.target);
-    const view = this.view;
-    const feed = this.viewFeed();
-    const before = olderFrom(feed);
-    if (before === null) return;
-    this.olderBusy = true;
-    try {
-      const args = ["feed", "--terminal", isTerminalView(view) ? view.local : t.local];
-      if (view.child) args.push("--session", view.child);
-      args.push("--before", String(before), "--pictures");
-      const answer = await this.helper.call(t.machine, args);
-      if (this.viewFeed() !== feed) return;
-      const added = applyOlder(feed, answer, before);
-      // The row that was first stays where it was.
-      if (added) this.scroll.scroll_to_item(added, "top");
-    } finally {
-      this.olderBusy = false;
+    } else if (side) {
       cx.notify();
     }
   }
 
-  /** Copies the wanted pictures one at a time in their own task, so a slow copy never holds up the feed.
-   * @param {any} cx */
-  startPictures(cx) {
-    const feed = this.viewFeed();
+  /** @param {SessionState} s @param {StackFound} target @param {any} cx */
+  async readOlder(s, target, cx) {
+    s.wantOlder = false;
+    const view = s.view;
+    const feed = this.viewFeedOf(s);
+    const before = olderFrom(feed);
+    if (before === null) return;
+    s.olderBusy = true;
+    try {
+      const args = ["feed", "--terminal", isTerminalView(view) ? view.local : target.local];
+      if (view.child) args.push("--session", view.child);
+      args.push("--before", String(before), "--pictures");
+      const answer = await this.helper.call(target.machine, args);
+      if (this.viewFeedOf(s) !== feed) return;
+      const added = applyOlder(feed, answer, before);
+      if (added) s.scroll.scroll_to_item(added, "top");
+    } finally {
+      s.olderBusy = false;
+      cx.notify();
+    }
+  }
+
+  /** @param {SessionState} s @param {StackFound} target @param {any} cx */
+  startPictures(s, target, cx) {
+    const feed = this.viewFeedOf(s);
     if (this.picturesBusy || !this.pictures.wanted(feed.rows).length) return;
-    const view = this.view;
+    const view = s.view;
     if (view.child) {
-      // bw picture reads the terminal's root log, so a sub-agent's pictures are named, never fetched.
       for (let p = this.pictures.wanted(feed.rows)[0]; p; p = this.pictures.wanted(feed.rows)[0]) {
         this.pictures.start(p.digest);
         this.pictures.done(p.digest, { ok: false });
@@ -499,12 +665,12 @@ export default class Chat extends View {
       return;
     }
     this.picturesBusy = true;
-    const terminal = isTerminalView(view) ? view.terminal : /** @type {Found} */ (this.target).terminal;
+    const terminal = isTerminalView(view) ? view.terminal : target.terminal;
     cx.spawn(async (/** @type {any} */ cx) => {
       try {
         for (
           let p = this.pictures.wanted(feed.rows)[0];
-          p && this.alive && this.viewFeed() === feed;
+          p && this.alive && this.viewFeedOf(s) === feed;
           p = this.pictures.wanted(feed.rows)[0]
         ) {
           this.pictures.start(p.digest);
@@ -528,54 +694,157 @@ export default class Chat extends View {
     });
   }
 
-  toNewest() {
-    const n = this.viewFeed().rows.length;
-    if (n) this.scroll.scroll_to_item(n - 1, "top");
+  /** @param {SessionState} s @param {number} now @param {any} cx */
+  async maybeReadQueue(s, now, cx) {
+    const active = !s.queueLoaded || s.queue.items.length > 0 || s.queue.held || s.status === "working";
+    if (!active && now - s.queueCheckedAt < QUEUE_IDLE_POLL_MS) return;
+    await this.readQueue(s, cx);
   }
 
-  /** Where the composer sends: the parent's terminal, or a terminal sub-agent's; none in a sub-agent's view. */
-  sendTarget() {
-    const t = this.target;
-    if (!t) return null;
-    const v = this.view;
-    if (isTerminalView(v))
+  /** @param {SessionState} s @param {any} cx */
+  async readQueue(s, cx) {
+    s.queueCheckedAt = Date.now();
+    const answer = await this.helper.call(s.machine, ["queue", "list", "--terminal", s.local]);
+    if (!answer.ok) return;
+    const next = parseQueueLine(answer.lines);
+    if (!next) return;
+    const changed = !s.queueLoaded || JSON.stringify(next) !== JSON.stringify(s.queue);
+    s.queue = next;
+    s.queueLoaded = true;
+    if (changed) cx.notify();
+  }
+
+  /** @param {SessionState} s @param {any} cx */
+  async drainQueueFallback(s, cx) {
+    s.wantDrain = false;
+    s.draining = true;
+    try {
+      await this.helper.call(s.machine, ["queue", "drain", "--terminal", s.local]);
+      await this.readQueue(s, cx);
+    } finally {
+      s.draining = false;
+      cx.notify();
+    }
+  }
+
+  /** @param {SessionState} s @param {number} now @param {any} cx */
+  async maybeReadPr(s, now, cx) {
+    const folder = s.folder;
+    const branch = s.branch;
+    const key = `${s.machine ?? ""}\0${folder}\0${branch ?? ""}`;
+    const interval = this.shown ? PR_SHOWN_POLL_MS : PR_HIDDEN_POLL_MS;
+    if (s.prKey === key && s.prCheckedAt > 0 && now - s.prCheckedAt < interval) return;
+    s.prKey = key;
+    s.prCheckedAt = now;
+
+    if (!folder || !branch || branch === "HEAD") {
+      const had = s.pr !== null;
+      s.pr = null;
+      s.prHeadOid = null;
+      if (s.spaceId) {
+        const nextSummary = updateSharedPrSummary(shared(PR_SUMMARY), s.spaceId, null, this.liveSpaceIds);
+        if (nextSummary) setShared(PR_SUMMARY, nextSummary);
+      }
+      if (had) cx.notify();
+      return;
+    }
+
+    const folderKey = `${s.machine ?? ""}\0${folder}`;
+    if (s.prRepoFolder !== folderKey) {
+      const origin = await remoteOrigin(exec, s.machine, folder);
+      if (!origin.ok) return;
+      s.prRepoFolder = folderKey;
+      s.prRepo = origin.repo;
+    }
+
+    if (!s.prRepo) {
+      const had = s.pr !== null;
+      s.pr = null;
+      s.prHeadOid = null;
+      if (s.spaceId) {
+        const nextSummary = updateSharedPrSummary(shared(PR_SUMMARY), s.spaceId, null, this.liveSpaceIds);
+        if (nextSummary) setShared(PR_SUMMARY, nextSummary);
+      }
+      if (had) cx.notify();
+      return;
+    }
+
+    const head = await headOid(exec, s.machine, folder);
+    const oid = head.ok ? head.oid : null;
+    const args = prStatusArgs(s.prRepo, branch, oid);
+    if (!args) return;
+    const answer = await this.helper.call(null, args);
+    if (!answer.ok) return;
+    const parsed = parsePrLines(answer.lines);
+    if (!parsed.ok) return;
+
+    const changed = JSON.stringify(parsed.pr) !== JSON.stringify(s.pr) || oid !== s.prHeadOid;
+    s.pr = parsed.pr;
+    s.prHeadOid = oid;
+    if (s.spaceId) {
+      const entry = toSharedPrEntry(parsed.pr, oid);
+      const nextSummary = updateSharedPrSummary(shared(PR_SUMMARY), s.spaceId, entry, this.liveSpaceIds);
+      if (nextSummary) setShared(PR_SUMMARY, nextSummary);
+    }
+    if (changed) cx.notify();
+  }
+
+  /** @param {SessionState} s */
+  toNewest(s) {
+    const n = this.viewFeedOf(s).rows.length;
+    if (n) s.scroll.scroll_to_item(n - 1, "top");
+  }
+
+  /** @param {SessionState} s */
+  sendTargetOf(s) {
+    if (!this.target && this.session === s) return null;
+    const v = s.view;
+    if (isTerminalView(v)) {
       return v.kind
         ? {
-            machine: t.machine,
+            machine: s.machine,
             local: v.local,
             kind: v.kind,
-            feed: /** @type {FeedState} */ (this.sub),
+            feed: /** @type {FeedState} */ (s.sub),
             name: agentName(v.kind),
+            ownTerminal: true,
           }
         : null;
+    }
     if (v.child) return null;
-    return { machine: t.machine, local: t.local, kind: t.kind, feed: this.feed, name: this.name };
+    return { machine: s.machine, local: s.local, kind: s.kind, feed: s.feed, name: s.name, ownTerminal: false };
   }
 
-  /** Runs from the composer's submit, an event. @param {string} text @param {any} cx */
-  send(text, cx) {
-    const st = this.sendTarget();
+  /**
+   * Handles composer submit: enqueues via `bw queue add` in stack mode while `status === "working"`
+   * (unless `opts.forceSend` is true), otherwise sends immediately via `bw send`.
+   * @param {SessionState} s
+   * @param {string} text
+   * @param {any} cx
+   * @param {{ forceSend?: boolean }} [opts]
+   */
+  submitText(s, text, cx, opts = {}) {
+    const st = this.sendTargetOf(s);
     if (!st) return;
     const expect = expectation(st.feed, st.kind);
-    if (this.sending || !expect) return;
+    if (s.sending || s.queueBusy || !expect) return;
     const { session, path } = expect;
-    // The chips on screen now, for this chat's own tab; the text of each is built here, at Send.
-    const tab = this.tab();
+    const tab = s.tab || this.currentTab();
     const chips = chipsFor(shared(ATTACH), tab);
     const long = chips.find(needsChoice);
     if (long) {
-      this.note = {
+      s.note = {
         text: `${long.identifier}'s description is ${sizeText(long.bytes)}: choose Trim or Send as a file on its chip`,
         bad: true,
       };
       cx.notify();
       return;
     }
-    this.sending = true;
-    this.note = null;
-    this.viewNote = null;
+    const queueIt = this.stackMode && !opts?.forceSend && !st.ownTerminal && s.status === "working";
+    s.sending = true;
+    s.note = null;
+    s.viewNote = null;
     cx.notify();
-    // hc put on this Mac places a long description beside the terminal, by its address in this window.
     const address = st.machine ? `${st.machine}/${st.local}` : st.local;
     cx.spawn(async (/** @type {any} */ cx) => {
       try {
@@ -586,20 +855,53 @@ export default class Chat extends View {
           const line = built.ok ? /** @type {any} */ (built.lines.find((l) => l.type === "linear-text")) : null;
           if (!line || typeof line.text !== "string") {
             if (built.ok === false && built.code === "too_large" && tab !== null) {
-              // The description grew past 8 KB after Attach: read its size so the chip offers the choice.
               await this.resizeChip(tab, chip.identifier);
-              this.note = {
+              s.note = {
                 text: `${chip.identifier}'s description is now over 8 KB: choose Trim or Send as a file on its chip`,
                 bad: true,
               };
               return;
             }
             const why = built.ok === false ? built.message : "bw linear printed no text";
-            this.note = { text: `Could not read ${chip.identifier}: ${why}; nothing was sent`, bad: true };
+            s.note = { text: `Could not read ${chip.identifier}: ${why}; nothing was sent`, bad: true };
             return;
           }
           texts.push(line.text);
         }
+
+        const fullText = composeMessage(texts, text);
+        if (queueIt) {
+          const qArgs = ["queue", "add", "--terminal", st.local, "--kind", st.kind];
+          if (session !== "none") qArgs.push("--session", session);
+          qArgs.push("--text", fullText);
+          const answer = await this.helper.call(st.machine, qArgs);
+          const q = answer.ok ? parseQueueLine(answer.lines) : null;
+          if (q) {
+            s.queue = q;
+            s.queueLoaded = true;
+            s.queueCheckedAt = Date.now();
+            s.composer.clear();
+            if (tab !== null && chips.length) {
+              setShared(
+                ATTACH,
+                clearChips(
+                  shared(ATTACH),
+                  tab,
+                  chips.map((c) => c.identifier),
+                ),
+              );
+            }
+          } else {
+            const err = answer.ok ? answer.lines.find((/** @type {any} */ l) => l?.type === "error") : null;
+            const why = answer.ok === true ? String(err?.message || "bw queue add printed no result") : answer.message;
+            s.note = {
+              text: `Not queued: ${why}`,
+              bad: true,
+            };
+          }
+          return;
+        }
+
         const args = [
           "send",
           "--terminal",
@@ -611,17 +913,16 @@ export default class Chat extends View {
           "--expect-path",
           path,
           "--text",
-          composeMessage(texts, text),
+          fullText,
         ];
-        // hc wraps text sent from another core as `<hc from=…>`, so slash commands only run when sent there.
         const answer = await this.helper.call(st.machine, args);
         const line = answer.ok ? answer.lines.find((/** @type {any} */ l) => l.type === "send") : null;
         const result = typeof line?.result === "string" ? line.result : "failed";
         const message = answer.ok === true ? String(line?.message || "bw send printed no result") : answer.message;
         const went = result === "sent" || result === "unconfirmed";
-        this.note = result === "sent" ? null : { text: sendText(result, st.name, message), bad: !went };
-        if (went) this.composer.clear();
-        if (went && tab !== null && chips.length)
+        s.note = result === "sent" ? null : { text: sendText(result, st.name, message), bad: !went };
+        if (went) s.composer.clear();
+        if (went && tab !== null && chips.length) {
           setShared(
             ATTACH,
             clearChips(
@@ -630,15 +931,230 @@ export default class Chat extends View {
               chips.map((c) => c.identifier),
             ),
           );
+        }
       } finally {
-        this.sending = false;
+        s.sending = false;
         this.poke.poke();
         cx.notify();
       }
     });
   }
 
-  /** Reads an attached issue again and stores its chip with the current size. @param {string} tab @param {string} id */
+  /**
+   * Sends or enqueues a PR skill slash command (`/babysit-pr` or `/merge-pr`) without touching unsent
+   * composer text or attached Linear chips.
+   * @param {SessionState} s
+   * @param {string} commandText
+   * @param {any} cx
+   */
+  runSkillCommand(s, commandText, cx) {
+    const st = this.sendTargetOf(s);
+    const expect = st ? expectation(st.feed, st.kind) : null;
+    if (!st || !expect || s.sending || s.queueBusy) {
+      s.note = { text: `Wait for ${s.name}'s session before running ${commandText}.`, bad: true };
+      cx.notify();
+      return;
+    }
+    const queueIt = !st.ownTerminal && s.status === "working";
+    s.sending = true;
+    s.note = null;
+    cx.notify();
+    cx.spawn(async (/** @type {any} */ cx) => {
+      try {
+        if (queueIt) {
+          const qArgs = ["queue", "add", "--terminal", st.local, "--kind", st.kind];
+          if (expect.session !== "none") qArgs.push("--session", expect.session);
+          qArgs.push("--text", commandText);
+          const answer = await this.helper.call(st.machine, qArgs);
+          const q = answer.ok ? parseQueueLine(answer.lines) : null;
+          if (q) {
+            s.queue = q;
+            s.queueLoaded = true;
+            s.queueCheckedAt = Date.now();
+            s.note = { text: `Queued ${commandText}.`, bad: false };
+          } else {
+            const err = answer.ok ? answer.lines.find((/** @type {any} */ l) => l?.type === "error") : null;
+            const why = answer.ok === true ? String(err?.message || "bw queue add failed") : answer.message;
+            s.note = {
+              text: `Not queued: ${why}`,
+              bad: true,
+            };
+          }
+          return;
+        }
+        const answer = await this.helper.call(st.machine, [
+          "send",
+          "--terminal",
+          st.local,
+          "--expect-kind",
+          st.kind,
+          "--expect-session",
+          expect.session,
+          "--expect-path",
+          expect.path,
+          "--text",
+          commandText,
+        ]);
+        const line = answer.ok ? answer.lines.find((/** @type {any} */ l) => l.type === "send") : null;
+        const result = typeof line?.result === "string" ? line.result : "failed";
+        const message = answer.ok === true ? String(line?.message || "bw send printed no result") : answer.message;
+        const went = result === "sent" || result === "unconfirmed";
+        s.note = went
+          ? { text: `Sent ${commandText}.`, bad: false }
+          : { text: sendText(result, st.name, message), bad: true };
+      } finally {
+        s.sending = false;
+        this.poke.poke();
+        cx.notify();
+      }
+    });
+  }
+
+  /** @param {SessionState} s @param {PrSummary} pr @param {any} cx */
+  openPr(s, pr, cx) {
+    if (s.prBusy) return;
+    run("layout.show", { id: "right" });
+    run("layout.select", { stack: "right-body", child: "browser" });
+    const all = spaces();
+    const space = all.find((sp) => sp.active);
+    if (space) {
+      setShared(
+        RIGHT_TAB,
+        choose(
+          shared(RIGHT_TAB),
+          space.id,
+          "browser",
+          all.map((sp) => sp.id),
+        ),
+      );
+    }
+    s.prBusy = true;
+    cx.notify();
+    cx.spawn(async (/** @type {any} */ cx) => {
+      try {
+        let answer = await this.helper.call(null, ["browser", "new", "--url", pr.url]);
+        const first = answer.ok ? answer.lines.find((/** @type {any} */ l) => l?.type === "tab-action") : null;
+        if (first && first.ok === false && /\(stopped\)$/.test(String(first.message ?? ""))) {
+          const up = await this.helper.call(null, ["browser", "up"]);
+          const chrome = up.ok ? up.lines.find((/** @type {any} */ l) => l?.type === "chrome") : null;
+          if (chrome?.state === "running") {
+            answer = await this.helper.call(null, ["browser", "new", "--url", pr.url]);
+          }
+        }
+        const line = answer.ok ? answer.lines.find((/** @type {any} */ l) => l?.type === "tab-action") : null;
+        if (!answer.ok || line?.ok === false) {
+          const why = answer.ok === true ? String(line?.message || "failed") : answer.message;
+          s.note = {
+            text: `Could not open PR in Browser: ${why}`,
+            bad: true,
+          };
+        }
+      } finally {
+        s.prBusy = false;
+        cx.notify();
+      }
+    });
+  }
+
+  /** @param {SessionState} s @param {string[]} subArgs @param {any} cx @param {() => void} [afterOk] */
+  mutateQueue(s, subArgs, cx, afterOk) {
+    if (s.queueBusy) return;
+    s.queueBusy = true;
+    s.note = null;
+    cx.notify();
+    cx.spawn(async (/** @type {any} */ cx) => {
+      try {
+        const answer = await this.helper.call(s.machine, ["queue", ...subArgs]);
+        const q = answer.ok ? parseQueueLine(answer.lines) : null;
+        if (q) {
+          s.queue = q;
+          s.queueLoaded = true;
+          s.queueCheckedAt = Date.now();
+          afterOk?.();
+        } else {
+          const err = answer.ok ? answer.lines.find((/** @type {any} */ l) => l?.type === "error") : null;
+          const why = answer.ok === true ? String(err?.message || "no result") : answer.message;
+          s.note = {
+            text: `Queue update failed: ${why}`,
+            bad: true,
+          };
+        }
+      } finally {
+        s.queueBusy = false;
+        this.poke.poke();
+        cx.notify();
+      }
+    });
+  }
+
+  /** @param {SessionState} s @param {string} id @param {any} cx */
+  saveQueueEdit(s, id, cx) {
+    const nextText = this.editInput.value().trim();
+    if (!nextText || s.queueBusy) return;
+    this.mutateQueue(s, ["edit", "--terminal", s.local, "--id", id, "--text", nextText], cx, () => {
+      if (this.editingQueue?.id === id) {
+        this.editingQueue = null;
+        this.editInput.set_value("");
+      }
+    });
+  }
+
+  /** @param {SessionState} s @param {QueueItem} item @param {any} cx */
+  sendQueuedNow(s, item, cx) {
+    if (s.sending || s.queueBusy) return;
+    const expect = expectation(s.feed, s.kind);
+    if (!expect) {
+      s.note = { text: `Wait for ${s.name}'s session before sending.`, bad: true };
+      cx.notify();
+      return;
+    }
+    s.queueBusy = true;
+    s.note = null;
+    cx.notify();
+    cx.spawn(async (/** @type {any} */ cx) => {
+      try {
+        const answer = await this.helper.call(s.machine, [
+          "send",
+          "--terminal",
+          s.local,
+          "--expect-kind",
+          s.kind,
+          "--expect-session",
+          expect.session,
+          "--expect-path",
+          expect.path,
+          "--text",
+          item.text,
+        ]);
+        const line = answer.ok ? answer.lines.find((/** @type {any} */ l) => l.type === "send") : null;
+        const result = typeof line?.result === "string" ? line.result : "failed";
+        const message = answer.ok === true ? String(line?.message || "bw send printed no result") : answer.message;
+        const went = result === "sent" || result === "unconfirmed";
+        s.note = result === "sent" ? null : { text: sendText(result, s.name, message), bad: !went };
+        if (went) {
+          const rem = await this.helper.call(s.machine, ["queue", "remove", "--terminal", s.local, "--id", item.id]);
+          const q = rem.ok ? parseQueueLine(rem.lines) : null;
+          if (q) {
+            s.queue = q;
+            s.queueLoaded = true;
+            s.queueCheckedAt = Date.now();
+          } else {
+            await this.readQueue(s, cx);
+          }
+          if (this.editingQueue?.id === item.id) {
+            this.editingQueue = null;
+            this.editInput.set_value("");
+          }
+        }
+      } finally {
+        s.queueBusy = false;
+        this.poke.poke();
+        cx.notify();
+      }
+    });
+  }
+
+  /** @param {string} tab @param {string} id */
   async resizeChip(tab, id) {
     const answer = await this.helper.call(null, ["linear", "issue", "--id", id]);
     const line = answer.ok ? answer.lines.find((/** @type {any} */ l) => l.type === "linear-issue") : null;
@@ -646,93 +1162,80 @@ export default class Chat extends View {
     if (fresh) setShared(ATTACH, refreshChip(shared(ATTACH), tab, fresh));
   }
 
-  /**
-   * What `bw answer` is told to expect, or null when no click may answer. In a sub-agent's view the parent's
-   * feed is not read, so the root conversation is the one the `cards` line names, while it is the chat's.
-   * @returns {{ kind: Kind, session: string, path: string } | null}
-   */
-  answerExpect() {
-    const t = this.target;
-    if (!t) return null;
-    const v = this.view;
+  /** @param {SessionState} s @returns {{ kind: Kind, session: string, path: string } | null} */
+  answerExpect(s) {
+    if (!this.target && this.session === s) return null;
+    const v = s.view;
     if (isTerminalView(v)) {
-      const e = v.kind ? expectation(/** @type {FeedState} */ (this.sub), v.kind) : null;
+      const e = v.kind ? expectation(/** @type {FeedState} */ (s.sub), v.kind) : null;
       return e && v.kind ? { kind: v.kind, ...e } : null;
     }
     if (v.child) {
-      const c = this.cards;
+      const c = s.cards;
       const ok =
         c &&
         typeof c.session === "string" &&
         c.session &&
         typeof c.path === "string" &&
         c.path &&
-        c.session === this.feed.session;
-      return ok ? { kind: t.kind, session: c.session, path: c.path } : null;
+        c.session === s.feed.session;
+      return ok ? { kind: s.kind, session: c.session, path: c.path } : null;
     }
-    const e = expectation(this.feed, t.kind);
-    return e ? { kind: t.kind, ...e } : null;
+    const e = expectation(s.feed, s.kind);
+    return e ? { kind: s.kind, ...e } : null;
   }
 
-  /** @param {{ id: string, question?: any }} req @returns {Draft} */
-  draftOf(req) {
-    let d = this.drafts.get(req.id);
+  /** @param {SessionState} s @param {{ id: string, question?: any }} req @returns {Draft} */
+  draftOf(s, req) {
+    let d = s.drafts.get(req.id);
     if (!d) {
       d = emptyDraft(req.question);
-      this.drafts.set(req.id, d);
+      s.drafts.set(req.id, d);
     }
     return d;
   }
 
-  /** Puts the active question's Other text for its shown step in the field, when that step changed. */
-  syncOther() {
-    const a = activeQuestion(this.requests);
-    const d = a ? this.draftOf(a) : null;
-    const key = a && d ? `${a.id}:${d.step}` : null;
+  /** @param {SessionState} s */
+  syncOther(s) {
+    const a = activeQuestion(s.requests);
+    const d = a ? this.draftOf(s, a) : null;
+    const key = a && d ? `${s.terminal}:${a.id}:${d.step}` : null;
     const want = d ? (d.other[d.step] ?? "") : "";
-    // A pick on the same step clears the draft's Other text, which the field must show too.
-    if (key === this.otherKey && this.other.value() === want) return;
-    this.otherKey = key;
+    if (key === s.otherKey && this.other.value() === want) return;
+    s.otherKey = key;
     this.other.set_value(want);
   }
 
-  /** @param {string} id */
-  requestOf(id) {
-    return this.requests.find((r) => r.id === id) ?? null;
+  /** @param {SessionState} s @param {string} id */
+  requestOf(s, id) {
+    return s.requests.find((r) => r.id === id) ?? null;
   }
 
-  /**
-   * Sends one click's answer with `bw answer` on the space's machine. Every check the card's buttons show is
-   * made again here, since a click can arrive after the frame that drew them.
-   * @param {Request | null} req @param {{ action: string } | { answers: { picks: number[], other?: string }[] }} choice @param {any} cx
-   */
-  answer(req, choice, cx) {
-    const t = this.target;
-    if (!t || !req || req.state !== "pending" || !req.answerable || this.sendingIds.size || this.wentOut.has(req.id))
-      return;
-    if (isGuarded(this.guard, Date.now())) return;
-    const expect = this.answerExpect();
-    const v = this.view;
-    const local = isTerminalView(v) ? v.local : t.local;
-    const name = isTerminalView(v) && v.kind ? agentName(v.kind) : this.name;
+  /** @param {SessionState} s @param {Request | null} req @param {{ action: string } | { answers: { picks: number[], other?: string }[] }} choice @param {any} cx */
+  answer(s, req, choice, cx) {
+    if (req?.state !== "pending" || !req.answerable || s.sendingIds.size || s.wentOut.has(req.id)) return;
+    if (isGuarded(s.guard, Date.now())) return;
+    const expect = this.answerExpect(s);
+    const v = s.view;
+    const local = isTerminalView(v) ? v.local : s.local;
+    const name = isTerminalView(v) && v.kind ? agentName(v.kind) : s.name;
     let args;
     try {
       args = answerArgs(req, choice, { local }, expect);
     } catch {
       return;
     }
-    this.sendingIds.add(req.id);
-    this.answerNotes.delete(req.id);
+    s.sendingIds.add(req.id);
+    s.answerNotes.delete(req.id);
     cx.notify();
     cx.spawn(async (/** @type {any} */ cx) => {
       let text = "";
       try {
-        const answer = await this.helper.call(t.machine, args);
-        // The find keeps only an answer line whose result is a string.
+        const answer = await this.helper.call(s.machine, args);
         const line = /** @type {{ result: string, state?: string, message?: string } | null} */ (
           answer.ok ? answer.lines.find((l) => l?.type === "answer" && typeof l.result === "string") : null
         );
-        if (line && WENT_OUT.has(line.result)) this.wentOut.add(req.id);
+        if (line && WENT_OUT.has(line.result)) s.wentOut.add(req.id);
         text = line
           ? answerNote(line, req.kind, name)
           : answerNote(
@@ -743,86 +1246,85 @@ export default class Chat extends View {
       } catch (e) {
         text = answerNote({ result: "failed", message: e instanceof Error ? e.message : String(e) }, req.kind, name);
       } finally {
-        this.sendingIds.delete(req.id);
-        if (text) this.answerNotes.set(req.id, text);
+        s.sendingIds.delete(req.id);
+        if (text) s.answerNotes.set(req.id, text);
         this.poke.poke();
         cx.notify();
       }
     });
   }
 
-  /** Brings the shown view's terminal in front: a terminal sub-agent's own, else the chat tab's terminal. */
-  showTerminal() {
-    const v = this.view;
-    // A sub-agent has no pane in the chat's tab and terminal.show would replace the chat's pane; peek opens it over the tab.
-    if (isTerminalView(v)) run("terminal.peek", { terminal: v.terminal });
+  /** @param {SessionState | null} s */
+  showTerminal(s) {
+    const v = s?.view;
+    if (v && isTerminalView(v)) run("terminal.peek", { terminal: v.terminal });
     else run("bw-tabs.chat-flip");
   }
 
-  /** @param {Card} card @param {string} button @param {any} cx */
-  clickCard(card, button, cx) {
+  /** @param {SessionState} s @param {Card} card @param {string} button @param {any} cx */
+  clickCard(s, card, button, cx) {
     if (button === "terminal") {
-      this.showTerminal();
+      this.showTerminal(s);
       return;
     }
-    const req = this.requestOf(card.id);
+    const req = this.requestOf(s, card.id);
     if (button === "submit") {
       if (!req) return;
-      const d = this.draftOf(req);
-      if (complete(d)) this.answer(req, { answers: answersOf(d) }, cx);
+      const d = this.draftOf(s, req);
+      if (complete(d)) this.answer(s, req, { answers: answersOf(d) }, cx);
       return;
     }
-    this.answer(req, { action: button }, cx);
+    this.answer(s, req, { action: button }, cx);
   }
 
-  /** @param {Card} card @param {number} step @param {number} index @param {any} cx */
-  chooseOption(card, step, index, cx) {
-    const req = this.requestOf(card.id);
+  /** @param {SessionState} s @param {Card} card @param {number} step @param {number} index @param {any} cx */
+  chooseOption(s, card, step, index, cx) {
+    const req = this.requestOf(s, card.id);
     if (!req) return;
-    const d = this.draftOf(req);
-    this.drafts.set(req.id, d.multi[step] ? toggle(d, step, index) : pick(d, step, index));
+    const d = this.draftOf(s, req);
+    s.drafts.set(req.id, d.multi[step] ? toggle(d, step, index) : pick(d, step, index));
     this.focus.focus();
-    this.syncOther();
+    this.syncOther(s);
     cx.notify();
   }
 
-  /** @param {Card} card @param {number} step @param {any} cx */
-  showStep(card, step, cx) {
-    const req = this.requestOf(card.id);
+  /** @param {SessionState} s @param {Card} card @param {number} step @param {any} cx */
+  showStep(s, card, step, cx) {
+    const req = this.requestOf(s, card.id);
     if (!req) return;
-    const d = this.draftOf(req);
+    const d = this.draftOf(s, req);
     if (!Number.isInteger(step) || step < 0 || step >= d.counts.length) return;
-    this.drafts.set(req.id, { ...d, step });
-    this.syncOther();
+    s.drafts.set(req.id, { ...d, step });
+    this.syncOther(s);
     cx.notify();
   }
 
-  /** A digit picks an option and never submits; Enter submits. @param {Card} card @param {any} e @param {any} cx */
-  cardKey(card, e, cx) {
+  /** @param {SessionState} s @param {Card} card @param {any} e @param {any} cx */
+  cardKey(s, card, e, cx) {
     if (NO_KEYS_WITH.some((m) => e?.modifiers?.[m])) return;
-    const req = this.requestOf(card.id);
+    const req = this.requestOf(s, card.id);
     if (!req) return;
     const key = String(e?.key ?? "");
     if (/^[1-9]$/.test(key)) {
-      const d = this.draftOf(req);
-      this.drafts.set(req.id, digit(d, d.step, Number(key)));
-      this.syncOther();
+      const d = this.draftOf(s, req);
+      s.drafts.set(req.id, digit(d, d.step, Number(key)));
+      this.syncOther(s);
       cx.stop_propagation?.();
       cx.notify();
     } else if (key === "enter") {
       cx.stop_propagation?.();
-      this.clickCard(card, "submit", cx);
+      this.clickCard(s, card, "submit", cx);
     }
   }
 
   /**
-   * The hooks notice for this chat's machine, or null. `bw machine setup` runs on this Mac and reaches the
-   * space's machine itself.
-   * @param {string | null} machine @param {Kind} kind
+   * @param {SessionState} s
+   * @param {string | null} machine
+   * @param {Kind} kind
    * @returns {import("./dock.js").Notice | null}
    */
-  hooksNotice(machine, kind) {
-    const state = hooksState(this.cards?.hooks, kind);
+  hooksNotice(s, machine, kind) {
+    const state = hooksState(s.cards?.hooks, kind);
     const key = machine ?? "local";
     const ui = this.hooksUi?.machine === key ? this.hooksUi : null;
     if (state === "untrusted")
@@ -906,92 +1408,90 @@ export default class Chat extends View {
     }
   }
 
-  /** @param {any} row */
-  height(row) {
-    const w = columnWidth(this.width),
-      open = this.open.has(row.id);
-    const c = this.heights.get(row);
+  /** @param {SessionState} s @param {any} row */
+  height(s, row) {
+    const w = columnWidth(this.width);
+    const open = s.open.has(row.id);
+    const c = s.heights.get(row);
     if (c && c.w === w && c.open === open) return c.h;
     const h = rowHeight(row, w, open);
-    this.heights.set(row, { w, open, h });
+    s.heights.set(row, { w, open, h });
     return h;
   }
 
-  /** @param {string} key @param {any} cx */
-  clickRow(key, cx) {
-    const row = this.viewFeed().rows.find((r) => r.id === key);
+  /** @param {SessionState} s @param {string} key @param {any} cx */
+  clickRow(s, key, cx) {
+    const row = this.viewFeedOf(s).rows.find((r) => r.id === key);
     if (!row) return;
     if (row.k === "tools") {
-      if (!this.open.delete(key)) this.open.add(key);
+      if (!s.open.delete(key)) s.open.add(key);
       cx.notify();
     } else if (row.k === "changed") {
+      run("layout.show", { id: "right" });
       run("layout.select", { stack: "right-body", child: "changes" });
-      // Stored as bw-right's strip stores a click, or its next render restores the space's last choice.
       const all = spaces();
-      const space = all.find((s) => s.active);
+      const space = all.find((sp) => sp.active);
       if (space) {
-        const ids = all.map((s) => s.id);
+        const ids = all.map((sp) => sp.id);
         setShared(RIGHT_TAB, choose(shared(RIGHT_TAB), space.id, "changes", ids));
-        // A line naming one file also selects it in Changes; several files leave the list as it is.
         const files = Array.isArray(row.files) ? row.files.filter((f) => typeof f === "string" && f) : [];
         if (files.length === 1) setShared(REVEAL, withReveal(shared(REVEAL), space.id, files[0], Date.now(), ids));
       }
     } else if (waitsInTerminal(row)) {
-      this.showTerminal();
+      this.showTerminal(s);
     }
   }
 
-  /** A threads card row: the parent's view, a sub-agent's log, or a terminal sub-agent's chat. @param {Row} row @param {any} cx */
-  openRow(row, cx) {
+  /** @param {SessionState} s @param {Row} row @param {any} cx */
+  openRow(s, row, cx) {
     if (row.kind === "parent") {
-      if (this.view.child || isTerminalView(this.view)) this.setView({ child: null }, cx);
+      if (s.view.child || isTerminalView(s.view)) this.setView(s, { child: null }, cx);
       return;
     }
     const open = row.open;
     if (open && "child" in open) {
-      if (this.view.child !== open.child) this.setView({ child: open.child }, cx);
+      if (s.view.child !== open.child) this.setView(s, { child: open.child }, cx);
       return;
     }
-    if (open && "terminal" in open && this.target) {
+    if (open && "terminal" in open) {
       const address = open.terminal;
-      const m = this.target.machine;
+      const m = s.machine;
       const local = m !== null && address.startsWith(`${m}/`) ? address.slice(m.length + 1) : address;
       const info = this.termInfo.get(address);
-      if (!isTerminalView(this.view) || this.view.terminal !== address) {
-        this.setView({ terminal: address, local, kind: info?.kind ?? null, program: info?.program ?? row.type }, cx);
+      if (!isTerminalView(s.view) || s.view.terminal !== address) {
+        this.setView(s, { terminal: address, local, kind: info?.kind ?? null, program: info?.program ?? row.type }, cx);
       }
     }
   }
 
-  /** @param {any} e @param {any} cx */
-  wheel(e, cx) {
+  /** @param {SessionState} s @param {any} e @param {any} cx */
+  wheel(s, e, cx) {
     if (!((e?.delta?.y ?? 0) > 0)) return;
-    if (this.follow) {
-      this.follow = false;
+    if (s.follow) {
+      s.follow = false;
       cx.notify();
     }
-    // Older rows load only when you scroll up with the first row on screen.
-    if (this.topSeen && !this.olderBusy && !this.wantOlder && olderFrom(this.viewFeed()) !== null) {
-      this.wantOlder = true;
+    if (s.topSeen && !s.olderBusy && !s.wantOlder && olderFrom(this.viewFeedOf(s)) !== null) {
+      s.wantOlder = true;
       this.poke.poke();
     }
   }
 
-  /** @param {Theme} t @param {Problem} p @param {any} term @param {string | null} tab */
-  buttons(t, p, term, tab) {
+  /** @param {Theme} t @param {Problem} p @param {any} term @param {string | null} tab @param {SessionState | null} s */
+  buttons(t, p, term, tab, s) {
     const button = (/** @type {string} */ id, /** @type {string} */ label, /** @type {() => void} */ act) =>
       uiButton(t, { id, label, h: 26, onClick: () => act() });
     return h_flex()
       .gap(8)
       .items_center()
-      .when(Boolean(term), (el) => el.child(button("show-terminal", "Show terminal (⌘J)", () => this.showTerminal())))
+      .when(Boolean(term), (el) => el.child(button("show-terminal", "Show terminal (⌘J)", () => this.showTerminal(s))))
       .when(p.exited && tab !== null, (el) =>
         el.child(button("close-tab", "Close tab", () => run("tab.close", { id: /** @type {string} */ (tab) }))),
       );
   }
 
-  /** @param {Theme} t @param {any} term @param {boolean} gone @param {number} subs sub-agent rows */
-  header(t, term, gone, subs) {
+  /** @param {Theme} t @param {SessionState} s @param {any} term @param {boolean} gone @param {number} subs */
+  header(t, s, term, gone, subs) {
     const target = this.target;
     return h_flex()
       .id("chat-header")
@@ -1004,7 +1504,7 @@ export default class Chat extends View {
       .border_b(1)
       .border_color(t.border)
       .child(programIcon(term?.program ?? null, t, 14))
-      .child(div().min_w(0).truncate().text_size(13).font_semibold().text_color(t.foreground).child(this.name))
+      .child(div().min_w(0).truncate().text_size(13).font_semibold().text_color(t.foreground).child(s.name))
       .when(Boolean(term?.branch), (el) =>
         el.child(
           h_flex()
@@ -1022,7 +1522,7 @@ export default class Chat extends View {
       .when(subs > 0, (el) =>
         el.child(
           threadsButton(subs, t, (cx) => {
-            this.toggle = toggleCard(this.rows, this.toggle);
+            s.toggle = toggleCard(s.rows, s.toggle);
             cx.notify();
           }),
         ),
@@ -1040,8 +1540,8 @@ export default class Chat extends View {
             .cursor_pointer()
             .text_size(12)
             .text_color(t.muted)
-            .hover((s) => s.bg(t.hover))
-            .on_click(() => this.showTerminal())
+            .hover((st) => st.bg(t.hover))
+            .on_click(() => this.showTerminal(s))
             .child("Terminal")
             .child(div().text_color(t.foreground).child("⌘J")),
         ),
@@ -1061,7 +1561,8 @@ export default class Chat extends View {
         this.paneHeight = size.height || 0;
         cx.notify();
       });
-    if (!this.id) {
+
+    if (!this.stackMode && !this.id) {
       return root.child(
         v_flex()
           .id("chat-state")
@@ -1078,32 +1579,64 @@ export default class Chat extends View {
     const now = Date.now();
     const all = spaces();
     const ps = panes();
-    const moved = this.locate(all, ps);
+    const moved = this.locateCurrent(all, ps, now);
     const shown = this.readShown(all, ps);
-    const status = this.statusOf(ps);
-    if (shown !== this.shown || moved || status !== this.status) {
+    if (shown !== this.shown || moved) {
       this.shown = shown;
-      this.status = status;
       this.poke.poke();
     }
+
+    if (this.stackMode && this.stackLocated.state !== "found") {
+      const st = this.stackLocated;
+      const exited = st.state === "exited";
+      const title = exited ? `${agentName(st.kind)} exited` : "No active agent chat";
+      const sub = exited
+        ? ""
+        : st.hasTerminal
+          ? "This tab runs a shell terminal."
+          : "Start a Claude or Codex chat from + in the tab bar.";
+      return root.child(
+        v_flex()
+          .id("chat-state")
+          .flex_1()
+          .items_center()
+          .justify_center()
+          .gap(8)
+          .px(24)
+          .child(div().text_size(13.5).text_color(t.foreground).child(title))
+          .when(Boolean(sub), (el) => el.child(div().text_size(12).text_color(t.muted).child(sub)))
+          .child(
+            this.buttons(
+              t,
+              { title, message: sub, exited },
+              st.state === "no_agent" && st.hasTerminal ? true : null,
+              st.tab,
+              null,
+            ),
+          ),
+      );
+    }
+
+    const s = /** @type {SessionState} */ (this.session);
     const target = this.target;
-    const view = this.view;
+    const view = s.view;
     const own = isTerminalView(view);
     const ours = own ? view.terminal : (target?.terminal ?? null);
-    this.guard = observe(this.guard, focused()?.terminal ?? null, ours, now);
-    // The terminal may have had focus while this copy was hidden and not drawn; bw-tabs saw it leave.
-    this.guard = observeLeft(this.guard, leftAt(shared(TERMINAL_FOCUS), ours));
+    const fFocus = focused();
+    const focusedTerm =
+      this.stackMode && this.layoutScreen !== "panes" && fFocus?.pane !== null ? null : (fFocus?.terminal ?? null);
+    s.guard = observe(s.guard, focusedTerm, ours, now);
+    s.guard = observeLeft(s.guard, leftAt(shared(TERMINAL_FOCUS), ours));
     const term = target ? (ps.find((p) => p.pane === target.pane) ?? null) : null;
-    const tab = this.tab();
-    const f = this.viewFeed();
-    const lost = this.located.state === "missing";
-    const gone = this.located.state === "exited" || (!lost && this.feed.waiting?.state === "no_terminal");
-    const kind = own ? view.kind : /** @type {Target} */ (this.id).kind;
-    const name = own && view.kind ? agentName(view.kind) : this.name;
-    // No log yet, and the first message may go: a chat that never saw one, or the agent's new conversation.
+    const tab = this.currentTab();
+    const f = this.viewFeedOf(s);
+    const lost = !this.stackMode && this.located.state === "missing";
+    const gone =
+      (!this.stackMode && this.located.state === "exited") || (!lost && s.feed.waiting?.state === "no_terminal");
+    const kind = own ? view.kind : s.kind;
+    const name = own && view.kind ? agentName(view.kind) : s.name;
     const fresh = !gone && !lost && kind !== null && !view.child && (freshChat(f, kind) || newConversation(f, kind));
 
-    // Terminal sub-agents are offered only on the parent's machine, where the chat's helper reads them.
     const terms = target
       ? terminals().filter(
           (x) => typeof x?.address === "string" && machineOfAddress(x.address) === machineOfAddress(target.terminal),
@@ -1120,25 +1653,25 @@ export default class Chat extends View {
     );
     const rows = target
       ? threadRows(
-          this.tree,
+          s.tree,
           terms,
-          own ? [] : this.requests,
-          { terminal: target.terminal, kind: target.kind, name: this.name, status },
+          own ? [] : s.requests,
+          { terminal: target.terminal, kind: target.kind, name: s.name, status: s.status },
           now,
         )
       : [];
-    this.rows = rows;
-    const subs = rows.length - 1;
+    s.rows = rows;
+    const subs = Math.max(0, rows.length - 1);
 
     /** @type {Problem | null} */
     let problem = null;
     if (lost)
       problem = {
         title: "Chat target not found",
-        message: `No single ${this.name} terminal in this window's chat tabs matches this chat.`,
+        message: `No single ${s.name} terminal in this window's chat tabs matches this chat.`,
         exited: false,
       };
-    else if (gone) problem = { title: `${this.name} exited`, message: "", exited: true };
+    else if (gone) problem = { title: `${s.name} exited`, message: "", exited: true };
     else if (this.installing !== null)
       problem = { title: helperText("installing", this.installing), message: "", exited: false };
     else if (f.error)
@@ -1150,7 +1683,8 @@ export default class Chat extends View {
         exited: false,
       };
 
-    root.child(this.header(t, term, gone, subs));
+    if (!this.stackMode) root.child(this.header(t, s, term, gone, subs));
+
     const body = div().id("chat-body").relative().flex_1().min_h(0).w_full().flex().flex_col();
     const viewRows = f.rows;
     if (problem && !viewRows.length) {
@@ -1167,7 +1701,7 @@ export default class Chat extends View {
           .when(Boolean(problem.message), (el) =>
             el.child(div().max_w(560).text_size(11.5).text_color(t.muted).truncate().child(problem.message)),
           )
-          .child(this.buttons(t, problem, term, tab)),
+          .child(this.buttons(t, problem, term, tab, s)),
       );
     } else if (!f.loaded || !viewRows.length) {
       body.child(
@@ -1194,20 +1728,19 @@ export default class Chat extends View {
             col,
             agent: name,
             blocked: !own && term?.status === "blocked",
-            open: this.open,
+            open: s.open,
             pictures: this.pictures,
           },
           {
-            sizes: viewRows.map((r) => this.height(r)),
-            scroll: this.scroll,
-            onClick: (key, cx) => this.clickRow(key, cx),
-            onWheel: (e, cx) => this.wheel(e, cx),
+            listId: this.stackMode ? `chat-${s.terminal}` : "chat",
+            sizes: viewRows.map((r) => this.height(s, r)),
+            scroll: s.scroll,
+            onClick: (key, cx) => this.clickRow(s, key, cx),
+            onWheel: (e, cx) => this.wheel(s, e, cx),
             onRange: (range) => {
-              this.topSeen = range.start === 0;
-              // Herdr also lays out one representative row ({0, 1}) each frame to measure it; that is not the view.
+              s.topSeen = range.start === 0;
               if (range.start === 0 && range.end === 1 && viewRows.length > 1) return;
-              // A scrollbar drag moves the list with no wheel event, so the range alone says whether the end is in view.
-              this.follow = range.end >= viewRows.length;
+              s.follow = range.end >= viewRows.length;
             },
           },
         ),
@@ -1216,16 +1749,15 @@ export default class Chat extends View {
     if (subs > 0) {
       const current = view.child ?? (own ? view.terminal : null);
       body.child(
-        cardOpen(rows, this.toggle)
+        cardOpen(rows, s.toggle)
           ? threadsCard(rows, {
               t,
               current,
-              onRow: (row, cx) => this.openRow(row, cx),
+              onRow: (row, cx) => this.openRow(s, row, cx),
               paneHeight: this.paneHeight,
               paneWidth: this.width,
               hovered: this.threadHover,
               onHover: (id, on, cx) => {
-                // Leaving one row and entering the next arrive in either order.
                 const next = on ? id : this.threadHover === id ? null : this.threadHover;
                 if (next === this.threadHover) return;
                 this.threadHover = next;
@@ -1233,12 +1765,13 @@ export default class Chat extends View {
               },
             })
           : threadsPill(pillText(rows), t, (cx) => {
-              this.toggle = toggleCard(this.rows, this.toggle);
+              s.toggle = toggleCard(s.rows, s.toggle);
               cx.notify();
             }),
       );
     }
     root.child(body);
+
     if (problem && viewRows.length) {
       root.child(
         h_flex()
@@ -1258,10 +1791,10 @@ export default class Chat extends View {
               .text_color(problem.exited ? t.foreground : t.muted)
               .child(problem.title),
           )
-          .child(this.buttons(t, problem, term, tab)),
+          .child(this.buttons(t, problem, term, tab, s)),
       );
     }
-    if (this.viewNote) {
+    if (s.viewNote) {
       root.child(
         h_flex()
           .id("view-note")
@@ -1272,49 +1805,51 @@ export default class Chat extends View {
           .justify_center()
           .text_size(12.5)
           .text_color(t.muted)
-          .child(this.viewNote),
+          .child(s.viewNote),
       );
     }
 
-    const guarded = isGuarded(this.guard, now);
-    this.drawnGuarded = guarded;
-    const cards = dockCards(this.requests, {
+    const guarded = isGuarded(s.guard, now);
+    s.drawnGuarded = guarded;
+    const cards = dockCards(s.requests, {
       now,
       guarded,
-      sending: this.sendingIds,
+      sending: s.sendingIds,
       agentName: name,
-      expect: this.answerExpect(),
+      expect: this.answerExpect(s),
     }).map((c) => ({
       ...c,
       buttons: c.buttons.map((b) =>
         b.id === "terminal"
           ? b
-          : { ...b, enabled: b.enabled && !this.wentOut.has(c.id) && (b.id !== "submit" || complete(this.draftOf(c))) },
+          : {
+              ...b,
+              enabled: b.enabled && !s.wentOut.has(c.id) && (b.id !== "submit" || complete(this.draftOf(s, c))),
+            },
       ),
     }));
-    // A card that left the dock fades in again if it comes back.
-    for (const id of this.cardsShown) if (!cards.some((c) => c.id === id)) this.cardsShown.delete(id);
-    const active = activeQuestion(this.requests);
+    for (const id of s.cardsShown) if (!cards.some((c) => c.id === id)) s.cardsShown.delete(id);
+    const active = activeQuestion(s.requests);
     const docked = dock(
       {
         t,
         cards,
-        notice: target && kind ? this.hooksNotice(target.machine, kind) : null,
-        draftOf: (c) => this.draftOf(c),
+        notice: target && kind ? this.hooksNotice(s, target.machine, kind) : null,
+        draftOf: (c) => this.draftOf(s, c),
         active: active?.id ?? null,
         focus: this.focus,
         other: this.other,
-        notes: this.answerNotes,
-        shown: this.cardsShown,
+        notes: s.answerNotes,
+        shown: s.cardsShown,
       },
       {
-        onButton: (c, b, cx) => this.clickCard(c, b, cx),
-        onOption: (c, step, i, cx) => this.chooseOption(c, step, i, cx),
-        onStep: (c, step, cx) => this.showStep(c, step, cx),
-        onKey: (c, e, cx) => this.cardKey(c, e, cx),
+        onButton: (c, b, cx) => this.clickCard(s, c, b, cx),
+        onOption: (c, step, i, cx) => this.chooseOption(s, c, step, i, cx),
+        onStep: (c, step, cx) => this.showStep(s, c, step, cx),
+        onKey: (c, e, cx) => this.cardKey(s, c, e, cx),
         onNotice: (b, cx) => this.clickNotice(b, cx),
         onShown: (id, cx) => {
-          this.cardsShown.add(id);
+          s.cardsShown.add(id);
           cx.notify();
         },
       },
@@ -1335,17 +1870,22 @@ export default class Chat extends View {
           requests: 0,
           open: null,
         },
-        this.name,
+        s.name,
       );
-      root.child(subagentBar(text, this.name, t, (cx) => this.setView({ child: null }, cx)));
+      root.child(
+        subagentBar(text, s.name, t, (cx) => this.setView(s, { child: null }, cx), {
+          centered: this.stackMode,
+          maxW: READ_W,
+        }),
+      );
       if (!own) return root;
     }
 
     const reason = gone
-      ? `${this.name} exited`
+      ? `${s.name} exited`
       : own && !view.kind
         ? "This terminal runs no Claude or Codex"
-        : this.sending
+        : s.sending
           ? "Sending…"
           : problem
             ? problem.title
@@ -1354,6 +1894,69 @@ export default class Chat extends View {
               : f.loaded
                 ? waitingText("no_log", name)
                 : "Loading…";
+
+    if (this.stackMode && !own && target) {
+      const strip = contextStrip(
+        {
+          t,
+          machine: target.machine,
+          agents: this.stackLocated.agents,
+          activeTerminal: target.terminal,
+          pr: s.pr,
+          prHeadOid: s.prHeadOid,
+          prBusy: s.prBusy,
+          queue: s.queue,
+          queueBusy: s.queueBusy,
+          sending: s.sending,
+          canSendNow: reason === null && expectation(s.feed, s.kind) !== null,
+          editingId: this.editingQueue?.terminal === s.terminal ? this.editingQueue.id : null,
+          editInput: this.editInput,
+        },
+        {
+          onSelectAgent: (terminal, cx) => {
+            if (!tab) return;
+            setShared(CHAT_AGENT, pinTabAgent(shared(CHAT_AGENT), tab, terminal, this.liveTabIds));
+            run("agent.focus", { terminal });
+            cx.notify();
+          },
+          onOpenPr: (pr, cx) => this.openPr(s, pr, cx),
+          onBabysitPr: (pr, cx) => this.runSkillCommand(s, babysitCommand(pr.number), cx),
+          onMergePr: (pr, cx) => this.runSkillCommand(s, mergeCommand(pr.number), cx),
+          onQueueResume: (cx) => this.mutateQueue(s, ["resume", "--terminal", s.local], cx),
+          onQueueClear: (cx) =>
+            this.mutateQueue(s, ["clear", "--terminal", s.local], cx, () => {
+              if (this.editingQueue?.terminal === s.terminal) {
+                this.editingQueue = null;
+                this.editInput.set_value("");
+              }
+            }),
+          onQueueEditStart: (item, cx) => {
+            this.editingQueue = { terminal: s.terminal, id: item.id };
+            this.editInput.set_value(item.text);
+            this.editInput.focus();
+            cx.notify();
+          },
+          onQueueEditSave: (id, cx) => this.saveQueueEdit(s, id, cx),
+          onQueueEditCancel: (cx) => {
+            this.editingQueue = null;
+            this.editInput.set_value("");
+            cx.notify();
+          },
+          onQueueMove: (id, to, cx) =>
+            this.mutateQueue(s, ["move", "--terminal", s.local, "--id", id, "--to", String(to)], cx),
+          onQueueSendNow: (item, cx) => this.sendQueuedNow(s, item, cx),
+          onQueueRemove: (id, cx) =>
+            this.mutateQueue(s, ["remove", "--terminal", s.local, "--id", id], cx, () => {
+              if (this.editingQueue?.id === id) {
+                this.editingQueue = null;
+                this.editInput.set_value("");
+              }
+            }),
+        },
+      );
+      if (strip) root.child(strip);
+    }
+
     const chips = chipsView(t, chipsFor(shared(ATTACH), tab), this.chipHover, {
       hover: (id, on, cx) => {
         const next = on ? id : this.chipHover === id ? null : this.chipHover;
@@ -1363,19 +1966,27 @@ export default class Chat extends View {
       },
       remove: (id, cx) => {
         if (tab === null) return;
-        this.note = null;
+        s.note = null;
         setShared(ATTACH, removeChip(shared(ATTACH), tab, id));
         cx.notify();
       },
       mode: (id, mode, cx) => {
         if (tab === null) return;
-        this.note = null;
+        s.note = null;
         setShared(ATTACH, setChipMode(shared(ATTACH), tab, id, mode));
         cx.notify();
       },
     });
+    const queueMode = this.stackMode && !own && s.status === "working";
     return root.child(
-      this.composer.render(t, { disabled: reason !== null, reason, sending: this.sending, note: this.note, chips }),
+      s.composer.render(t, {
+        disabled: reason !== null,
+        reason,
+        sending: s.sending,
+        queueMode,
+        note: s.note,
+        chips,
+      }),
     );
   }
 }

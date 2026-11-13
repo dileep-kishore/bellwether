@@ -1,9 +1,10 @@
-// The box under the chat: Enter sends, Shift-Enter adds a line. Adapted from Flockbook's
-// herdr-app/mods/flockbook/composer.js (MIT, see THIRD_PARTY_NOTICES.md): files, paste and the status tags dropped.
+// The box under the chat: Enter sends (or queues while working in stack mode), Shift-Enter adds a line,
+// and Shift-Cmd-Enter forces immediate delivery. Adapted from Flockbook's herdr-app/mods/flockbook/composer.js
+// (MIT, see THIRD_PARTY_NOTICES.md): files, paste and the status tags dropped.
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, Textarea, TextareaState } from "gpui-base";
 import { READ_W } from "./estimate.js";
-import { spinner } from "./ui.js";
+import { button as uiButton, spinner } from "./ui.js";
 
 /** @typedef {import("./ui.js").Theme} Theme */
 
@@ -24,10 +25,16 @@ export function withoutEnter(now, before) {
 }
 
 /**
+ * @typedef {object} SendOptions
+ * @property {boolean} [forceSend] bypass queueing and deliver immediately
+ */
+
+/**
  * @typedef {object} ComposerView what the chat tells the box on each render
  * @property {boolean} disabled
  * @property {string | null} reason shown in the box while disabled
  * @property {boolean} sending
+ * @property {boolean} [queueMode] Enter enqueues while the agent is working
  * @property {{ text: string, bad: boolean } | null} note the last send's result
  * @property {any} [chips] the attached issues' chips, drawn above the text field
  */
@@ -35,7 +42,7 @@ export function withoutEnter(now, before) {
 export class Composer {
   /**
    * Made in `init`: retained text state cannot be made while drawing.
-   * @param {{ placeholder: string, onSend: (text: string, cx: any) => void }} opts
+   * @param {{ placeholder: string, onSend: (text: string, cx: any, opts?: SendOptions) => void }} opts
    */
   constructor({ placeholder, onSend }) {
     this.input = TextareaState.new({ placeholder, rows: 1 });
@@ -62,20 +69,21 @@ export class Composer {
       const v = this.input.value();
       if (v !== this.typed[1]) this.typed = [this.typed[1], v];
     });
-    // On Shift-Enter the box puts the new line in itself; the submit only reports it.
+    // On plain Shift-Enter the box puts the new line in itself; Shift-Cmd-Enter forces immediate delivery.
     this.input.on("submit", (/** @type {any} */ e, /** @type {any} */ cx) => {
-      if (e?.shift) return;
+      const forceSend = Boolean(e?.shift && (e?.secondary || e?.platform));
+      if (e?.shift && !forceSend) return;
       const now = this.input.value();
-      this.send(withoutEnter(now, now === this.typed[1] ? this.typed[0] : this.typed[1]), cx);
+      this.send(withoutEnter(now, now === this.typed[1] ? this.typed[0] : this.typed[1]), cx, { forceSend });
     });
   }
 
-  /** @param {string} raw @param {any} cx */
-  send(raw, cx) {
+  /** @param {string} raw @param {any} cx @param {SendOptions} [opts] */
+  send(raw, cx, opts = {}) {
     const text = raw.replace(/\s+$/, "");
     this.setText(text);
     if (this.blocked || (!text.trim() && !this.hasChips)) return;
-    this.onSend(text, cx);
+    this.onSend(text, cx, opts);
   }
 
   /** @param {string} v */
@@ -96,6 +104,8 @@ export class Composer {
     this.blocked = v.disabled;
     this.hasChips = Boolean(v.chips);
     const live = !v.disabled;
+    const queueMode = Boolean(v.queueMode);
+    const hint = v.disabled && v.reason ? v.reason : queueMode ? "Enter queues · ⇧⌘Enter sends now" : "";
     return v_flex()
       .id("composer")
       .w_full()
@@ -119,42 +129,77 @@ export class Composer {
           .pb(8)
           .gap(6)
           .when(v.disabled, (el) => el.opacity(0.6))
+          .on_key_down((/** @type {any} */ e, /** @type {any} */ cx) => {
+            const m = e?.modifiers;
+            if (m?.shift && (m?.platform || m?.secondary) && String(e?.key ?? "").toLowerCase() === "enter") {
+              cx?.stop_propagation?.();
+              this.send(this.input.value(), cx, { forceSend: true });
+            }
+          })
           .when(Boolean(v.chips), (el) => el.child(v.chips))
           .child(Textarea.new(this.input).w_full().disabled(v.disabled))
           .child(
             h_flex()
               .gap(8)
               .items_center()
-              .child(
-                div()
-                  .flex_1()
-                  .min_w(0)
-                  .truncate()
-                  .text_size(12)
-                  .text_color(t.muted)
-                  .child(v.disabled && v.reason ? v.reason : ""),
+              .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(hint))
+              .when(queueMode && live && !v.sending, (el) =>
+                el.child(
+                  uiButton(t, {
+                    id: "send-now",
+                    label: "Send now",
+                    kind: "secondary",
+                    h: 26,
+                    onClick: (/** @type {unknown} */ _e, /** @type {any} */ cx) =>
+                      this.send(this.input.value(), cx, { forceSend: true }),
+                  }),
+                ),
               )
               .child(
-                div()
-                  .id("send")
-                  .size(28)
-                  .flex_none()
-                  .flex()
-                  .items_center()
-                  .justify_center()
-                  .rounded(14)
-                  .bg(live ? t.accent : t.raised)
-                  .text_color(live ? t.accent_foreground : t.dim)
-                  .disabled(v.disabled)
-                  .when(live, (el) =>
-                    el
-                      .cursor_pointer()
-                      .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) =>
-                        this.send(this.input.value(), cx),
-                      ),
-                  )
-                  .when(live, (el) => el.hover((s) => s.opacity(0.9)))
-                  .child(v.sending ? spinner(t, 13) : svg(SEND_ICON).size(14)),
+                queueMode
+                  ? h_flex()
+                      .id("send")
+                      .h(28)
+                      .px(12)
+                      .gap(6)
+                      .flex_none()
+                      .items_center()
+                      .justify_center()
+                      .rounded(14)
+                      .bg(live ? t.accent : t.raised)
+                      .text_color(live ? t.accent_foreground : t.muted)
+                      .text_size(12)
+                      .font_semibold()
+                      .disabled(v.disabled)
+                      .when(live, (el) =>
+                        el
+                          .cursor_pointer()
+                          .hover((s) => s.opacity(0.9))
+                          .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) =>
+                            this.send(this.input.value(), cx, { forceSend: false }),
+                          ),
+                      )
+                      .child(v.sending ? spinner(t, 13) : "Queue")
+                  : div()
+                      .id("send")
+                      .size(28)
+                      .flex_none()
+                      .flex()
+                      .items_center()
+                      .justify_center()
+                      .rounded(14)
+                      .bg(live ? t.accent : t.raised)
+                      .text_color(live ? t.accent_foreground : t.dim)
+                      .disabled(v.disabled)
+                      .when(live, (el) =>
+                        el
+                          .cursor_pointer()
+                          .on_click((/** @type {unknown} */ _e, /** @type {any} */ cx) =>
+                            this.send(this.input.value(), cx, { forceSend: false }),
+                          ),
+                      )
+                      .when(live, (el) => el.hover((s) => s.opacity(0.9)))
+                      .child(v.sending ? spinner(t, 13) : svg(SEND_ICON).size(14)),
               ),
           ),
       )

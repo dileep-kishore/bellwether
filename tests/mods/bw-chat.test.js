@@ -345,7 +345,10 @@ describe("bw-chat", () => {
     expect(list(m).attrs.keys).toEqual(rows.map((r) => r.id));
     expect(list(m).attrs.sizes).toEqual(sizes(rows, columnWidth(0)));
     fire(list(m), "on_item_click", "c-cx@24227", m.cx);
-    expect(m.log.run).toEqual([["layout.select", { stack: "right-body", child: "changes" }]]);
+    expect(m.log.run).toEqual([
+      ["layout.show", { id: "right" }],
+      ["layout.select", { stack: "right-body", child: "changes" }],
+    ]);
   });
 
   test("a bubble's text wraps afresh after its pane narrows and widens", async () => {
@@ -382,7 +385,10 @@ describe("bw-chat", () => {
     data.shared["bw.right.tab"] = { s1: "browser" };
     const m = await mount("bw-chat", { props: CODEX_REMOTE, live: data });
     fire(list(m), "on_item_click", "c-cx@24227", m.cx);
-    expect(m.log.run).toEqual([["layout.select", { stack: "right-body", child: "changes" }]]);
+    expect(m.log.run).toEqual([
+      ["layout.show", { id: "right" }],
+      ["layout.select", { stack: "right-body", child: "changes" }],
+    ]);
     expect(fake.shared["bw.right.tab"]).toEqual({ s1: "changes" });
     // bw-right's next render would select whatever is stored for the shown space.
     expect(wanted(fake.shared["bw.right.tab"], "s1", "changes")).toBe(null);
@@ -898,10 +904,14 @@ describe("bw-chat", () => {
     expect(scrolls.slice(before)).toEqual([["item", 5, "top"]]);
   });
 
-  test("no props renders a named state and runs nothing", async () => {
-    const m = await mount("bw-chat", { props: {}, live: live("chat-tab") });
-    expect(textOf(m.el)).toContain("This chat names no terminal");
-    expect(m.log.exec).toEqual([]);
+  test("invalid per-pane props and empty-space stack mode render named states and run nothing", async () => {
+    const bad = await mount("bw-chat", { props: { terminal: "t8", kind: "vim" }, live: live("chat-tab") });
+    expect(textOf(bad.el)).toContain("This chat names no terminal");
+    expect(bad.log.exec).toEqual([]);
+
+    const empty = await mount("bw-chat", { props: {}, live: live("empty") });
+    expect(textOf(empty.el)).toContain("No active agent chat");
+    expect(empty.log.exec).toEqual([]);
   });
 
   test("focus command focuses the composer", async () => {

@@ -1,5 +1,5 @@
 // Which terminal a chat shows, how often it reads, and the words for each state. Pure.
-import { paneKind } from "./chat-tabs.js";
+import { paneKind, readChatTabs, resolveTabAgent } from "./chat-tabs.js";
 
 /** @typedef {"claude" | "codex"} Kind */
 
@@ -13,7 +13,11 @@ import { paneKind } from "./chat-tabs.js";
 
 /**
  * @typedef {Target & { tab: string, pane: string }} Found The terminal in the chat's own tab, as this window names it.
+ * @typedef {Found & { spaceId: string, folder: string, branch: string | null, status: string | null, title: string, program: any, focused: boolean }} StackFound
  * @typedef {{ state: "found", target: Found } | { state: "exited", tab: string } | { state: "missing" }} Located
+ * @typedef {{ state: "found", space: any, tab: string, target: StackFound, agents: StackFound[] }
+ *   | { state: "exited", space: any, tab: string, kind: Kind, agents: StackFound[] }
+ *   | { state: "no_agent", space: any | null, tab: string | null, hasTerminal: boolean, agents: StackFound[] }} StackLocated
  */
 
 export const POLL_SHOWN_MS = 2000;
@@ -26,6 +30,15 @@ export const pollMs = (shown) => (shown ? POLL_SHOWN_MS : POLL_HIDDEN_MS);
 export const agentName = (kind) => (kind === "codex" ? "Codex" : "Claude");
 
 const isStr = (/** @type {unknown} */ s) => typeof s === "string" && s !== "";
+
+/**
+ * Whether `props` was supplied for a per-pane `bw-chat` instance rather than layout stack mode.
+ * @param {unknown} props
+ * @returns {boolean}
+ */
+export function isPerPaneProps(props) {
+  return Boolean(props && typeof props === "object" && !Array.isArray(props) && "terminal" in props);
+}
 
 /**
  * The chat's props as a target; null when they name no Claude or Codex terminal.
@@ -41,6 +54,55 @@ export function targetOf(props) {
   const local = p.terminal.startsWith(`${machine}/`) ? p.terminal.slice(machine.length + 1) : p.terminal;
   if (!local || local.includes("/")) return null;
   return { machine, terminal: `${machine}/${local}`, local, kind: p.kind };
+}
+
+/**
+ * Resolves the active space's active tab's agent conversation in stack mode (`props()` empty).
+ * @param {any[]} spaces
+ * @param {any[]} panes
+ * @param {unknown} chatTabs
+ * @param {unknown} chatAgents
+ * @returns {StackLocated}
+ */
+export function resolveStackTarget(spaces, panes, chatTabs, chatAgents) {
+  const space = spaces.find((s) => s.active) ?? null;
+  const tab = space?.tabs?.find((/** @type {any} */ t) => t.active) ?? null;
+  if (!space || !tab) return { state: "no_agent", space: null, tab: null, hasTerminal: false, agents: [] };
+  const machine = space.machine ?? null;
+  const rawTerms = panes.filter((p) => p.tab === tab.id && !p.mod && isStr(p.terminal));
+  /** @type {StackFound[]} */
+  const agents = rawTerms
+    .filter((p) => paneKind(p) !== null)
+    .map((p) => {
+      const kind = /** @type {Kind} */ (paneKind(p));
+      const local =
+        machine !== null && p.terminal.startsWith(`${machine}/`) ? p.terminal.slice(machine.length + 1) : p.terminal;
+      return {
+        machine,
+        terminal: p.terminal,
+        local,
+        kind,
+        tab: tab.id,
+        pane: String(p.pane ?? ""),
+        spaceId: String(space.id ?? ""),
+        folder: isStr(p.cwd) ? p.cwd : isStr(space.folder) ? space.folder : "",
+        branch: isStr(p.branch) ? p.branch : isStr(space.branch) ? space.branch : null,
+        status: p.status ?? null,
+        title: isStr(p.title) ? p.title : agentName(kind),
+        program: p.program ?? null,
+        focused: Boolean(p.focused),
+      };
+    });
+  const picked = resolveTabAgent(tab.id, panes, chatTabs, chatAgents);
+  if (picked) {
+    const hit = agents.find((a) => a.terminal === picked.terminal) ?? agents[0];
+    if (hit) return { state: "found", space, tab: tab.id, target: hit, agents };
+  }
+  const recorded = readChatTabs(chatTabs).tabs[tab.id];
+  if (!rawTerms.length && recorded) {
+    return { state: "exited", space, tab: tab.id, kind: recorded.kind, agents: [] };
+  }
+  return { state: "no_agent", space, tab: tab.id, hasTerminal: rawTerms.length > 0, agents: [] };
 }
 
 /**
@@ -178,6 +240,26 @@ export function sendText(result, agent, message = "") {
       return "Sent, but Herdr did not confirm it in time. Check the terminal (⌘J).";
     default:
       return `Not sent: ${message || "bw send gave no result"}`;
+  }
+}
+
+/**
+ * Explains why a terminal's prompt queue paused automatic draining.
+ * @param {string | null | undefined} reason
+ * @returns {string}
+ */
+export function queueHoldText(reason) {
+  switch (reason) {
+    case "interrupted_or_error":
+      return "Queue paused after an interruption or turn error.";
+    case "assistant_question":
+      return "Queue paused because the assistant asked a direct question.";
+    case "session_changed":
+      return "Queue paused because this terminal switched conversations.";
+    case "send_failed":
+      return "Queue paused because the last queued prompt could not be sent.";
+    default:
+      return reason ? `Queue paused (${reason}).` : "Queue paused.";
   }
 }
 
