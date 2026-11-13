@@ -411,6 +411,34 @@ file (`~/.cache/bellwether/queue/<core>/<terminal>.json`) and OS `FolderLock`
   prose `?` (`assistant_question`), and matching live session (`session_changed`).
 - `resume` re-binds queued items to the current live session, clears `held`, and runs a drain check.
 
+## `bw drafts`
+
+```sh
+bw drafts list --path <worktree>
+bw drafts read --path <worktree> --file <id>
+bw drafts register-ledger --path <worktree> --ledger <abs_ledger_path>
+bw drafts stage --name <slug.html> [--machine <m> --path <worktree> --file <id>]
+```
+
+`bw drafts …` inspects read-only drafts, plans, decision logs, and review ledgers for `<worktree>`:
+
+- `list` scans `<worktree>/docs/drafts`, `docs/plans`, `docs/superpowers`, `.audit`, and root
+  `decisions.tsv` and `tasks.md` (skipping symlinks escaping `<worktree>`, `node_modules`, and
+  `.git`, capped at 200 entries), plus allow-listed external `independent-review` `ledger.md` files
+  from `~/.local/state/bellwether/reviews/<sha256(worktree)>/*.json` and `$TMPDIR/*/ledger.md` or
+  `/private/tmp/*/ledger.md` referencing canonical `<worktree>`. Each line is a `draft` JSON object
+  with `kind` (`html`, `decisions`, `plan`, `ledger`, or `markdown`), `id`, `label`, `mtime_ms`,
+  and `size`.
+- `read` resolves `<worktree>` and `<id>`, permits only allow-listed worktree draft files or
+  allow-listed `ledger.md` entries (never sibling raw transcripts or arbitrary paths), caps reads at
+  512 KiB of UTF-8 text, and prints one `draft-read` JSON object.
+- `register-ledger` records a `0600` pointer JSON under
+  `~/.local/state/bellwether/reviews/<sha256(worktree)>/` for an `independent-review` `ledger.md`.
+- `stage` runs on the window machine (`on: null`), reads an HTML artifact from stdin, a local
+  worktree, or a remote helper (`--machine <m>`), writes it into
+  `~/.cache/bellwether/drafts-stage/<sha256>/<slug.html>` (`0600` in `0700` dir, keeping the 32
+  newest staged files), and prints `draft-staged` with its `file://` `url`.
+
 ## `bw version`
 
 ```sh
