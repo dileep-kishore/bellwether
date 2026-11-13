@@ -157,8 +157,17 @@ fn strip_inline_code(line: &str) -> String {
     out
 }
 
-/// True when any non-empty prose line outside fenced code blocks, blockquotes, and inline code spans
-/// ends with `?` (catching questions followed by option lists or status summaries).
+fn is_atx_heading(trimmed: &str) -> bool {
+    let hashes = trimmed.bytes().take_while(|b| *b == b'#').count();
+    (1..=6).contains(&hashes)
+        && trimmed
+            .as_bytes()
+            .get(hashes)
+            .is_none_or(|b| *b == b' ' || *b == b'\t')
+}
+
+/// True when any non-empty non-heading prose line outside fenced code blocks, blockquotes, and inline
+/// code spans ends with `?` (catching questions followed by option lists or status summaries).
 pub fn ends_with_prose_question(text: &str) -> bool {
     let mut fence: Option<(char, usize)> = None;
 
@@ -194,7 +203,7 @@ pub fn ends_with_prose_question(text: &str) -> bool {
         }
 
         let trimmed = raw.trim();
-        if trimmed.is_empty() || trimmed.starts_with('>') {
+        if trimmed.is_empty() || trimmed.starts_with('>') || is_atx_heading(trimmed) {
             continue;
         }
         let cleaned = strip_inline_code(trimmed);
@@ -865,6 +874,116 @@ pub fn report_json(r: &DrainReport) -> Value {
     serde_json::to_value(r).unwrap_or_else(|_| json!({"type": "drain", "result": r.result}))
 }
 
+pub struct QueueSendReport {
+    pub result: &'static str,
+    pub message: String,
+    pub state: QueueState,
+}
+
+pub struct QueueSendFailure {
+    pub code: &'static str,
+    pub message: String,
+}
+
+/// Atomically sends queued item `id` and pops it under `FolderLock` using `inflight_item_id`.
+pub fn send_queued_item(
+    core: &str,
+    terminal: &str,
+    id: &str,
+    expect_kind: &str,
+    expect_session: &str,
+    expect_path: &str,
+) -> Result<Result<QueueSendReport, QueueSendFailure>, StoreError> {
+    store::validate_terminal(terminal)?;
+    if expect_kind != "claude" && expect_kind != "codex" {
+        return Err(StoreError::usage("expected --expect-kind claude|codex"));
+    }
+    let id = id.trim();
+    if id.is_empty() {
+        return Err(StoreError::usage("missing --id"));
+    }
+    let expected = send::expect(expect_session, expect_path).map_err(StoreError::usage)?;
+
+    let _guard = store::lock_terminal(core, terminal)?;
+    let mut state = store::read_in(core, terminal);
+
+    if state.inflight_item_id.is_some() {
+        state.held = true;
+        state.hold_reason = Some("uncertain_delivery".into());
+        store::write_in(core, terminal, &state)?;
+        return Ok(Ok(QueueSendReport {
+            result: "uncertain-delivery",
+            message: "Queue paused because an earlier send was not confirmed.".into(),
+            state,
+        }));
+    }
+
+    let Some(idx) = state.items.iter().position(|it| it.id == id) else {
+        return Ok(Ok(QueueSendReport {
+            result: "already-sent",
+            message: "Queued message was already delivered.".into(),
+            state,
+        }));
+    };
+
+    let text = state.items[idx].text.clone();
+    state.inflight_item_id = Some(id.to_string());
+    store::write_in(core, terminal, &state)?;
+
+    let outcome = send::send_checked(terminal, expect_kind, expected, &text);
+    match outcome {
+        SendOutcome::Sent(message) => {
+            state.inflight_item_id = None;
+            state.items.retain(|it| it.id != id);
+            state.last_sent_ms = Some(store::now_ms());
+            store::write_in(core, terminal, &state)?;
+            Ok(Ok(QueueSendReport {
+                result: "sent",
+                message,
+                state,
+            }))
+        }
+        SendOutcome::Unconfirmed(message) => {
+            state.inflight_item_id = None;
+            state.items.retain(|it| it.id != id);
+            state.last_sent_ms = Some(store::now_ms());
+            if !state.items.is_empty() {
+                state.held = true;
+                state.hold_reason = Some("unconfirmed".into());
+            }
+            store::write_in(core, terminal, &state)?;
+            Ok(Ok(QueueSendReport {
+                result: "unconfirmed",
+                message,
+                state,
+            }))
+        }
+        SendOutcome::RefusedConversation(message) => {
+            state.inflight_item_id = None;
+            store::write_in(core, terminal, &state)?;
+            Ok(Ok(QueueSendReport {
+                result: "refused-conversation",
+                message,
+                state,
+            }))
+        }
+        SendOutcome::RefusedPrompt(message) => {
+            state.inflight_item_id = None;
+            store::write_in(core, terminal, &state)?;
+            Ok(Ok(QueueSendReport {
+                result: "refused-prompt",
+                message,
+                state,
+            }))
+        }
+        SendOutcome::Error { code, message } => {
+            state.inflight_item_id = None;
+            store::write_in(core, terminal, &state)?;
+            Ok(Err(QueueSendFailure { code, message }))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -894,6 +1013,9 @@ mod tests {
         ));
         assert!(!ends_with_prose_question(
             "> Why did it fail?\n\nFixed the off-by-one in main.rs."
+        ));
+        assert!(!ends_with_prose_question(
+            "## Why did the test fail?\n\nThe fixture was stale. I regenerated it and all tests pass."
         ));
     }
 

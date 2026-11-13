@@ -51,9 +51,10 @@ export const MAX_SESSIONS = 24;
  * @property {string} spaceId
  * @property {string} folder
  * @property {string | null} branch
- * @property {SessionSlot} slot
+ * @property {SessionSlot | null} slot
  * @property {any} scroll
  * @property {import("./composer.js").Composer} composer
+ * @property {string} draftText
  * @property {FeedState} feed
  * @property {{ child: null } | { child: string } | { child?: undefined, terminal: string, local: string, kind: Kind | null, program: string }} view
  * @property {FeedState | null} sub
@@ -154,6 +155,7 @@ export function createSession(target, slot, now) {
     slot,
     scroll: slot.scroll,
     composer,
+    draftText: "",
     feed: emptyFeed(target.terminal),
     view: { child: null },
     sub: null,
@@ -197,6 +199,41 @@ export function createSession(target, slot, now) {
 }
 
 /**
+ * Restores saved draft text onto a host composer (or test stub).
+ * @param {any} composer
+ * @param {string} text
+ */
+function restoreComposerDraft(composer, text) {
+  if (!composer) return;
+  if (!text) {
+    composer.clear?.();
+  } else if (typeof composer.setText === "function") {
+    composer.setText(text);
+  } else if (typeof composer.set === "function") {
+    composer.set(text);
+  } else if (typeof composer.input?.set_value === "function") {
+    composer.input.set_value(text);
+  }
+}
+
+/**
+ * Detaches and clears `s.slot` after snapshotting `s.draftText`, leaving `s` unaliased in the map.
+ * @param {SessionState} s
+ * @returns {SessionSlot | null}
+ */
+function detachSlot(s) {
+  const slot = s.slot;
+  if (!slot) return null;
+  s.draftText = String(s.composer?.input?.value?.() ?? s.draftText ?? "");
+  slot.composers.claude.clear();
+  slot.composers.codex.clear();
+  s.slot = null;
+  s.scroll = null;
+  s.composer = /** @type {any} */ (null);
+  return slot;
+}
+
+/**
  * Resets a session when the same terminal address now runs a different agent kind.
  * @param {SessionState} s
  * @param {StackFound} target
@@ -205,8 +242,11 @@ export function createSession(target, slot, now) {
 function rebindKind(s, target, now) {
   s.kind = target.kind;
   s.name = agentName(target.kind);
-  s.composer = s.slot.composers[target.kind];
-  s.composer.clear();
+  s.draftText = "";
+  if (s.slot) {
+    s.composer = s.slot.composers[target.kind];
+    s.composer.clear();
+  }
   s.feed = emptyFeed(target.terminal);
   s.view = { child: null };
   s.sub = null;
@@ -245,7 +285,8 @@ function rebindKind(s, target, now) {
  * @returns {boolean}
  */
 export function hasUnsentDraft(session, sharedAttach) {
-  const text = String(session.composer?.input?.value?.() ?? "").trim();
+  const live = session.slot ? session.composer?.input?.value?.() : session.draftText;
+  const text = String(live ?? session.draftText ?? "").trim();
   if (text !== "") return true;
   return chipsFor(sharedAttach, session.tab).length > 0;
 }
@@ -253,14 +294,14 @@ export function hasUnsentDraft(session, sharedAttach) {
 export class SessionMap {
   /**
    * @param {SessionSlot[]} slots pre-allocated retained state slots
-   * @param {SessionSlot} fallbackSlot emergency slot if all slots hold unsent drafts
+   * @param {SessionSlot} fallbackSlot spare slot added to the reusable pool when all `max` slots hold drafts
    * @param {number} [max]
    */
   constructor(slots, fallbackSlot, max = MAX_SESSIONS) {
     /** @type {Map<string, SessionState>} */
     this.map = new Map();
     /** @type {SessionSlot[]} */
-    this.freeSlots = [...slots];
+    this.freeSlots = fallbackSlot ? [...slots, fallbackSlot] : [...slots];
     this.fallbackSlot = fallbackSlot;
     this.max = max;
   }
@@ -277,6 +318,30 @@ export class SessionMap {
   /** @returns {IterableIterator<SessionState>} */
   values() {
     return this.map.values();
+  }
+
+  /**
+   * Claims an unused `SessionSlot`, or detaches the oldest inactive session's slot after snapshotting
+   * its `draftText` so two sessions never share a live composer or scroll handle.
+   * @param {string} excludeTerminal
+   * @returns {SessionSlot}
+   */
+  claimSlot(excludeTerminal) {
+    const free = this.freeSlots.shift();
+    if (free) {
+      free.composers.claude.clear();
+      free.composers.codex.clear();
+      return free;
+    }
+    for (const [key, candidate] of this.map.entries()) {
+      if (key === excludeTerminal || !candidate.slot) continue;
+      const detached = detachSlot(candidate);
+      if (detached) return detached;
+    }
+    // Single-slot fallback when every other session is already detached.
+    this.fallbackSlot.composers.claude.clear();
+    this.fallbackSlot.composers.codex.clear();
+    return this.fallbackSlot;
   }
 
   /**
@@ -299,6 +364,15 @@ export class SessionMap {
       existing.spaceId = target.spaceId;
       existing.folder = target.folder;
       existing.branch = target.branch;
+      if (!existing.slot) {
+        const slot = this.claimSlot(target.terminal);
+        existing.slot = slot;
+        existing.scroll = slot.scroll;
+        existing.composer = slot.composers[target.kind];
+        if (existing.kind === target.kind) {
+          restoreComposerDraft(existing.composer, existing.draftText);
+        }
+      }
       if (existing.kind !== target.kind) rebindKind(existing, target, now);
       return { session: existing, created: false };
     }
@@ -307,18 +381,13 @@ export class SessionMap {
       for (const [key, candidate] of this.map.entries()) {
         if (hasUnsentDraft(candidate, sharedAttach)) continue;
         this.map.delete(key);
-        if (candidate.slot !== this.fallbackSlot) {
-          candidate.slot.composers.claude.clear();
-          candidate.slot.composers.codex.clear();
-          this.freeSlots.push(candidate.slot);
-        }
+        const freed = detachSlot(candidate);
+        if (freed) this.freeSlots.push(freed);
         break;
       }
     }
 
-    const slot = this.freeSlots.shift() ?? this.fallbackSlot;
-    slot.composers.claude.clear();
-    slot.composers.codex.clear();
+    const slot = this.claimSlot(target.terminal);
     const session = createSession(target, slot, now);
     this.map.set(target.terminal, session);
     return { session, created: true };

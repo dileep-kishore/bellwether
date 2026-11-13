@@ -189,17 +189,27 @@ d_blocked=$(run_bw queue drain --terminal t7)
 
 write_term "done"
 cat >> "$rollout_a" <<'JSON'
+{"timestamp":"2026-11-07T06:11:48.000Z","ordinal":36,"type":"response_item","payload":{"type":"custom_tool_call","id":"ctc_perm_1","status":"completed","call_id":"call_perm_1","name":"exec","input":"const r = await tools.exec_command({cmd:\"touch perm-gate3.txt\", sandbox_permissions:\"require_escalated\", justification:\"Allow touch perm-gate3.txt?\"});\ntext(r.output);\n"}}
+JSON
+printf '{"session_id":"%s","turn_id":"turn_perm_1","transcript_path":"%s","cwd":"/scratch/codex-subagent","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"touch perm-gate3.txt"},"tool_use_id":"exec-perm-gate3-1"}\n' "$sid_a" "$rollout_a" |
+  HC_TERMINAL_ID="t7" run_bw event --agent codex
+printf '{"session_id":"%s","turn_id":"turn_perm_1","transcript_path":"%s","cwd":"/scratch/codex-subagent","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"touch perm-gate3.txt","description":"Allow touch perm-gate3.txt?"}}\n' "$sid_a" "$rollout_a" |
+  HC_TERMINAL_ID="t7" run_bw event --agent codex
+d_perm=$(run_bw queue drain --terminal t7)
+cat >> "$rollout_a" <<'JSON'
+{"timestamp":"2026-11-07T06:11:49.000Z","ordinal":36,"type":"response_item","payload":{"type":"custom_tool_call_output","id":"ctco_perm_1","call_id":"call_perm_1","output":[{"type":"input_text","text":"Script completed\nOutput:\n"}]}}
 {"timestamp":"2026-11-07T06:11:50.000Z","ordinal":37,"type":"response_item","payload":{"type":"function_call","status":"completed","id":"fc_async_q1","name":"request_user_input_async","arguments":"{\"questions\":[{\"title\":\"Which target?\",\"options\":[\"dev\",\"prod\"]}]}","call_id":"call_async_q1"}}
 {"timestamp":"2026-11-07T06:11:50.010Z","ordinal":38,"type":"event_msg","payload":{"type":"item_completed","thread_id":"01a1b4a1-cd88-7852-b34b-2cf0f36c8fbc","turn_id":"turn_async_1","item":{"type":"AgentMessage","id":"call_async_q1","content":[{"type":"Text","text":"Which target?\n- dev\n- prod"}],"phase":"final_answer","delivery":"async","questions":[{"title":"Which target?","options":["dev","prod"]}]}}}
 {"timestamp":"2026-11-07T06:11:50.020Z","ordinal":39,"type":"response_item","payload":{"type":"function_call_output","id":"fco_async_q1","call_id":"call_async_q1","output":"{\"accepted\":true}"}}
 JSON
 d_pending=$(run_bw queue drain --terminal t7)
 if [ "$(printf '%s' "$d_blocked" | jq -r '[.result,.held,.remaining] | @tsv')" = "pending	false	1" ] &&
+   [ "$(printf '%s' "$d_perm" | jq -r '[.result,.reason,.held,.remaining] | @tsv')" = "pending	pending_request	false	1" ] &&
    [ "$(printf '%s' "$d_pending" | jq -r '[.result,.reason,.held,.remaining] | @tsv')" = "pending	pending_request	false	1" ] &&
    [ "$(send_count)" = "0" ]; then
   pass "gate3-pending-request-unpopped"
 else
-  bad "gate3-pending-request-unpopped" "blocked=$d_blocked pending=$d_pending sends=$(send_count)"
+  bad "gate3-pending-request-unpopped" "blocked=$d_blocked perm=$d_perm pending=$d_pending sends=$(send_count)"
 fi
 
 # Resolve the async question with a user reply turn, then test Gate 4 multi-line prose question
@@ -446,6 +456,22 @@ if [ "$u_flag" = "true	true" ] &&
   pass "gate5-unverified-startup-nolog-sibling-and-pid-guard"
 else
   bad "gate5-unverified-startup-nolog-sibling-and-pid-guard" "flag=$u_flag wait=$d_wait startup=$d_startup rem=$rem_startup sent=$sent_t8 pid=$d_pid"
+fi
+
+# 9. Atomic bw queue send under FolderLock: pops item on sent, returns already-sent without duplicate delivery, and retains item on refused-conversation
+: > "$root/hc.log"
+qs1=$(run_bw queue add --terminal t7 --kind codex --text "send-now-item" | jq -r .item.id)
+qs2=$(run_bw queue add --terminal t7 --kind codex --text "keep-queued-item" | jq -r .item.id)
+refused_out=$(run_bw queue send --terminal t7 --id "$qs1" --expect-kind codex --expect-session "wrong-session" --expect-path "$rollout_b")
+sent_out=$(run_bw queue send --terminal t7 --id "$qs1" --expect-kind codex --expect-session "$sid_b" --expect-path "$rollout_b")
+dup_out=$(run_bw queue send --terminal t7 --id "$qs1" --expect-kind codex --expect-session "$sid_b" --expect-path "$rollout_b")
+if [ "$(printf '%s' "$refused_out" | jq -rs '[.[0].result, (.[1].items | length)] | @tsv')" = "refused-conversation	2" ] &&
+   [ "$(printf '%s' "$sent_out" | jq -rs '[.[0].result, (.[1].items | map(.id) | join(","))] | @tsv')" = "sent	$qs2" ] &&
+   [ "$(printf '%s' "$dup_out" | jq -rs '[.[0].result, (.[1].items | map(.id) | join(","))] | @tsv')" = "already-sent	$qs2" ] &&
+   [ "$(send_count)" = "1" ]; then
+  pass "atomic-queue-send-and-pop"
+else
+  bad "atomic-queue-send-and-pop" "refused=$refused_out sent=$sent_out dup=$dup_out sends=$(send_count)"
 fi
 
 exit "$fail"

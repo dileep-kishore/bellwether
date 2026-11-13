@@ -297,6 +297,36 @@ describe("SessionMap and helpers", () => {
     expect(s1.composer.input.value()).toBe("draft in t1");
   });
 
+  test("preserves unsent drafts beyond fallback slot capacity without aliasing composers or scroll handles", () => {
+    const map = new SessionMap([fakeSlot(0), fakeSlot(1), fakeSlot(2)], fakeSlot(3), 3);
+    const s1 = map.acquire(target("t1"), {}, 100).session;
+    /** @type {any} */ (s1.composer).set("draft 1");
+    const s2 = map.acquire(target("t2"), {}, 200).session;
+    /** @type {any} */ (s2.composer).set("draft 2");
+    const s3 = map.acquire(target("t3"), {}, 300).session;
+    /** @type {any} */ (s3.composer).set("draft 3");
+    const s4 = map.acquire(target("t4"), {}, 400).session;
+    /** @type {any} */ (s4.composer).set("draft 4");
+
+    // 5th drafted session with max=3 detaches oldest inactive slot (t1) rather than aliasing s4's slot.
+    const s5 = map.acquire(target("t5"), {}, 500).session;
+    /** @type {any} */ (s5.composer).set("draft 5");
+
+    expect(map.size).toBe(5);
+    expect(s4.composer).not.toBe(s5.composer);
+    expect(s4.scroll).not.toBe(s5.scroll);
+    expect(s4.composer.input.value()).toBe("draft 4");
+    expect(s5.composer.input.value()).toBe("draft 5");
+    expect(hasUnsentDraft(s1, {})).toBe(true);
+
+    // Re-visiting t1 re-attaches a dedicated slot and restores "draft 1" intact.
+    const s1Again = map.acquire(target("t1"), {}, 600).session;
+    expect(s1Again).toBe(s1);
+    expect(s1Again.composer).not.toBe(s5.composer);
+    expect(s1Again.composer.input.value()).toBe("draft 1");
+    expect(s5.composer.input.value()).toBe("draft 5");
+  });
+
   test("pinTabAgent prunes dead tabs and parseQueueLine extracts held state and items", () => {
     expect(pinTabAgent({ dead: "t9", tb1: "t1" }, "tb2", "t3", ["tb1", "tb2"])).toEqual({
       tb1: "t1",
@@ -383,11 +413,12 @@ describe("bw-chat stack mode", () => {
     const m = await mount("bw-chat", { props: {}, live: data });
     expect(m.view.session?.terminal).toBe("t3");
 
-    // Clicking Claude in #agent-switcher pins bw.chat-agent[tb2] = "t2" and runs agent.focus { terminal: "t2" }.
+    // Clicking Claude in #agent-switcher pins bw.chat-agent[tb2] = "t2", runs agent.focus, and focuses t2's composer.
     await m.click("agent-switch-t2");
     expect(fake.shared["bw.chat-agent"]).toEqual({ tb2: "t2" });
     expect(m.log.run).toContainEqual(["agent.focus", { terminal: "t2" }]);
     expect(m.view.session?.terminal).toBe("t2");
+    expect(inspect(textarea(m).attrs.state).focused).toBe(1);
   });
 
   test("switches poll sleep from 2 s on chat to 10 s on non-chat screens without needing a render", async () => {
@@ -586,6 +617,22 @@ describe("bw-chat stack mode", () => {
           holdReason = null;
           return queueReply();
         }
+        if (op === "send") {
+          const id = args[args.indexOf("--id") + 1];
+          const expSession = args[args.indexOf("--expect-session") + 1];
+          if (expSession !== CLAUDE_SESSION) {
+            return out([
+              { type: "send", result: "refused-conversation", message: "session mismatch" },
+              { type: "queue", terminal: "t1", held, hold_reason: holdReason, items },
+            ]);
+          }
+          const had = items.some((it) => it.id === id);
+          items = items.filter((it) => it.id !== id);
+          return out([
+            { type: "send", result: had ? "sent" : "already-sent", message: "sent" },
+            { type: "queue", terminal: "t1", held, hold_reason: holdReason, items },
+          ]);
+        }
         if (op === "drain") {
           items = items.slice(1);
           return out([{ type: "drain", action: "sent", id: "q1" }]);
@@ -645,9 +692,25 @@ describe("bw-chat stack mode", () => {
     await m.click("queue-resume");
     expect(held).toBe(false);
 
-    // 6. Send now on q2 calls `bw send` + `bw queue remove`, leaving q1.
+    // 6. Send now on q2 calls atomic `bw queue send` in one IPC call (never `bw send` + `bw queue remove`), leaving q1.
     await m.click("queue-send-q2");
-    expect(calls(m, "send")).toHaveLength(2);
+    expect(calls(m, "send")).toHaveLength(1);
+    const qSends = calls(m, "queue").filter(([, a]) => a[4] === "send");
+    expect(qSends).toHaveLength(1);
+    expect(qSends[0][1].slice(4)).toEqual([
+      "send",
+      "--terminal",
+      "t1",
+      "--id",
+      "q2",
+      "--expect-kind",
+      "claude",
+      "--expect-session",
+      CLAUDE_SESSION,
+      "--expect-path",
+      CLAUDE_PATH,
+    ]);
+    expect(calls(m, "queue").filter(([, a]) => a[4] === "remove")).toHaveLength(0);
     expect(items.map((x) => x.id)).toEqual(["q1"]);
 
     // 7. Transition agent status working -> done triggers fallback `bw queue drain --terminal t1`!
@@ -664,36 +727,39 @@ describe("bw-chat stack mode", () => {
     expect(items).toEqual([]);
   });
 
-  test("renders PR status chip with Merge PR on null reviewDecision, opens PR with Chrome up fallback, and runs PR skills", async () => {
+  test("renders PR status chip with Merge PR on null reviewDecision, opens PR with Chrome up fallback, runs PR skills, and clears stale PR on branch change", async () => {
     const data = stackLive();
     let chromeRunning = false;
+    let prOffline = false;
     data.exec = bwAndGit({
       feed: () => out(golden("claude-approval", "t1", CLAUDE_PATH)),
       pr: () =>
-        out([
-          {
-            type: "pr",
-            cached: false,
-            age_s: 0,
-            pr: {
-              number: 88,
-              title: "Refine Flockbook Cockpit",
-              url: "https://github.com/acme/alpha/pull/88",
-              state: "OPEN",
-              isDraft: false,
-              reviewDecision: null,
-              headRefName: "feat/cockpit",
-              headRefOid: HEAD_SHA,
-              baseRefName: "main",
-              mergeStateStatus: "CLEAN",
-              passing: 4,
-              pending: 0,
-              failing: 0,
-              unresolvedThreads: 0,
-              updatedAt: "2026-11-13T18:00:00Z",
-            },
-          },
-        ]),
+        prOffline
+          ? out([{ type: "error", code: "offline", message: "dial tcp timeout" }], 1)
+          : out([
+              {
+                type: "pr",
+                cached: false,
+                age_s: 0,
+                pr: {
+                  number: 88,
+                  title: "Refine Flockbook Cockpit",
+                  url: "https://github.com/acme/alpha/pull/88",
+                  state: "OPEN",
+                  isDraft: false,
+                  reviewDecision: null,
+                  headRefName: "feat/cockpit",
+                  headRefOid: HEAD_SHA,
+                  baseRefName: "main",
+                  mergeStateStatus: "CLEAN",
+                  passing: 4,
+                  pending: 0,
+                  failing: 0,
+                  unresolvedThreads: 0,
+                  updatedAt: "2026-11-13T18:00:00Z",
+                },
+              },
+            ]),
       browser: (args) => {
         if (args[0] === "new") {
           if (!chromeRunning) {
@@ -742,5 +808,16 @@ describe("bw-chat stack mode", () => {
     const sentTexts = calls(m, "send").map(([, a]) => a[a.indexOf("--text") + 1]);
     expect(sentTexts).toEqual(["/babysit-pr 88", "/merge-pr 88"]);
     expect(m.log.exec.some(([c, a]) => c === "gh" || a.includes("merge"))).toBe(false);
+
+    // Switching branches when the new branch's PR fetch fails offline clears the previous branch's PR chip, Merge PR button, and bw.pr-summary immediately!
+    prOffline = true;
+    fake.spaces[0].branch = "feat/new-unpushed";
+    m.render();
+    expect(byId(m.el, "pr-strip")).toBe(null);
+    expect(byId(m.el, "pr-merge")).toBe(null);
+    expect(fake.shared["bw.pr-summary"]).toEqual({});
+    await nextPoll(m);
+    expect(byId(m.el, "pr-strip")).toBe(null);
+    expect(fake.shared["bw.pr-summary"]).toEqual({});
   });
 });

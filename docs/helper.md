@@ -390,6 +390,7 @@ bw queue move --terminal <t> --id <id> --to <index>
 bw queue remove --terminal <t> --id <id>
 bw queue clear --terminal <t>
 bw queue resume --terminal <t>
+bw queue send --terminal <t> --id <id> --expect-kind claude|codex --expect-session <id|none> --expect-path <log|none>
 bw queue drain --terminal <t> [--on-stop <event_id>] [--force-next]
 ```
 
@@ -401,6 +402,9 @@ file (`~/.cache/bellwether/queue/<core>/<terminal>.json`) and OS `FolderLock`
   (allowing up to 20 items of 64 KiB each, and storing `expect_session: null` with
   `unverified_startup: true` and `agent_pid` only while an agent process is starting without a
   session log).
+- `send` acquires `FolderLock`, reserves `inflight_item_id`, runs `bw send`'s non-force `hc send`
+  guard, and pops `<id>` in a single atomic write (`already-sent` if a concurrent `Stop` drain
+  already delivered `<id>`).
 - When `bw event` records a root `Stop` hook payload and the terminal has unheld queued items, it
   spawns a detached `bw queue drain --terminal <t> --on-stop <id>` child (`Stdio::null()`) and exits
   0 immediately.
@@ -409,10 +413,11 @@ file (`~/.cache/bellwether/queue/<core>/<terminal>.json`) and OS `FolderLock`
   recording an in-flight delivery reservation and calling `bw send`'s non-force `hc send` path:
   unheld queue (holding with `uncertain_delivery` if a prior drain crashed mid-send), `done`/`idle`
   terminal, zero pending approvals or questions across root and running sub-agents, no turn-ending
-  interruption/error (`interrupted_or_error`) or prose `?` line (`assistant_question`), and matching
-  live session (`session_changed`, waiting as `awaiting_session_log` while a fresh startup agent has
-  not written its first transcript yet). `--force-next` bypasses the post-send cooldown and Gate 4's
-  prose/interruption hold for item 0 while keeping Gates 1, 2, 3, and 5 active.
+  interruption/error (`interrupted_or_error`) or non-heading prose `?` line (`assistant_question`),
+  and matching live session (`session_changed`, waiting as `awaiting_session_log` while a fresh
+  startup agent has not written its first transcript yet). `--force-next` bypasses the post-send
+  cooldown and Gate 4's prose/interruption hold for item 0 while keeping Gates 1, 2, 3, and 5
+  active.
 - `resume` re-binds queued items to the current live session, clears `held`, and runs a drain check.
 
 ## `bw drafts`

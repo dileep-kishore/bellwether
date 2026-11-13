@@ -10,7 +10,7 @@ use serde_json::json;
 
 use crate::chat::{args, cache};
 
-const USAGE: &str = "usage: bw queue list|add|edit|move|remove|clear|resume|drain ...";
+const USAGE: &str = "usage: bw queue list|add|edit|move|remove|clear|resume|send|drain ...";
 
 pub fn has_runnable(core: &str, terminal: &str) -> bool {
     store::has_runnable(core, terminal)
@@ -238,6 +238,48 @@ pub fn run(argv: &[String]) -> ExitCode {
                 )
             );
             ExitCode::SUCCESS
+        }
+        "send" => {
+            let a = match args::parse(
+                rest,
+                &[],
+                &[
+                    "terminal",
+                    "id",
+                    "expect-kind",
+                    "expect-session",
+                    "expect-path",
+                ],
+            ) {
+                Ok(a) => a,
+                Err(m) => return emit_err(StoreErrorOrMsg::Usage(m)),
+            };
+            let (Some(terminal), Some(id), Some(kind), Some(session), Some(path)) = (
+                a.get("terminal"),
+                a.get("id"),
+                a.get("expect-kind"),
+                a.get("expect-session"),
+                a.get("expect-path"),
+            ) else {
+                return emit_err(StoreErrorOrMsg::Usage(
+                    "send requires --terminal, --id, --expect-kind, --expect-session, and --expect-path".into(),
+                ));
+            };
+            match drain::send_queued_item(&core, terminal, id, kind, session, path) {
+                Ok(Ok(rep)) => {
+                    println!(
+                        "{}",
+                        json!({"type": "send", "result": rep.result, "message": rep.message})
+                    );
+                    println!(
+                        "{}",
+                        store::state_json(terminal, &rep.state, Some(rep.result), None)
+                    );
+                    ExitCode::SUCCESS
+                }
+                Ok(Err(fail)) => crate::chat::error(fail.code, &fail.message),
+                Err(e) => emit_err(e.into()),
+            }
         }
         "drain" => {
             let a = match args::parse(rest, &["force-next"], &["terminal", "on-stop"]) {

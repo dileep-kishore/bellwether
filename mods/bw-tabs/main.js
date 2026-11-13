@@ -168,6 +168,7 @@ export default class Tabs extends View {
     this.lastObservedScreen = rawScreen;
     const screenNow = this.pendingScreen ?? rawScreen;
 
+    const curFocus = focused();
     const activeTabId = space?.tabs.find((/** @type {any} */ t) => t.active)?.id ?? null;
     const liveTabIds = all.flatMap((sp) => sp.tabs.map((/** @type {any} */ t) => t.id));
     const chatAgents = shared(CHAT_AGENT);
@@ -242,7 +243,11 @@ export default class Tabs extends View {
       const want = desiredScreen(activeTabId, ps, chatState, tabViews);
       if (want === screenNow) {
         if (want === rawScreen) this.askedScreen = null;
-        if (this.focusedScreen !== screenNow) this.handoffFocus(screenNow, activeTerm);
+        if (this.focusedScreen !== screenNow) {
+          this.handoffFocus(screenNow, activeTerm);
+        } else if (tabChanged && screenNow === "chat") {
+          run("bw-chat.focus");
+        }
       } else {
         const askKey = `${tabKey}\n${want}`;
         targetScreen = want;
@@ -260,7 +265,7 @@ export default class Tabs extends View {
 
     if (shared(SCREEN_KEY) !== targetScreen) setShared(SCREEN_KEY, targetScreen);
 
-    const focus = focusRecord(shared(TERMINAL_FOCUS), focused()?.terminal ?? null, now, targetScreen);
+    const focus = focusRecord(shared(TERMINAL_FOCUS), curFocus?.terminal ?? null, now, targetScreen);
     if (focus) setShared(TERMINAL_FOCUS, focus);
 
     const at = wakeAt(chatState, tv.nextPending ?? shared(PENDING_TAB_VIEW));

@@ -276,11 +276,11 @@ copying tokens:
    - Gate 3: `requests::cards` reports zero pending requests across root and running sub-agents and
      `status != "blocked"`. If a request is pending, the queue stays unpopped until answered.
    - Gate 4: the latest session turn did not end in a user interruption (`[Request interrupted by user`
-     or `turn_aborted`), a turn-ending error, or a direct prose question (`?` at the end of the root
-     assistant's final non-empty paragraph or line outside fenced code blocks). On interruption or
-     error, `drain` sets `held = true` with `hold_reason = "interrupted_or_error"`; on a trailing
-     prose question, `drain` sets `held = true` with `hold_reason = "assistant_question"`; in both
-     cases item 0 stays in place.
+     or `turn_aborted`), a turn-ending error, or a direct prose question (`?` at the end of any
+     non-empty non-heading prose line from the root assistant outside fenced code blocks, blockquotes,
+     and inline code spans). On interruption or error, `drain` sets `held = true` with
+     `hold_reason = "interrupted_or_error"`; on a prose question, `drain` sets `held = true` with
+     `hold_reason = "assistant_question"`; in both cases item 0 stays in place.
    - Gate 5: `chat::locate` finds a live agent matching `expect_kind`. Gate 5 never blindly adopts a
      new session at drain time: when `expect_session` is non-null it must match the live `session_id`;
      when `expect_session` is `null` (`unverified_startup`), Gate 5 accepts the live session only if

@@ -59,7 +59,12 @@ JSON
     ;;
   fork_only)
     cat <<'JSON'
-{"data":{"repository":{"open":{"nodes":[{"number":999,"title":"fork patch","url":"https://github.com/dkishore/bellwether/pull/999","state":"OPEN","isDraft":false,"isCrossRepository":true,"headRepositoryOwner":{"login":"stranger"},"baseRefName":"main","headRefOid":"4444444444444444444444444444444444444444","reviewDecision":"APPROVED","mergeStateStatus":"CLEAN","reviewThreads":{"totalCount":0,"nodes":[]},"commits":{"nodes":[]}}]},"closed":{"nodes":[]}}}}
+{"data":{"repository":{"owner":{"login":"dkishore"},"open":{"nodes":[{"number":999,"title":"fork patch","url":"https://github.com/dkishore/bellwether/pull/999","state":"OPEN","isDraft":false,"isCrossRepository":true,"headRepositoryOwner":{"login":"stranger"},"baseRefName":"main","headRefOid":"4444444444444444444444444444444444444444","reviewDecision":"APPROVED","mergeStateStatus":"CLEAN","reviewThreads":{"totalCount":0,"nodes":[]},"commits":{"nodes":[]}}]},"closed":{"nodes":[]}}}}
+JSON
+    ;;
+  owner_alias)
+    cat <<'JSON'
+{"data":{"repository":{"owner":{"login":"react"},"open":{"nodes":[{"number":37952,"title":"flight paths","url":"https://github.com/react/react/pull/37952","state":"OPEN","isDraft":false,"isCrossRepository":false,"headRepositoryOwner":{"login":"react"},"baseRefName":"main","headRefOid":"5555555555555555555555555555555555555555","reviewDecision":"APPROVED","mergeStateStatus":"CLEAN","reviewThreads":{"totalCount":0,"nodes":[]},"commits":{"nodes":[]}}]},"closed":{"nodes":[]}}}}
 JSON
     ;;
   offline)
@@ -143,17 +148,20 @@ else
   bad "changes-requested-failing-draft" "out6=$out6"
 fi
 
-# 5. Fork PR filtering + literal -f string variables (@probe, 2048, true)
+# 5. Fork PR filtering + redirected owner alias + literal -f string variables (@probe, 2048, true)
 printf 'fork_only' > "$mode_file"
 out_fork=$(run_pr status --repo dkishore/bellwether --branch patch-1)
 out_at=$(run_pr status --repo dkishore/bellwether --branch @probe)
 out_num=$(run_pr status --repo dkishore/bellwether --branch 2048)
+printf 'owner_alias' > "$mode_file"
+out_alias=$(run_pr status --repo facebook/react --branch gaearon-flight-reference-paths)
 if [ "$(printf '%s' "$out_fork" | jq -r '[.type,(.pr == null)] | @tsv')" = "pr	true" ] &&
    [ "$(printf '%s' "$out_at" | jq -r '[.type,.branch,(.pr == null)] | @tsv')" = "pr	@probe	true" ] &&
-   [ "$(printf '%s' "$out_num" | jq -r '[.type,.branch,(.pr == null)] | @tsv')" = "pr	2048	true" ]; then
-  pass "fork-pr-ignored-and-literal-string-graphql-args"
+   [ "$(printf '%s' "$out_num" | jq -r '[.type,.branch,(.pr == null)] | @tsv')" = "pr	2048	true" ] &&
+   [ "$(printf '%s' "$out_alias" | jq -r '[.type,.pr.number] | @tsv')" = "pr	37952" ]; then
+  pass "fork-pr-ignored-alias-owner-and-literal-string-graphql-args"
 else
-  bad "fork-pr-ignored-and-literal-string-graphql-args" "fork=$out_fork at=$out_at num=$out_num"
+  bad "fork-pr-ignored-alias-owner-and-literal-string-graphql-args" "fork=$out_fork at=$out_at num=$out_num alias=$out_alias"
 fi
 
 # 6. Live gh check when online

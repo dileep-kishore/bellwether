@@ -231,6 +231,7 @@ export function helperText(state, machine) {
 export function sendText(result, agent, message = "") {
   switch (result) {
     case "sent":
+    case "already-sent":
       return "Sent.";
     case "refused-prompt":
       return `Not sent: ${agent} is waiting on a prompt. Answer it in the terminal (⌘J).`;
@@ -238,6 +239,8 @@ export function sendText(result, agent, message = "") {
       return "Not sent: this terminal now shows another conversation.";
     case "unconfirmed":
       return "Sent, but Herdr did not confirm it in time. Check the terminal (⌘J).";
+    case "uncertain-delivery":
+      return "Not sent: an earlier queued delivery was not confirmed.";
     default:
       return `Not sent: ${message || "bw send gave no result"}`;
   }
@@ -256,6 +259,14 @@ export function queueHoldText(reason) {
       return "Queue paused because the assistant asked a direct question.";
     case "session_changed":
       return "Queue paused because this terminal switched conversations.";
+    case "uncertain_delivery":
+      return "Queue paused because an earlier delivery could not be confirmed.";
+    case "unconfirmed":
+      return "Queue paused because Herdr did not confirm the last delivery in time.";
+    case "refused_prompt":
+      return "Queue paused because the agent is waiting on a terminal prompt.";
+    case "awaiting_session_log":
+      return "Waiting for this agent to write its first session transcript.";
     case "send_failed":
       return "Queue paused because the last queued prompt could not be sent.";
     default:

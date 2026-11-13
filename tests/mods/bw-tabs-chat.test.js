@@ -293,6 +293,50 @@ describe("bw-tabs screen routing and shortcuts", () => {
       ["bw-chat.focus"],
     ]);
   });
+
+  test("hands off focus to bw-chat on hidden-terminal startup mount and chat-to-chat tab switches", async () => {
+    const c = commands();
+    const data = stackChatTab();
+    data.focused = { ...data.focused, pane: "p8", terminal: "t8" };
+    data.spaces[0].tabs.push({
+      id: "tb10",
+      title: "Codex",
+      active: false,
+      status: "done",
+      panes: 1,
+      zoomed: false,
+      pinned: false,
+    });
+    data.panes.push({
+      pane: "p10",
+      terminal: "t10",
+      mod: null,
+      tab: "tb10",
+      title: "Codex",
+      focused: false,
+      zoomed: false,
+      status: "done",
+      agent: "codex",
+      program: { key: "codex", name: "Codex", agent: true, shell: false },
+    });
+    data.shared[KEY].tabs.tb10 = {
+      agentPane: "p10",
+      agent: "codex",
+      chatPane: null,
+      split: null,
+      zoomed: false,
+      failed: false,
+    };
+
+    const m = await mount("bw-tabs", { live: { ...data, nextCommand: c.next } });
+    expect(m.log.run).toEqual([]);
+
+    // Switching from chat tab tb8 to chat tab tb10 (same screen === "chat") focuses bw-chat.
+    fake.spaces[0].tabs = fake.spaces[0].tabs.map((t) => ({ ...t, active: t.id === "tb10" }));
+    m.render();
+    expect(fake.shared["bw.screen"]).toBe("chat");
+    expect(m.log.run).toEqual([["bw-chat.focus"]]);
+  });
 });
 
 describe("bw-tabs terminal focus", () => {

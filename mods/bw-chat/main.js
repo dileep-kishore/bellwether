@@ -248,6 +248,14 @@ export default class Chat extends View {
     this.session = null;
     /** @type {StackFound | null} */
     this.target = null;
+    /** @type {boolean} */
+    this.wantFocus = false;
+    /** @type {SessionState | null} */
+    this.focusedForCmd = null;
+    /** @type {boolean} */
+    this.sessionSwitched = false;
+    /** @type {boolean} */
+    this.firstStackRender = this.stackMode;
 
     this.focus = cx.focus_handle();
     this.other = InputState.new({ placeholder: "Other…" });
@@ -276,6 +284,7 @@ export default class Chat extends View {
     const all = spaces();
     const ps = panes();
     this.locateCurrent(all, ps, now);
+    this.sessionSwitched = false;
     /** @type {boolean} */
     this.shown = false;
     this.shown = this.readShown(all, ps);
@@ -314,9 +323,9 @@ export default class Chat extends View {
               if (s.wantOlder) await this.readOlder(s, target, cx);
               this.startPictures(s, target, cx);
               if (this.stackMode) {
-                if (s.wantDrain && !s.draining) {
+                if (s.wantDrain && !s.draining && !s.queueBusy) {
                   await this.drainQueueFallback(s, cx);
-                } else {
+                } else if (!s.queueBusy) {
                   await this.maybeReadQueue(s, started, cx);
                 }
                 await this.maybeReadPr(s, started, cx);
@@ -353,15 +362,26 @@ export default class Chat extends View {
       }
     });
 
-    cx.spawn(async () => {
+    cx.spawn(async (/** @type {any} */ cx) => {
       while (this.alive) {
         if ((await nextCommand()) !== "focus") continue;
+        this.wantFocus = true;
         const s = this.session;
-        if (!s) continue;
-        if (activeQuestion(s.requests)) this.focus.focus();
-        else s.composer.focus();
+        if (s) {
+          this.focusSession(s);
+          this.focusedForCmd = s;
+        } else {
+          this.focusedForCmd = null;
+        }
+        cx?.notify?.();
       }
     });
+  }
+
+  /** @param {SessionState} s */
+  focusSession(s) {
+    if (activeQuestion(s.requests)) this.focus.focus();
+    else s.composer?.focus?.();
   }
 
   close() {
@@ -396,6 +416,7 @@ export default class Chat extends View {
       const prevStatus = prevSession?.status ?? null;
       const located = resolveStackTarget(all, ps, shared(CHAT_TABS), shared(CHAT_AGENT));
       this.stackLocated = located;
+      this.sessionSwitched = false;
       if (located.state !== "found") {
         const changed = this.target !== null || this.session !== null;
         this.target = null;
@@ -407,6 +428,13 @@ export default class Chat extends View {
         shared(ATTACH),
         now,
       );
+      const nextPrKey = `${session.machine ?? ""}\0${session.folder}\0${session.branch ?? ""}`;
+      let prKeyChanged = false;
+      if (session.prKey !== null && session.prKey !== nextPrKey) {
+        this.clearSessionPr(session, null);
+        session.prCheckedAt = 0;
+        prKeyChanged = true;
+      }
       const nextStatus = located.target.status ?? null;
       if (
         !created &&
@@ -420,6 +448,7 @@ export default class Chat extends View {
       }
       session.status = nextStatus;
       const switched = prevSession !== session;
+      this.sessionSwitched = prevSession !== null && switched;
       this.session = session;
       this.target = located.target;
       if (switched) {
@@ -429,7 +458,7 @@ export default class Chat extends View {
         }
         this.syncOther(session);
       }
-      return switched || created || prevStatus !== nextStatus || session.wantDrain;
+      return switched || created || prevStatus !== nextStatus || session.wantDrain || prKeyChanged;
     }
 
     const id = /** @type {Target} */ (this.id);
@@ -727,6 +756,22 @@ export default class Chat extends View {
     }
   }
 
+  /** @param {SessionState} s @param {any} cx */
+  clearSessionPr(s, cx) {
+    const had = s.pr !== null || s.prHeadOid !== null;
+    s.pr = null;
+    s.prHeadOid = null;
+    let sharedChanged = false;
+    if (s.spaceId) {
+      const nextSummary = updateSharedPrSummary(shared(PR_SUMMARY), s.spaceId, null, this.liveSpaceIds);
+      if (nextSummary) {
+        setShared(PR_SUMMARY, nextSummary);
+        sharedChanged = true;
+      }
+    }
+    if ((had || sharedChanged) && cx) cx.notify();
+  }
+
   /** @param {SessionState} s @param {number} now @param {any} cx */
   async maybeReadPr(s, now, cx) {
     const folder = s.folder;
@@ -734,46 +779,39 @@ export default class Chat extends View {
     const key = `${s.machine ?? ""}\0${folder}\0${branch ?? ""}`;
     const interval = this.shown ? PR_SHOWN_POLL_MS : PR_HIDDEN_POLL_MS;
     if (s.prKey === key && s.prCheckedAt > 0 && now - s.prCheckedAt < interval) return;
+    if (s.prKey !== null && s.prKey !== key) {
+      this.clearSessionPr(s, cx);
+    }
     s.prKey = key;
     s.prCheckedAt = now;
 
     if (!folder || !branch || branch === "HEAD") {
-      const had = s.pr !== null;
-      s.pr = null;
-      s.prHeadOid = null;
-      if (s.spaceId) {
-        const nextSummary = updateSharedPrSummary(shared(PR_SUMMARY), s.spaceId, null, this.liveSpaceIds);
-        if (nextSummary) setShared(PR_SUMMARY, nextSummary);
-      }
-      if (had) cx.notify();
+      this.clearSessionPr(s, cx);
       return;
     }
 
+    const stillCurrent = () => `${s.machine ?? ""}\0${s.folder}\0${s.branch ?? ""}` === key;
     const folderKey = `${s.machine ?? ""}\0${folder}`;
     if (s.prRepoFolder !== folderKey) {
       const origin = await remoteOrigin(exec, s.machine, folder);
+      if (!stillCurrent()) return;
       if (!origin.ok) return;
       s.prRepoFolder = folderKey;
       s.prRepo = origin.repo;
     }
 
     if (!s.prRepo) {
-      const had = s.pr !== null;
-      s.pr = null;
-      s.prHeadOid = null;
-      if (s.spaceId) {
-        const nextSummary = updateSharedPrSummary(shared(PR_SUMMARY), s.spaceId, null, this.liveSpaceIds);
-        if (nextSummary) setShared(PR_SUMMARY, nextSummary);
-      }
-      if (had) cx.notify();
+      this.clearSessionPr(s, cx);
       return;
     }
 
     const head = await headOid(exec, s.machine, folder);
+    if (!stillCurrent()) return;
     const oid = head.ok ? head.oid : null;
     const args = prStatusArgs(s.prRepo, branch, oid);
     if (!args) return;
     const answer = await this.helper.call(null, args);
+    if (!stillCurrent()) return;
     if (!answer.ok) return;
     const parsed = parsePrLines(answer.lines);
     if (!parsed.ok) return;
@@ -792,7 +830,7 @@ export default class Chat extends View {
   /** @param {SessionState} s */
   toNewest(s) {
     const n = this.viewFeedOf(s).rows.length;
-    if (n) s.scroll.scroll_to_item(n - 1, "top");
+    if (n) s.scroll?.scroll_to_item?.(n - 1, "top");
   }
 
   /** @param {SessionState} s */
@@ -880,7 +918,8 @@ export default class Chat extends View {
             s.queue = q;
             s.queueLoaded = true;
             s.queueCheckedAt = Date.now();
-            s.composer.clear();
+            s.draftText = "";
+            s.composer?.clear?.();
             if (tab !== null && chips.length) {
               setShared(
                 ATTACH,
@@ -921,7 +960,10 @@ export default class Chat extends View {
         const message = answer.ok === true ? String(line?.message || "bw send printed no result") : answer.message;
         const went = result === "sent" || result === "unconfirmed";
         s.note = result === "sent" ? null : { text: sendText(result, st.name, message), bad: !went };
-        if (went) s.composer.clear();
+        if (went) {
+          s.draftText = "";
+          s.composer?.clear?.();
+        }
         if (went && tab !== null && chips.length) {
           setShared(
             ATTACH,
@@ -1114,37 +1156,42 @@ export default class Chat extends View {
     cx.spawn(async (/** @type {any} */ cx) => {
       try {
         const answer = await this.helper.call(s.machine, [
+          "queue",
           "send",
           "--terminal",
           s.local,
+          "--id",
+          item.id,
           "--expect-kind",
           s.kind,
           "--expect-session",
           expect.session,
           "--expect-path",
           expect.path,
-          "--text",
-          item.text,
         ]);
+        const q = answer.ok ? parseQueueLine(answer.lines) : null;
+        if (q) {
+          s.queue = q;
+          s.queueLoaded = true;
+          s.queueCheckedAt = Date.now();
+        } else {
+          await this.readQueue(s, cx);
+        }
         const line = answer.ok ? answer.lines.find((/** @type {any} */ l) => l.type === "send") : null;
+        const err = answer.ok ? answer.lines.find((/** @type {any} */ l) => l?.type === "error") : null;
         const result = typeof line?.result === "string" ? line.result : "failed";
-        const message = answer.ok === true ? String(line?.message || "bw send printed no result") : answer.message;
-        const went = result === "sent" || result === "unconfirmed";
-        s.note = result === "sent" ? null : { text: sendText(result, s.name, message), bad: !went };
-        if (went) {
-          const rem = await this.helper.call(s.machine, ["queue", "remove", "--terminal", s.local, "--id", item.id]);
-          const q = rem.ok ? parseQueueLine(rem.lines) : null;
-          if (q) {
-            s.queue = q;
-            s.queueLoaded = true;
-            s.queueCheckedAt = Date.now();
-          } else {
-            await this.readQueue(s, cx);
-          }
-          if (this.editingQueue?.id === item.id) {
-            this.editingQueue = null;
-            this.editInput.set_value("");
-          }
+        const message =
+          answer.ok === true
+            ? String(line?.message || err?.message || "bw queue send printed no result")
+            : answer.message;
+        const went = result === "sent" || result === "unconfirmed" || result === "already-sent";
+        s.note =
+          result === "sent" || result === "already-sent"
+            ? null
+            : { text: sendText(result, s.name, message), bad: !went };
+        if (went && this.editingQueue?.id === item.id) {
+          this.editingQueue = null;
+          this.editInput.set_value("");
         }
       } finally {
         s.queueBusy = false;
@@ -1623,6 +1670,37 @@ export default class Chat extends View {
     const own = isTerminalView(view);
     const ours = own ? view.terminal : (target?.terminal ?? null);
     const fFocus = focused();
+    let focusedNow = false;
+    if (this.wantFocus) {
+      const prev = this.focusedForCmd;
+      this.wantFocus = false;
+      this.focusedForCmd = null;
+      this.sessionSwitched = false;
+      if (prev !== s) {
+        this.focusSession(s);
+        focusedNow = true;
+      }
+    } else if (this.sessionSwitched) {
+      this.sessionSwitched = false;
+      if (this.shown) {
+        this.focusSession(s);
+        focusedNow = true;
+      }
+    }
+    if (this.firstStackRender) {
+      this.firstStackRender = false;
+      if (
+        !focusedNow &&
+        this.shown &&
+        this.layoutScreen !== "panes" &&
+        fFocus?.pane !== null &&
+        fFocus?.pane !== undefined &&
+        fFocus?.terminal !== null &&
+        fFocus?.terminal !== undefined
+      ) {
+        this.focusSession(s);
+      }
+    }
     const focusedTerm =
       this.stackMode && this.layoutScreen !== "panes" && fFocus?.pane !== null ? null : (fFocus?.terminal ?? null);
     s.guard = observe(s.guard, focusedTerm, ours, now);
@@ -1916,6 +1994,8 @@ export default class Chat extends View {
           onSelectAgent: (terminal, cx) => {
             if (!tab) return;
             setShared(CHAT_AGENT, pinTabAgent(shared(CHAT_AGENT), tab, terminal, this.liveTabIds));
+            this.wantFocus = true;
+            this.focusedForCmd = null;
             run("agent.focus", { terminal });
             cx.notify();
           },

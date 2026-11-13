@@ -25,11 +25,12 @@ const USAGE: &str =
 const DEFAULT_TTL_MS: i64 = 60_000;
 const DEFAULT_TIMEOUT_MS: u64 = 10_000;
 const MAX_STALE_MS: i64 = 30 * 24 * 60 * 60 * 1000;
-const CACHE_VERSION: u32 = 2;
+const CACHE_VERSION: u32 = 3;
 
 const QUERY: &str = r#"
 query($owner: String!, $name: String!, $headRefName: String!) {
   repository(owner: $owner, name: $name) {
+    owner { login }
     open: pullRequests(headRefName: $headRefName, states: [OPEN], first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes {
         number
@@ -510,13 +511,17 @@ fn parse_gh_output(
     if repo.is_null() {
         return Ok(None);
     }
+    let canonical_owner = repo["owner"]["login"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(owner);
     let node = repo["open"]["nodes"]
         .as_array()
-        .and_then(|nodes| nodes.iter().find(|n| is_same_repo_pr(n, owner)))
+        .and_then(|nodes| nodes.iter().find(|n| is_same_repo_pr(n, canonical_owner)))
         .or_else(|| {
             repo["closed"]["nodes"]
                 .as_array()
-                .and_then(|nodes| nodes.iter().find(|n| is_same_repo_pr(n, owner)))
+                .and_then(|nodes| nodes.iter().find(|n| is_same_repo_pr(n, canonical_owner)))
         });
     Ok(node.and_then(parse_pr_node))
 }
@@ -797,6 +802,54 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(picked.number, 902);
+
+        let redirected = json!({
+            "data": {
+                "repository": {
+                    "owner": { "login": "react" },
+                    "open": {
+                        "nodes": [
+                            {
+                                "number": 34996,
+                                "title": "fork patch-1",
+                                "url": "https://github.com/react/react/pull/34996",
+                                "state": "OPEN",
+                                "isDraft": false,
+                                "isCrossRepository": true,
+                                "headRepositoryOwner": { "login": "stranger" },
+                                "baseRefName": "main",
+                                "headRefOid": "4444444444444444444444444444444444444444",
+                                "reviewDecision": null,
+                                "mergeStateStatus": "CLEAN",
+                                "reviewThreads": { "totalCount": 0, "nodes": [] },
+                                "commits": { "nodes": [] }
+                            },
+                            {
+                                "number": 37952,
+                                "title": "same-repo PR via facebook/react alias",
+                                "url": "https://github.com/react/react/pull/37952",
+                                "state": "OPEN",
+                                "isDraft": false,
+                                "isCrossRepository": false,
+                                "headRepositoryOwner": { "login": "react" },
+                                "baseRefName": "main",
+                                "headRefOid": "5555555555555555555555555555555555555555",
+                                "reviewDecision": "APPROVED",
+                                "mergeStateStatus": "CLEAN",
+                                "reviewThreads": { "totalCount": 0, "nodes": [] },
+                                "commits": { "nodes": [] }
+                            }
+                        ]
+                    },
+                    "closed": { "nodes": [] }
+                }
+            }
+        });
+        let redirected_bytes = serde_json::to_vec(&redirected).unwrap();
+        let aliased = parse_gh_output(true, "facebook", &redirected_bytes, b"")
+            .unwrap()
+            .unwrap();
+        assert_eq!(aliased.number, 37952);
     }
 
     #[test]
