@@ -7,11 +7,12 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 const MARKER: &str = ": bellwether-hook=1;";
-const EVENTS: [&str; 4] = [
+const EVENTS: [&str; 5] = [
     "PermissionRequest",
     "PreToolUse",
     "SubagentStart",
     "SubagentStop",
+    "Stop",
 ];
 
 fn fixture(name: &str) -> PathBuf {
@@ -537,7 +538,7 @@ fn codex_untrusted_until_config_has_hashes() {
     assert_eq!(check["claude"], "ok");
     assert_eq!(check["codex"], "untrusted");
     let trust = check["codex_trust"].as_array().unwrap();
-    assert_eq!(trust.len(), 4, "{check}");
+    assert_eq!(trust.len(), 5, "{check}");
     let known: Value =
         serde_json::from_slice(&std::fs::read(fixture("codex-trusted-hash.json")).unwrap())
             .unwrap();

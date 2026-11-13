@@ -165,6 +165,19 @@ pub fn locate_with_record(
     (Some(term), found)
 }
 
+/// The live agent kind and PID running in `term`, even before its first session log exists.
+pub(crate) fn live_agent_pid_of(term: &Value) -> Option<(String, i32)> {
+    let t = Term::parse(term)?;
+    if t.state != "live" {
+        return None;
+    }
+    let kind = mapper::kind(&t).filter(|k| k == "claude" || k == "codex")?;
+    let pane = mapper::pane(&t);
+    let procs = resolver::processes();
+    let agent = resolver::hc_agent_process(&pane.process_ids, &kind, &procs)?;
+    Some((kind, agent.pid))
+}
+
 /// This core's live terminal addresses; none when `hc ls` fails, which only means nothing counts as taken.
 fn live_terminals() -> Vec<String> {
     let Ok(v) = hc::hc_ls() else {

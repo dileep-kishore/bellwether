@@ -303,7 +303,7 @@ fn broken_payload_writes_nothing() {
         b"not json".to_vec(),
         b"[]".to_vec(),
         b"".to_vec(),
-        br#"{"hook_event_name":"Stop","session_id":"s"}"#.to_vec(),
+        br#"{"hook_event_name":"PostToolUse","session_id":"s"}"#.to_vec(),
         br#"{"session_id":"s"}"#.to_vec(),
         huge,
     ] {
@@ -312,6 +312,18 @@ fn broken_payload_writes_nothing() {
         assert!(start.elapsed() < Duration::from_secs(1));
     }
     assert!(home.files().is_empty(), "{:?}", home.files());
+}
+
+#[test]
+fn stop_payload_records_stop_hook_active_without_transcript_text() {
+    let home = Home::new();
+    let payload = br#"{"hook_event_name":"Stop","session_id":"s1","stop_hook_active":true,"last_assistant_message":"secret reply"}"#;
+    silent(&home.event("claude", &[("HC_TERMINAL_ID", "t5")], payload));
+    let e = home.only_event();
+    assert_eq!(e["event"], "Stop");
+    assert_eq!(e["session"], "s1");
+    assert_eq!(e["stop_hook_active"], true);
+    assert!(e.get("last_assistant_message").is_none());
 }
 
 #[test]

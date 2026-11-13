@@ -380,6 +380,37 @@ under `~/.cache/bellwether/pr/<sha256>.json` (`0600` in `0700` folder) and bypas
 - When `gh` is missing, unauthenticated, or offline, `status` prints the cached entry with
   `"stale":true` when one exists, or an `error` line (`no_gh`, `unauthenticated`, `offline`).
 
+## `bw queue`
+
+```sh
+bw queue list --terminal <t>
+bw queue add --terminal <t> --kind claude|codex [--session <id>] (--text <msg> | --text-stdin)
+bw queue edit --terminal <t> --id <id> (--text <msg> | --text-stdin)
+bw queue move --terminal <t> --id <id> --to <index>
+bw queue remove --terminal <t> --id <id>
+bw queue clear --terminal <t>
+bw queue resume --terminal <t>
+bw queue drain --terminal <t> [--on-stop <event_id>] [--force-next]
+```
+
+`bw queue …` runs on the space's machine so the chat mod and `hooks/bw-event` share one `0600` JSON
+file (`~/.cache/bellwether/queue/<core>/<terminal>.json`) and OS `FolderLock`
+(`queue/<core>/<terminal>.lock`).
+
+- `add` runs `bw locate --fresh` at enqueue time to bind `expect_session` to the live conversation
+  (allowing up to 20 items of 64 KiB each, and storing `expect_session: null` with
+  `unverified_startup: true` and `agent_pid` only while an agent process is starting without a
+  session log).
+- When `bw event` records a root `Stop` hook payload and the terminal has unheld queued items, it
+  spawns a detached `bw queue drain --terminal <t> --on-stop <id>` child (`Stdio::null()`) and exits
+  0 immediately.
+- `drain` waits up to `BW_QUEUE_SETTLE_MAX_MS` (default 65 s) on `--on-stop` for sibling `Stop`
+  hooks to finish (`status != "working"`), then verifies five gates under `FolderLock` before
+  calling `bw send`'s non-force `hc send` path: unheld queue, `done`/`idle` terminal, zero pending
+  approvals or questions, no turn-ending interruption/error (`interrupted_or_error`) or trailing
+  prose `?` (`assistant_question`), and matching live session (`session_changed`).
+- `resume` re-binds queued items to the current live session, clears `held`, and runs a drain check.
+
 ## `bw version`
 
 ```sh

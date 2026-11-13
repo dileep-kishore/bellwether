@@ -7,8 +7,9 @@
 use std::fs;
 use std::io::{self, Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -18,13 +19,14 @@ use serde_json::Value;
 use crate::chat::cache;
 
 pub const VERSION: u32 = 1;
-/// The events a request or the session tree is read from. `PreToolUse` carries the call's `tool_use_id`, which
-/// neither agent puts on the `PermissionRequest` that follows it 20 to 45 ms later.
-pub const EVENTS: [&str; 4] = [
+/// The events a request, the session tree, or queue auto-drain is read from. `PreToolUse` carries the call's
+/// `tool_use_id`, which neither agent puts on the `PermissionRequest` that follows it 20 to 45 ms later.
+pub const EVENTS: [&str; 5] = [
     "PermissionRequest",
     "PreToolUse",
     "SubagentStart",
     "SubagentStop",
+    "Stop",
 ];
 pub const MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 pub const MAX_FILES: usize = 2000;
@@ -50,6 +52,8 @@ pub struct Event {
     pub command: Option<String>,
     pub tool_use_id: Option<String>,
     pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stop_hook_active: bool,
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -81,11 +85,38 @@ fn record(agent: &str) -> Option<PathBuf> {
     }
     let payload: Value = serde_json::from_slice(&bytes).ok()?;
     let e = from_payload(agent, &terminal, &cache::core_name(), &payload, now_ms())?;
-    write(&e).ok()
+    let written = write(&e).ok()?;
+    if e.event == "Stop"
+        && e.agent_id.is_none()
+        && crate::queue::has_runnable(&e.core, &e.terminal)
+    {
+        spawn_stop_drain(&e.terminal, &e.id);
+    }
+    Some(written)
+}
+
+fn spawn_stop_drain(terminal: &str, event_id: &str) {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let _ = Command::new(exe)
+        .args([
+            "queue",
+            "drain",
+            "--terminal",
+            terminal,
+            "--on-stop",
+            event_id,
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn();
 }
 
 /// A terminal id that names one folder: `t5`, never `bwloop/t5` or `..`.
-fn safe_terminal(t: &str) -> bool {
+pub(crate) fn safe_terminal(t: &str) -> bool {
     !t.is_empty()
         && t.len() <= 64
         && t.chars()
@@ -123,6 +154,10 @@ pub fn from_payload(
         };
         Some(text.chars().take(MAX_COMMAND).collect())
     });
+    let stop_hook_active = payload
+        .get("stop_hook_active")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let n = SEQ.fetch_add(1, Ordering::Relaxed);
     Some(Event {
         v: VERSION,
@@ -140,6 +175,7 @@ pub fn from_payload(
         command,
         tool_use_id: text("tool_use_id"),
         cwd: text("cwd"),
+        stop_hook_active,
     })
 }
 
