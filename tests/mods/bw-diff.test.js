@@ -5,19 +5,30 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { mount, repo } from "../harness/mount.js";
 import { fake } from "../harness/herdr-stub.js";
-import { byId, textOf } from "../harness/kit-stub.js";
+import { byId, fire, layOut, textOf } from "../harness/kit-stub.js";
 import { HELPER_SCRIPTS, HELPER_VERSION, PROTOCOL } from "../../shared/helper.js";
 import { projectKey } from "../../shared/projects-model.js";
+import {
+  anchorFromRow,
+  formatReviewBlock,
+  preflightVerifyComments,
+  revalidateComment,
+  upsertComment,
+} from "../../mods/bw-diff/comments.js";
 import {
   BASE_KEY,
   filesArgs,
   isShown,
   joinPages,
+  parseRowKey,
   patchArgs,
+  patchRowKeys,
   patchRows,
+  prBaseChoice,
   readBase,
   readTab,
   rowFor,
+  sectionsForScope,
   tabMachine,
   viewFiles,
   watchAnswer,
@@ -311,11 +322,14 @@ describe("panel", () => {
     expect(text).toContain("feat");
     expect(text).toContain("origin/main");
     expect(text).toContain("Staged");
-    expect(text).toContain("Committed on branch");
+    expect(text).not.toContain("Committed on branch");
     expect(byId(m.el, "diff-file-changes-notes.txt")).not.toBe(null);
     expect(textOf(byId(m.el, "diff-file-changes-notes.txt"))).toBe("M notes.txt +2 −1");
     expect(textOf(byId(m.el, "diff-file-staged-new-name.txt"))).toContain("from old-name.txt");
     expect(textOf(byId(m.el, "diff-file-changes-blob.dat"))).toContain("binary");
+    await m.click("diff-scope-branch");
+    expect(textOf(m.el)).toContain("Committed on branch");
+    expect(byId(m.el, "diff-file-committed-feature.txt")).not.toBe(null);
   });
 
   test("a linked worktree's common dir is watched too", async () => {
@@ -385,8 +399,9 @@ describe("panel", () => {
     expect(textOf(byId(m.el, "diff-state"))).toBe("Not a Git repository");
   });
 
-  test("no default base opens the picker with the repository's refs", async () => {
+  test("no default base opens the picker with the repository's refs on Branch scope", async () => {
     const m = await panel({ cwd: NB_TOP, answers: { "diff files": NOBASE, "diff refs": REFS } });
+    await m.click("diff-scope-branch");
     m.render();
     await m.cx.flush();
     m.render();
@@ -469,6 +484,7 @@ describe("panel", () => {
 
   test("Open as tab runs tab.new with the window id", async () => {
     const m = await panel({ shared: { "bw.window-id": "w-mini" } });
+    await m.click("diff-scope-branch");
     await m.click("diff-file-committed-feature.txt");
     await m.cx.flush();
     m.render();
@@ -1072,5 +1088,411 @@ describe("review fixes", () => {
     expect(textOf(byId(m.el, "diff-patch"))).not.toContain("Connection refused");
     await m.click("diff-file-changes-notes.txt");
     expect(calls(m, "patch")).toHaveLength(2);
+  });
+});
+
+describe("scopes, line comments, and preflight (Task 10)", () => {
+  test("model and comments pure helpers: scope mapping, row keys, +-5 relocation, and formatting", () => {
+    expect(sectionsForScope("uncommitted")).toEqual(["staged", "changes"]);
+    expect(sectionsForScope("branch")).toEqual(["committed"]);
+    expect(sectionsForScope("pr")).toEqual(["committed"]);
+
+    expect(prBaseChoice({ state: "OPEN", baseRefName: "release" }, { ref: null, mode: "tip" })).toEqual({
+      ref: "origin/release",
+      mode: "merge-base",
+      fromPr: true,
+    });
+    expect(prBaseChoice(null, { ref: "v1", mode: "tip" })).toEqual({
+      ref: "v1",
+      mode: "tip",
+      fromPr: false,
+    });
+
+    const rows = patchRows(["diff --git a/x b/x", "@@ -1,2 +1,2 @@", " ctx", "-old", "+new", ""].join("\n"));
+    const keys = patchRowKeys("deadbeef12345678", rows);
+    expect(keys).toEqual([
+      "deadbeef12345678:meta:null:null:0",
+      "deadbeef12345678:hunk:null:null:1",
+      "deadbeef12345678:ctx:1:1",
+      "deadbeef12345678:del:2:null",
+      "deadbeef12345678:add:null:2",
+    ]);
+    expect(parseRowKey(keys[0])).toBe(null);
+    expect(parseRowKey(keys[2])).toEqual({ digest: "deadbeef12345678", kind: "ctx", oldLine: 1, newLine: 1 });
+    expect(parseRowKey(keys[3])).toEqual({ digest: "deadbeef12345678", kind: "del", oldLine: 2, newLine: null });
+    expect(parseRowKey(keys[4])).toEqual({ digest: "deadbeef12345678", kind: "add", oldLine: null, newLine: 2 });
+
+    const sel = { section: /** @type {const} */ ("changes"), path: "notes.txt", oldPath: null, untracked: false };
+    const anchor = /** @type {any} */ (
+      anchorFromRow(sel, { base: null, mode: "merge-base", from: null, to: null }, rows[4], "d1")
+    );
+    const list = upsertComment([], anchor, "Handle empty input", 1);
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ path: "notes.txt", side: "new", line: 2, excerpt: "new", stale: false });
+
+    // Moved +4 lines (within +-5) with unique match updates line and stays valid.
+    const moved4 = patchRows(["@@ -1,6 +1,6 @@", "+p1", "+p2", "+p3", "+p4", " ctx", "+new", ""].join("\n"));
+    const r4 = revalidateComment(list[0], moved4, "d2");
+    expect(r4).toMatchObject({ line: 6, patchDigest: "d2", stale: false });
+
+    // Moved +7 lines (> 5) marks stale: true.
+    const moved7 = patchRows(
+      ["@@ -1,9 +1,9 @@", "+p1", "+p2", "+p3", "+p4", "+p5", "+p6", "+p7", " ctx", "+new", ""].join("\n"),
+    );
+    const r7 = revalidateComment(list[0], moved7, "d3");
+    expect(r7.stale).toBe(true);
+
+    // Ambiguous duplicate within +-5 lines marks stale: true.
+    const dupNear = patchRows(["@@ -1,4 +1,4 @@", "+new", " ctx", "+new", ""].join("\n"));
+    expect(revalidateComment(list[0], dupNear, "d4").stale).toBe(true);
+
+    expect(formatReviewBlock([r4])).toBe(
+      ["Diff review comment:", "", "1. `notes.txt:6` (new)", "> new", "Handle empty input"].join("\n"),
+    );
+
+    // Preflight across unselected targets catches a newly stale comment.
+    expect(
+      preflightVerifyComments(list, async () => ({ ok: true, digest: "d3", rows: moved7 })),
+    ).resolves.toMatchObject({ ok: false });
+  });
+
+  test("PR scope diffs against origin/<baseRefName> from bw pr status and falls back to Branch base when absent", async () => {
+    /** @type {any} */
+    let prPayload = {
+      number: 42,
+      title: "Refine diff",
+      url: "https://github.com/acme/repo/pull/42",
+      state: "OPEN",
+      isDraft: false,
+      baseRefName: "release",
+      headRefOid: FILES[0].head,
+      reviewDecision: "APPROVED",
+      mergeStateStatus: "CLEAN",
+      unresolvedThreads: 0,
+      passing: 3,
+      failing: 0,
+      pending: 0,
+    };
+    const baseHelper = bw({
+      "diff files": (args) => {
+        const bIdx = args.indexOf("--base");
+        const baseRef = bIdx === -1 ? "origin/main" : args[bIdx + 1];
+        return out(FILES.map((l) => (l.type === "diff-base" ? { ...l, ref: baseRef, source: "typed" } : l)));
+      },
+      "diff refs": REFS,
+      "pr status": () => out([{ type: "pr", pr: prPayload, cached: false, age_s: 0, stale: false }]),
+    });
+    const execFn = async (/** @type {string} */ cmd, /** @type {string[]} */ args, /** @type {any} */ opts) => {
+      if (cmd === "git" && args.includes("remote.origin.url")) {
+        return { code: 0, stdout: "git@github.com:acme/repo.git\n", stderr: "" };
+      }
+      return baseHelper(cmd, args, opts);
+    };
+
+    const m = await mount("bw-diff", {
+      live: { ...world(null, TOP), exec: execFn },
+    });
+    showInLayout("changes");
+    m.render();
+    await m.cx.flush();
+    m.render();
+
+    await m.click("diff-scope-pr");
+    for (let i = 0; i < 4; i++) {
+      await m.cx.flush();
+      m.render();
+    }
+    expect(calls(m, "files").at(-1)?.args).toEqual([
+      "diff",
+      "files",
+      "--path",
+      TOP,
+      "--mode",
+      "merge-base",
+      "--base",
+      "origin/release",
+    ]);
+    expect(textOf(m.el)).toContain("Committed in PR");
+
+    // When no open PR exists on another branch, PR scope falls back to the Branch base picker.
+    prPayload = null;
+    fake.spaces[0].branch = "no-pr-branch";
+    const view = /** @type {any} */ (m.view);
+    view.prState = { key: "", pr: null, checkedAt: 0, repoFolder: null, repo: null };
+    fake.shared[BASE_KEY] = { [projectKey(null, COMMON)]: { ref: "refs/tags/v1", mode: "tip" } };
+    m.render();
+    for (let i = 0; i < 4; i++) {
+      await m.cx.flush();
+      m.render();
+    }
+    expect(calls(m, "files").at(-1)?.args).toEqual([
+      "diff",
+      "files",
+      "--path",
+      TOP,
+      "--mode",
+      "tip",
+      "--base",
+      "refs/tags/v1",
+    ]);
+    expect(byId(m.el, "diff-mode")).not.toBe(null);
+  });
+
+  test("Done Check 5(c): on_item_click comments across two files, unselected file >5 line mutation holds send in preflight, and valid comments send or queue", async () => {
+    let notesPatch = {
+      type: "diff-patch",
+      page: 0,
+      pages: 1,
+      bytes: 64,
+      digest: "aaaa1111aaaa1111",
+      text: [
+        "diff --git a/notes.txt b/notes.txt",
+        "@@ -1,2 +1,3 @@",
+        " one",
+        "-two",
+        "+two changed",
+        "+three",
+        "",
+      ].join("\n"),
+      cut: [],
+    };
+    const freshPatch = {
+      type: "diff-patch",
+      page: 0,
+      pages: 1,
+      bytes: 48,
+      digest: "bbbb2222bbbb2222",
+      text: ["diff --git a/fresh.txt b/fresh.txt", "@@ -0,0 +1,2 @@", "+alpha", "+beta", ""].join("\n"),
+      cut: [],
+    };
+
+    /** @type {any[]} */
+    const sent = [];
+    /** @type {any[]} */
+    const queued = [];
+    const answers = {
+      "diff files": FILES,
+      "diff patch": (/** @type {string[]} */ args) => {
+        const file = args[args.indexOf("--file") + 1];
+        return out([file === "notes.txt" ? notesPatch : freshPatch]);
+      },
+      "cards --terminal": [{ type: "cards", session: "sess-42", path: "/tmp/claude-sess-42.jsonl" }],
+      "send --terminal": (/** @type {string[]} */ args, /** @type {string | null} */ on) => {
+        sent.push({ args, on });
+        return out([{ type: "send", result: "sent" }]);
+      },
+      "queue add": (/** @type {string[]} */ args, /** @type {string | null} */ on) => {
+        queued.push({ args, on });
+        return out([{ type: "queue", items: [{ id: "q1", text: args.at(-1) }], held: false, hold_reason: null }]);
+      },
+    };
+
+    const liveWorld = world("macmini", TOP);
+    liveWorld.panes = [
+      {
+        pane: "p1",
+        terminal: "macmini/t1",
+        tab: "tb1",
+        title: "claude",
+        app: "claude-code",
+        program: { key: "claude" },
+        cwd: TOP,
+        branch: "feat",
+        status: "done",
+        focused: true,
+      },
+    ];
+    liveWorld.agents = [{ pane: "p1", terminal: "macmini/t1", status: "done" }];
+
+    const m = await mount("bw-diff", {
+      live: { ...liveWorld, exec: bw(answers) },
+    });
+    showInLayout("changes");
+    m.render();
+    await m.cx.flush();
+    m.render();
+
+    // 1. Select file A (notes.txt), verify virtual list row keys and layout-handler safety, click line 2 (+two changed).
+    await m.click("diff-file-changes-notes.txt");
+    await m.cx.flush();
+    m.render();
+    const listA = byId(m.el, "diff-patch-rows");
+    expect(listA).not.toBe(null);
+    expect(layOut(listA, { start: 0, end: 2 })).toBe(2);
+    expect(listA.attrs.keys).toContain("aaaa1111aaaa1111:add:null:2");
+
+    // Clicking with a superseded digest does nothing.
+    await fire(listA, "on_item_click", "stale0000stale00:add:null:2", m.cx);
+    m.render();
+    expect(byId(m.el, "diff-comment-bar")).toBe(null);
+
+    // Clicking the live digest opens the retained composer bar below v_virtual_list; Esc cancels, Enter saves.
+    await fire(listA, "on_item_click", "aaaa1111aaaa1111:add:null:2", m.cx);
+    m.render();
+    expect(byId(m.el, "diff-comment-bar")).not.toBe(null);
+    await fire(byId(m.el, "diff-comment-bar"), "on_key_down", { keystroke: { key: "escape" } }, m.cx);
+    m.render();
+    expect(byId(m.el, "diff-comment-bar")).toBe(null);
+
+    await fire(byId(m.el, "diff-patch-rows"), "on_item_click", "aaaa1111aaaa1111:add:null:2", m.cx);
+    m.render();
+    const view = /** @type {any} */ (m.view);
+    view.commentInput.set_value("Avoid mutating notes in place");
+    view.commentInput.handlers.submit({}, m.cx);
+    m.render();
+    expect(byId(m.el, "diff-comment-bar")).toBe(null);
+    expect(textOf(byId(m.el, "diff-review-bar"))).toContain("Send 1 comment");
+
+    // 2. Select file B (fresh.txt) and add a second comment on line 2 (+beta).
+    await m.click("diff-file-changes-fresh.txt");
+    await m.cx.flush();
+    m.render();
+    const listB = byId(m.el, "diff-patch-rows");
+    await fire(listB, "on_item_click", "bbbb2222bbbb2222:add:null:2", m.cx);
+    m.render();
+    view.commentInput.set_value("Rename beta constant");
+    m.render();
+    await m.click("diff-comment-save");
+    expect(textOf(byId(m.el, "diff-review-bar"))).toContain("Send 2 comments");
+
+    // 3. While file B stays selected, mutate unselected file A on disk so A's anchor moves > 5 lines (+8 lines).
+    notesPatch = {
+      ...notesPatch,
+      digest: "aaaa9999aaaa9999",
+      text: [
+        "diff --git a/notes.txt b/notes.txt",
+        "@@ -1,2 +1,11 @@",
+        "+pad 1",
+        "+pad 2",
+        "+pad 3",
+        "+pad 4",
+        "+pad 5",
+        "+pad 6",
+        "+pad 7",
+        "+pad 8",
+        " one",
+        "-two",
+        "+two changed",
+        "+three",
+        "",
+      ].join("\n"),
+    };
+
+    await m.click("diff-comments-send");
+    await m.cx.flush();
+    m.render();
+
+    // Preflight catches A's stale anchor, marks A stale, holds send, and preserves both drafts.
+    expect(sent).toHaveLength(0);
+    expect(queued).toHaveLength(0);
+    expect(textOf(byId(m.el, "diff-note"))).toContain("Stale diff anchor (notes.txt:2)");
+    expect(textOf(byId(m.el, "diff-review-bar"))).toContain("1 stale anchor");
+    expect(view.worktreeComments()).toHaveLength(2);
+    expect(view.worktreeComments()[0].stale).toBe(true);
+
+    // Clicking Send again while A is still stale continues holding delivery.
+    await m.click("diff-comments-send");
+    await m.cx.flush();
+    m.render();
+    expect(sent).toHaveLength(0);
+
+    // 4. If A moves within +-5 lines (+3 lines from original line 2 -> line 5) from a valid state, preflight relocates and sends!
+    // Remove the stale comment on A, re-add on A's current line 10, then shift A by +2 lines (10 -> 12) while B is selected.
+    await m.click("diff-draft-remove-0");
+    await m.click("diff-file-changes-notes.txt");
+    await m.cx.flush();
+    m.render();
+    await fire(byId(m.el, "diff-patch-rows"), "on_item_click", "aaaa9999aaaa9999:add:null:10", m.cx);
+    m.render();
+    view.commentInput.set_value("Avoid mutating notes in place");
+    m.render();
+    await m.click("diff-comment-save");
+    await m.click("diff-file-changes-fresh.txt");
+    await m.cx.flush();
+    m.render();
+
+    notesPatch = {
+      ...notesPatch,
+      digest: "aaaa7777aaaa7777",
+      text: [
+        "diff --git a/notes.txt b/notes.txt",
+        "@@ -1,2 +1,13 @@",
+        "+pad 1",
+        "+pad 2",
+        "+pad 3",
+        "+pad 4",
+        "+pad 5",
+        "+pad 6",
+        "+pad 7",
+        "+pad 8",
+        "+pad 9",
+        "+pad 10",
+        " one",
+        "-two",
+        "+two changed",
+        "+three",
+        "",
+      ].join("\n"),
+    };
+
+    await m.click("diff-comments-send");
+    await m.cx.flush();
+    m.render();
+    expect(sent).toHaveLength(1);
+    expect(sent[0].on).toBe("macmini");
+    expect(sent[0].args).toEqual([
+      "send",
+      "--terminal",
+      "t1",
+      "--expect-kind",
+      "claude",
+      "--expect-session",
+      "sess-42",
+      "--expect-path",
+      "/tmp/claude-sess-42.jsonl",
+      "--text",
+      [
+        "Diff review comments (2):",
+        "",
+        "1. `fresh.txt:2` (new)",
+        "> beta",
+        "Rename beta constant",
+        "",
+        "2. `notes.txt:12` (new)",
+        "> two changed",
+        "Avoid mutating notes in place",
+      ].join("\n"),
+    ]);
+    expect(byId(m.el, "diff-review-bar")).toBe(null);
+    expect(textOf(byId(m.el, "diff-note"))).toBe("Sent 2 comments");
+
+    // 5. While agent is working, button switches to Queue and delivers via bw queue add on space.machine.
+    fake.agents[0].status = "working";
+    fake.panes[0].status = "working";
+    await fire(byId(m.el, "diff-patch-rows"), "on_item_click", "bbbb2222bbbb2222:add:null:1", m.cx);
+    m.render();
+    view.commentInput.set_value("Check alpha bounds");
+    m.render();
+    await m.click("diff-comment-save");
+    expect(textOf(byId(m.el, "diff-review-bar"))).toContain("Queue 1 comment");
+    await m.click("diff-comments-send");
+    await m.cx.flush();
+    m.render();
+    expect(queued).toHaveLength(1);
+    expect(queued[0].on).toBe("macmini");
+    expect(queued[0].args).toEqual([
+      "queue",
+      "add",
+      "--terminal",
+      "t1",
+      "--kind",
+      "claude",
+      "--session",
+      "sess-42",
+      "--text",
+      ["Diff review comment:", "", "1. `fresh.txt:1` (new)", "> alpha", "Check alpha bounds"].join("\n"),
+    ]);
+    expect(byId(m.el, "diff-review-bar")).toBe(null);
+    expect(textOf(byId(m.el, "diff-note"))).toBe("Queued 1 comment");
   });
 });

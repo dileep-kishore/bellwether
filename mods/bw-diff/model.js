@@ -5,10 +5,50 @@ export const BASE_KEY = "bw.diff.base";
 
 /** @typedef {"staged" | "changes" | "committed"} Section */
 /** @typedef {"merge-base" | "tip"} Mode */
+/** @typedef {"uncommitted" | "branch" | "pr"} Scope */
 /** @type {readonly Section[]} */
 export const SECTIONS = Object.freeze(["staged", "changes", "committed"]);
+/** @type {readonly Scope[]} */
+export const SCOPES = Object.freeze(["uncommitted", "branch", "pr"]);
+/** @type {Readonly<Record<Scope, string>>} */
+export const SCOPE_LABEL = Object.freeze({ uncommitted: "Uncommitted", branch: "Branch", pr: "PR" });
 /** @type {Readonly<Record<Section, string>>} */
 export const SECTION_TITLE = Object.freeze({ staged: "Staged", changes: "Changes", committed: "Committed on branch" });
+
+/**
+ * Sections shown under `scope`.
+ * @param {Scope} scope
+ * @returns {readonly Section[]}
+ */
+export function sectionsForScope(scope) {
+  return scope === "branch" || scope === "pr" ? ["committed"] : ["staged", "changes"];
+}
+
+/**
+ * Scope that displays `section`.
+ * @param {Section} section
+ * @returns {Scope}
+ */
+export function scopeForSection(section) {
+  return section === "committed" ? "branch" : "uncommitted";
+}
+
+/**
+ * Effective `BaseChoice` for `PR` scope: `<remote>/<baseRefName>` in `merge-base` mode when an open PR
+ * names a base branch, falling back to the stored `Branch` base choice otherwise.
+ * @param {{ state?: string, baseRefName?: string } | null | undefined} pr
+ * @param {BaseChoice} branchBase
+ * @param {string} [remote]
+ * @returns {BaseChoice & { fromPr: boolean }}
+ */
+export function prBaseChoice(pr, branchBase, remote = "origin") {
+  const baseRef = typeof pr?.baseRefName === "string" ? pr.baseRefName.trim() : "";
+  if (pr?.state === "OPEN" && baseRef !== "") {
+    const prefix = remote.trim() || "origin";
+    return { ref: `${prefix}/${baseRef}`, mode: "merge-base", fromPr: true };
+  }
+  return { ref: branchBase.ref, mode: branchBase.mode, fromPr: false };
+}
 
 /**
  * @typedef {object} Row
@@ -199,6 +239,49 @@ export function patchRows(text, cut = new Map()) {
     }
   });
   return out;
+}
+
+/**
+ * Builds unique virtual-list keys for `rows` (`{patchDigest}:{kind}:{oldLine}:{newLine}` on code rows).
+ * @param {string | null | undefined} digest
+ * @param {PatchRow[]} rows
+ * @returns {string[]}
+ */
+export function patchRowKeys(digest, rows) {
+  const d = typeof digest === "string" && digest ? digest : "pending";
+  const seen = new Set();
+  return rows.map((r, i) => {
+    const oldPart = r.old === null ? "null" : String(r.old);
+    const newPart = r.new === null ? "null" : String(r.new);
+    const isCode = r.kind === "add" || r.kind === "del" || r.kind === "ctx";
+    const base = isCode ? `${d}:${r.kind}:${oldPart}:${newPart}` : `${d}:${r.kind}:${oldPart}:${newPart}:${i}`;
+    const key = seen.has(base) ? `${base}:${i}` : base;
+    seen.add(key);
+    return key;
+  });
+}
+
+/**
+ * Parses a code-row virtual-list key back into `{ digest, kind, oldLine, newLine }`, or `null` for non-code rows.
+ * @param {unknown} key
+ * @returns {{ digest: string, kind: "add" | "del" | "ctx", oldLine: number | null, newLine: number | null } | null}
+ */
+export function parseRowKey(key) {
+  if (typeof key !== "string" || !key) return null;
+  const parts = key.split(":");
+  if (parts.length !== 4 && parts.length !== 5) return null;
+  const [digest, kind, oldRaw, newRaw] = parts;
+  if (!digest || (kind !== "add" && kind !== "del" && kind !== "ctx")) return null;
+  const parseLine = (/** @type {string} */ s) => {
+    if (s === "null" || s === "") return null;
+    const n = Number(s);
+    return Number.isInteger(n) && n > 0 ? n : NaN;
+  };
+  const oldLine = parseLine(oldRaw);
+  const newLine = parseLine(newRaw);
+  if (Number.isNaN(oldLine) || Number.isNaN(newLine)) return null;
+  if (oldLine === null && newLine === null) return null;
+  return { digest, kind, oldLine, newLine };
 }
 
 /** "5.2 MiB", "820 KiB", "12 B". @param {number} bytes */

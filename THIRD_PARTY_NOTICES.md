@@ -60,3 +60,14 @@ Copyright (c) 2026 Elias Stravik.
 | File here | Source path | Commit | How |
 | --- | --- | --- | --- |
 | `hooks/bw-event` (the `$HC_TERMINAL_ID` gate: exit 0 without a terminal id or with one holding `/` or `..`) | `mods/chat/ask-hook.sh:19-21` | `4552191829b5e67dee60a1c780f41224575ef685` | adapted |
+
+## Cockpit
+
+Source: https://github.com/quaresc/cockpit, MIT License,
+Copyright (c) 2026 quaresc.
+
+| File here | Source path | Commit | How |
+| --- | --- | --- | --- |
+| `mods/bw-needs/main.js`, `mods/bw-needs/model.js` (`Whose move` cross-agent triage grouping and inline `1-9` / `Other…` answer workflow) | `herdr/tui/inbox/` | `7ae5aa6c16db3547d34b2270d56e4884c09abadd` | workflow design adapted in clean-room JS |
+| `mods/bw-diff/comments.js`, `mods/bw-diff/main.js`, `mods/bw-diff/patch.js` (`Uncommitted` / `Branch` / `PR` diff scopes, line-anchored review comments, and structured `path:line (side)` batch markdown formatting) | `herdr/tui/hub/` | `7ae5aa6c16db3547d34b2270d56e4884c09abadd` | workflow and markdown formatting adapted in clean-room JS |
+
