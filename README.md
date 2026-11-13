@@ -86,7 +86,7 @@ step.
 ## The bw helper
 
 The mods run `~/.local/share/bellwether/helper/current/bw`, which `scripts/install-helper.sh`
-installs. This window needs helper version 0.7.0 and protocol 7. When the helper on another machine
+installs. This window needs helper version 0.8.0 and protocol 8. When the helper on another machine
 is missing or outdated, the window copies this Mac's `bw` there through `hc` and checks again. To do
 it yourself:
 

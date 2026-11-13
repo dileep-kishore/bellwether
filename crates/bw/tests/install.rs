@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// `bw version`'s protocol, which `bw machine status` compares with the helper there.
-const PROTOCOL: u32 = 7;
+const PROTOCOL: u32 = 8;
 const MB: usize = 1024 * 1024;
 
 struct Machine {

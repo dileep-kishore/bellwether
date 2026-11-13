@@ -368,10 +368,10 @@ shows the same steps from the chat's dock.
 ## `bw version`
 
 ```sh
-bw version   # {"protocol":7,"version":"0.7.0","build":"<commit>","target":"<target triple>"}
+bw version   # {"protocol":8,"version":"0.8.0","build":"<commit>","target":"<target triple>"}
 ```
 
-`shared/helper.js` needs version 0.7.0 and protocol 7. When another machine's helper is missing or
+`shared/helper.js` needs version 0.8.0 and protocol 8. When another machine's helper is missing or
 outdated, a mod runs this Mac's `bw machine install <machine>` and checks again.
 
 ## Commands and flags kept for tests and internal use

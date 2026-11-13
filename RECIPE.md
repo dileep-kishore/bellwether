@@ -243,7 +243,7 @@ ring-spin, check and question live in `mods/bw-projects/icons/`), and `layouts/b
 - No mod file other than `shared/palette.js` holds a colour literal. `themes/bellwether.json` is
   written from it by `bun scripts/gen-theme.js`, and `tests/theme.test.js` keeps them equal.
   Subtext 0 on Surface 1 falls under 4.5:1, so selected rows use Subtext 1 and the bright Red.
-- `shared/helper.js` requires `bw version` to report 0.7.0 and protocol 7. When another machine's
+- `shared/helper.js` requires `bw version` to report 0.8.0 and protocol 8. When another machine's
   helper is missing or older, a mod runs this Mac's `bw machine install <machine>` and checks again.
   An Apple silicon Mac gets the running `bw`; Linux needs `scripts/build-dist.sh` (`cargo zigbuild`);
   other platforms report `no_build`.

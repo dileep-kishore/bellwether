@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 
-pub const PROTOCOL: u32 = 7;
+pub const PROTOCOL: u32 = 8;
 
 pub fn version_json() -> Value {
     json!({

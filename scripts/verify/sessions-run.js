@@ -767,8 +767,8 @@ async function remoteChecks() {
   await check(`${M}-helper-installed`, async () => {
     const ready = await helper.ensure(M);
     const v = lines((await there(["sh", "-c", RUN_HELPER, "bw", "version"])).stdout)[0];
-    ready.ok && v?.protocol === 7 && v?.version === "0.7.0"
-      ? pass(`${M}-helper-installed`, `ensure ran bw machine install ${M}; bw version there is protocol 7, 0.7.0`)
+    ready.ok && v?.protocol === 8 && v?.version === "0.8.0"
+      ? pass(`${M}-helper-installed`, `ensure ran bw machine install ${M}; bw version there is protocol 8, 0.8.0`)
       : fail(`${M}-helper-installed`, `ensure gave ${short(ready)}; bw version ${short(v)}`);
   });
 

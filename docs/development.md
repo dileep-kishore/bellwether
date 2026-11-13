@@ -776,7 +776,7 @@ and `bun test tests/theme.test.js tests/ui.test.js`.
 ## Bumping the helper version and protocol
 
 `shared/helper.js` runs a mod's `bw` call only when `bw version` reports exactly its `PROTOCOL` and
-`HELPER_VERSION`, now protocol 7 and version 0.7.0. `bw machine status` calls another machine's
+`HELPER_VERSION`, now protocol 8 and version 0.8.0. `bw machine status` calls another machine's
 helper `current` only when both match this Mac's. Bump the version for every helper change a mod
 relies on: another machine keeps its old helper until the version differs. Bump the protocol too
 when a command's arguments or output lines change shape.
@@ -798,7 +798,7 @@ The values live in these files:
 This command lists every file that names the current values:
 
 ```sh
-git grep -l -F -e '0.7.0' -e 'PROTOCOL: u32' -e 'protocol\":7' -e 'protocol: 7' -e 'protocol"], 7' -- ':!tests/fixtures/sessions'
+git grep -l -F -e '0.8.0' -e 'PROTOCOL: u32' -e 'protocol\":8' -e 'protocol: 8' -e 'protocol"], 8' -- ':!tests/fixtures/sessions'
 ```
 
 Then run `scripts/sync.sh --shared-only`, `scripts/test.sh`, and `scripts/install-helper.sh` for

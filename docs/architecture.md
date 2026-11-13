@@ -212,7 +212,7 @@ command, such as `feed` or `browser status`, and never its arguments, which can 
 check can count calls that way without touching the installed helper.
 
 Before its first call on a machine, `shared/helper.js` runs `bw version` there and compares it with
-its own `PROTOCOL` (7) and `HELPER_VERSION` ("0.7.0"). `crates/bw/src/version.rs` prints `protocol`,
+its own `PROTOCOL` (8) and `HELPER_VERSION` ("0.8.0"). `crates/bw/src/version.rs` prints `protocol`,
 `version` (the crate's version), `build` and `target`. It remembers each machine's result for 60 s.
 When another machine's helper is `missing` or `outdated`, the mod runs this Mac's
 `bw machine install <machine>` (the installed `current/bw`, whatever `BW_HELPER` says) and checks
