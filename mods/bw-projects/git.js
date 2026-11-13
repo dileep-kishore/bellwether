@@ -1,6 +1,6 @@
 // Short read-only Git calls through Herdr's `exec`, on the machine that holds the folder.
 // Never uses exec's `cwd`, so the same argv runs through `hc exec --on <machine>`.
-import { parseCounts, parsePlace, parseWorktrees, SEP } from "./git-parse.js";
+import { parseCounts, parseGithubRepo, parseHeadOid, parsePlace, parseWorktrees, SEP } from "./git-parse.js";
 
 /** @typedef {import("./git-parse.js").Worktree} Worktree */
 /** @typedef {import("./git-parse.js").Counts} Counts */
@@ -118,4 +118,43 @@ export async function readCounts(exec, machine, path) {
   const at = r.stdout.indexOf(SEP);
   if (at === -1) return { ok: false, state: "failed", message: "counts script printed no separator" };
   return { ok: true, counts: parseCounts(r.stdout.slice(0, at), r.stdout.slice(at + 1)) };
+}
+
+/**
+ * Reads `remote.origin.url` and its parsed GitHub `"owner/repo"` (if GitHub) without touching `.git`.
+ * When `origin` is unset in a valid repository, returns `{ ok: true, url: null, repo: null }`.
+ *
+ * @param {Exec} exec
+ * @param {string | null} machine
+ * @param {string} folder
+ * @returns {Promise<{ ok: true, url: string | null, repo: string | null } | GitFailure>}
+ */
+export async function remoteOrigin(exec, machine, folder) {
+  const r = await run(exec, "git", ["-C", folder, ...READ_ONLY, "config", "--get", "remote.origin.url"], machine);
+  if ("ok" in r) return r;
+  if (r.code === 1 && !notGit(r) && r.stderr.trim() === "") return { ok: true, url: null, repo: null };
+  if (r.code !== 0) return failure(r, notGit(r) ? "not_git" : "failed");
+  const url = r.stdout.trim() || null;
+  return { ok: true, url, repo: parseGithubRepo(url) };
+}
+
+/**
+ * Reads the worktree's `HEAD` commit OID without touching `.git`.
+ * An unborn `HEAD` returns `{ ok: true, oid: null }`.
+ *
+ * @param {Exec} exec
+ * @param {string | null} machine
+ * @param {string} folder
+ * @returns {Promise<{ ok: true, oid: string | null } | GitFailure>}
+ */
+export async function headOid(exec, machine, folder) {
+  const r = await run(exec, "git", ["-C", folder, ...READ_ONLY, "rev-parse", "--verify", "HEAD"], machine);
+  if ("ok" in r) return r;
+  if (r.code !== 0) {
+    if (notGit(r)) return failure(r, "not_git");
+    if (/needed a single revision|ambiguous argument 'HEAD'/i.test(r.stderr)) return { ok: true, oid: null };
+    return failure(r);
+  }
+  const oid = parseHeadOid(r.stdout);
+  return oid ? { ok: true, oid } : { ok: false, state: "failed", message: "rev-parse printed no HEAD oid" };
 }

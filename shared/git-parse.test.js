@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseCounts, parsePlace, parseWorktrees, SEP } from "./git-parse.js";
+import { parseCounts, parseGithubRepo, parseHeadOid, parsePlace, parseWorktrees, SEP } from "./git-parse.js";
 
 // Fixtures: make-repos.sh output with the root rewritten to /r; status-v2.z and numstat.z also
 // have README.md renamed to README.txt (staged) and logo.bin edited in alpha-wt/feat.
@@ -122,3 +122,29 @@ test("place: empty output is null", () => {
 });
 
 test("SEP is the record separator the counts script prints", () => expect(SEP).toBe("\x1e"));
+
+test("parseGithubRepo parses scp, https, and ssh:// GitHub URLs and rejects non-GitHub hosts", () => {
+  expect(parseGithubRepo("git@github.com:acme/bellwether.git\n")).toBe("acme/bellwether");
+  expect(parseGithubRepo("git@github.com:acme/bellwether")).toBe("acme/bellwether");
+  expect(parseGithubRepo("https://github.com/acme/bellwether.git")).toBe("acme/bellwether");
+  expect(parseGithubRepo("https://github.com/acme/bellwether/")).toBe("acme/bellwether");
+  expect(parseGithubRepo("ssh://git@github.com/acme/bellwether.git")).toBe("acme/bellwether");
+  expect(parseGithubRepo("ssh://git@github.com:22/acme/bellwether.git")).toBe("acme/bellwether");
+  expect(parseGithubRepo("https://token@github.com/org.name/repo_1-a.git")).toBe("org.name/repo_1-a");
+
+  expect(parseGithubRepo("git@gitlab.com:acme/bellwether.git")).toBe(null);
+  expect(parseGithubRepo("https://ghe.internal.corp/acme/bellwether.git")).toBe(null);
+  expect(parseGithubRepo("https://github.com/acme/bellwether/extra")).toBe(null);
+  expect(parseGithubRepo("https://github.com/../bellwether.git")).toBe(null);
+  expect(parseGithubRepo("/local/bare/origin.git")).toBe(null);
+  expect(parseGithubRepo("")).toBe(null);
+  expect(parseGithubRepo(null)).toBe(null);
+});
+
+test("parseHeadOid extracts commit OIDs from rev-parse or porcelain status and returns null when unborn", () => {
+  const oid = "1111111111111111111111111111111111111111";
+  expect(parseHeadOid(`${oid}\n`)).toBe(oid);
+  expect(parseHeadOid(`# branch.oid ${oid.toUpperCase()}\0# branch.head main\0`)).toBe(oid);
+  expect(parseHeadOid("# branch.oid (initial)\0# branch.head main\0")).toBe(null);
+  expect(parseHeadOid("")).toBe(null);
+});

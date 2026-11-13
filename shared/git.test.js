@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { COUNTS_SCRIPT, readCounts, readPlace, readWorktrees } from "./git.js";
+import { COUNTS_SCRIPT, headOid, readCounts, readPlace, readWorktrees, remoteOrigin } from "./git.js";
 
 const MAKE_REPOS = join(import.meta.dir, "../scripts/verify/make-repos.sh");
 
@@ -208,6 +208,8 @@ test("no call writes under the common dir", async () => {
   ]) {
     expect((await readPlace(exec, null, wt)).ok).toBe(true);
     expect((await readCounts(exec, null, wt)).ok).toBe(true);
+    expect((await remoteOrigin(exec, null, wt)).ok).toBe(true);
+    expect((await headOid(exec, null, wt)).ok).toBe(true);
   }
   expect((await readWorktrees(exec, null, alphaCommon)).ok).toBe(true);
   expect(snapshot(alphaCommon)).toEqual(before);
@@ -215,4 +217,31 @@ test("no call writes under the common dir", async () => {
   // Control: without the flags the same status does write, so the check above can fail.
   await exec("git", ["-C", `${root}/alpha`, "status", "--porcelain"], { on: null });
   expect(snapshot(alphaCommon)).not.toEqual(before);
+});
+
+test("remoteOrigin and headOid handle GitHub URLs, missing origin, unborn HEAD, and unreachable hosts", async () => {
+  const head = await headOid(exec, null, `${root}/alpha`);
+  expect(head.ok).toBe(true);
+  if (head.ok) expect(head.oid).toMatch(/^[0-9a-f]{40}$/);
+
+  const unborn = await headOid(exec, null, `${root}/gamma`);
+  expect(unborn).toEqual({ ok: true, oid: null });
+  expect(await remoteOrigin(exec, null, `${root}/gamma`)).toEqual({ ok: true, url: null, repo: null });
+
+  const ghMock = async () => ({ code: 0, stdout: "git@github.com:acme/bellwether.git\n", stderr: "" });
+  expect(await remoteOrigin(ghMock, "macmini", "/home/u/gamma")).toEqual({
+    ok: true,
+    url: "git@github.com:acme/bellwether.git",
+    repo: "acme/bellwether",
+  });
+  expect(await remoteOrigin(offline, "macmini", "/r/alpha")).toEqual({
+    ok: false,
+    state: "unreachable",
+    message: "machine macmini is unreachable",
+  });
+  expect(await headOid(offline, "macmini", "/r/alpha")).toEqual({
+    ok: false,
+    state: "unreachable",
+    message: "machine macmini is unreachable",
+  });
 });

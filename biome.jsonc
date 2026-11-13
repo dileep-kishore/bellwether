@@ -19,6 +19,8 @@
       "!mods/*/git-parse.js",
       "!mods/*/git.js",
       "!mods/*/helper.js",
+      "!mods/*/palette.js",
+      "!mods/*/pr-model.js",
       "!mods/*/projects-model.js",
       "!mods/*/refresh-driver.js",
       "!mods/*/refresh-schedule.js",
