@@ -1,7 +1,10 @@
-// Chat tabs: how a tab "+" started becomes a terminal beside a bw-chat pane, how ⌘J flips between
-// the two, and when a chat counts as shown. Pure and Herdr-free: callers pass spaces(), panes() and now.
+// Chat tabs and screen routing: how "+" launches single-pane chat or terminal tabs, how legacy bw-chat
+// split panes close cleanly, how ⌘J flips between chat and panes, and how focus leaves are tracked.
+// Pure and Herdr-free: callers pass spaces(), panes(), shared values, and now.
 
 /** @typedef {"claude" | "codex"} ChatKind */
+/** @typedef {"chat" | "panes" | "needs" | "overview"} ScreenId */
+/** @typedef {"chat" | "panes"} TabScreen */
 
 /**
  * @typedef {object} Entry One chat tab, keyed by its tab id in `ChatTabs.tabs`.
@@ -13,7 +16,7 @@
  * @property {string} terminalPane
  * @property {string | null} chatPane
  * @property {{ at: number, tries: number } | null} split
- * @property {boolean} zoomed the chat pane's one zoom has run
+ * @property {boolean} zoomed
  * @property {boolean} failed
  * @property {number} created
  */
@@ -32,20 +35,41 @@
  */
 
 /**
+ * @typedef {object} PendingTabView A "New terminal" launch whose tab should open in `panes`.
+ * @property {string} id
+ * @property {string | null} machine
+ * @property {string | null} space
+ * @property {string | null} folder
+ * @property {string[]} beforeTabs
+ * @property {string[]} beforeSpaces
+ * @property {string | null} name null for unnamed shell tabs
+ * @property {number} at
+ */
+
+/**
  * @typedef {object} ChatTabs The value of `shared("bw.chat-tabs")`.
  * @property {1} version
  * @property {Record<string, Entry>} tabs
  * @property {Pending[]} pending
+ * @property {string[]} [closing] legacy bw-chat pane ids already asked to close
  */
 
 /** @typedef {[string, Record<string, unknown>]} Action */
 /** @typedef {{ title: string, body: string }} Notice */
 
 export const CHAT_PENDING_MS = 30000;
-export const SPLIT_RETRY_MS = 5000;
-const SPLIT_TRIES = 2;
+export const CHAT_SHOWN = "bw.chat-shown";
+export const TERMINAL_FOCUS = "bw.terminal-focus";
+export const SCREEN_KEY = "bw.screen";
+export const TAB_VIEW = "bw.tab-view";
+export const PENDING_TAB_VIEW = "bw.tab-view.pending";
+export const CHAT_AGENT = "bw.chat-agent";
+export const PR_SUMMARY = "bw.pr-summary";
+
+const FOCUS_KEEP_MS = 60_000;
 
 const isKind = (/** @type {unknown} */ k) => k === "claude" || k === "codex";
+const isTabScreen = (/** @type {unknown} */ v) => v === "chat" || v === "panes";
 const isStr = (/** @type {unknown} */ s) => typeof s === "string" && s !== "";
 const strOrNull = (/** @type {unknown} */ s) => s === null || typeof s === "string";
 const isNum = (/** @type {unknown} */ n) => typeof n === "number" && Number.isFinite(n);
@@ -120,6 +144,10 @@ export function readChatTabs(value) {
       if (pending) out.pending.push(pending);
     }
   }
+  if (Array.isArray(v.closing)) {
+    const closing = v.closing.filter(isStr);
+    if (closing.length) out.closing = [...new Set(closing)];
+  }
   return out;
 }
 
@@ -154,28 +182,13 @@ const terminalPaneIn = (panes, tabId) => panes.find((p) => p.tab === tabId && !p
 /** The agent a terminal pane runs, from Herdr's program table or the agent's own report. @param {any} pane
  * @returns {ChatKind | null} */
 export function paneKind(pane) {
-  const key = pane.program?.key;
+  const key = pane?.program?.key;
   if (isKind(key)) return key;
-  return pane.app === "codex" ? "codex" : pane.app === "claude-code" ? "claude" : null;
+  return pane?.app === "codex" ? "codex" : pane?.app === "claude-code" ? "claude" : null;
 }
 
 /** @param {unknown} f */
 const trimSlash = (f) => String(f ?? "").replace(/\/+$/, "");
-
-/**
- * Props are stored as given and read by every window on the space's core, so `window` names whose
- * address namespace `terminal` and `machine` are in.
- * @param {Entry} e @param {string | null} windowId @returns {Action}
- */
-const splitAction = (e, windowId) => [
-  "pane.split",
-  {
-    direction: "right",
-    pane: e.terminalPane,
-    mod: "bw-chat",
-    props: { terminal: e.terminal, machine: e.machine, kind: e.kind, ...(windowId ? { window: windowId } : {}) },
-  },
-];
 
 /**
  * The new tab a pending chat should take, named as it asked, in its space or a new space in its folder;
@@ -186,7 +199,6 @@ const splitAction = (e, windowId) => [
  * @param {Record<string, Entry>} tabs
  */
 function newTabFor(p, spaces, panes, tabs) {
-  // tab.new and space.new return no ids, so the name they were given is what ties a new tab to this launch.
   const ours = (/** @type {any} */ t) => t.name === p.name && !tabs[t.id] && terminalPaneIn(panes, t.id);
   if (p.space !== null) {
     const space = spaces.find((s) => s.id === p.space);
@@ -203,16 +215,17 @@ function newTabFor(p, spaces, panes, tabs) {
 }
 
 /**
- * One render's worth of chat-tab bookkeeping. `next` is null when nothing changed, so the caller
- * writes `setShared` only on change; a second call with the same inputs yields no actions.
+ * One render's worth of chat-tab bookkeeping. Single-pane chat tabs are recorded without splitting or zooming,
+ * and pre-upgrade `mod === "bw-chat"` split panes are unzoomed and closed while leaving their terminal intact.
+ * `next` is null when nothing changed; a second call with the same inputs yields no actions.
  * @param {unknown} value `shared("bw.chat-tabs")`
  * @param {any[]} spaces SpaceInfo[]
  * @param {any[]} panes PaneInfo[]
  * @param {number} now
- * @param {string | null} [windowId] this app home's `bw.window-id`, put in the chat panes' props
+ * @param {string | null} [_windowId]
  * @returns {{ next: ChatTabs | null, actions: Action[], notices: Notice[] }}
  */
-export function adopt(value, spaces, panes, now, windowId = null) {
+export function adopt(value, spaces, panes, now, _windowId = null) {
   const s = readChatTabs(value);
   /** @type {Action[]} */
   const actions = [];
@@ -233,8 +246,7 @@ export function adopt(value, spaces, panes, now, windowId = null) {
     const found = newTabFor(p, spaces, panes, s.tabs);
     if (found) {
       const pane = terminalPaneIn(panes, found.tab.id);
-      /** @type {Entry} */
-      const e = {
+      s.tabs[found.tab.id] = {
         tab: found.tab.id,
         space: found.space.id,
         machine: p.machine,
@@ -242,13 +254,11 @@ export function adopt(value, spaces, panes, now, windowId = null) {
         terminal: pane.terminal,
         terminalPane: pane.pane,
         chatPane: null,
-        split: { at: now, tries: 1 },
+        split: null,
         zoomed: false,
         failed: false,
         created: now,
       };
-      s.tabs[e.tab] = e;
-      actions.push(splitAction(e, windowId));
       changed = true;
     } else if (now - p.at > CHAT_PENDING_MS) {
       notices.push({ title: `${p.name} chat did not start`, body: "No new tab appeared within 30 s." });
@@ -259,15 +269,14 @@ export function adopt(value, spaces, panes, now, windowId = null) {
   }
   s.pending = waiting;
 
-  // Each app home keeps its own entries, but the panes live in the space's core: a chat tab made in
-  // another window, or before this app home existed, is registered here so ⌘J works on it too.
+  // Register pre-upgrade tabs that had one Claude/Codex terminal alongside a legacy bw-chat split pane.
   for (const space of spaces) {
     for (const t of space.tabs) {
       if (s.tabs[t.id]) continue;
       const terms = panes.filter((p) => p.tab === t.id && !p.mod && isStr(p.terminal));
       const chats = panes.filter((p) => p.tab === t.id && p.mod === "bw-chat");
       const kind = terms.length === 1 ? paneKind(terms[0]) : null;
-      if (!kind || chats.length !== 1) continue;
+      if (!kind || chats.length === 0) continue;
       s.tabs[t.id] = {
         tab: t.id,
         space: space.id,
@@ -275,9 +284,9 @@ export function adopt(value, spaces, panes, now, windowId = null) {
         kind,
         terminal: terms[0].terminal,
         terminalPane: terms[0].pane,
-        chatPane: chats[0].pane,
+        chatPane: null,
         split: null,
-        zoomed: true,
+        zoomed: false,
         failed: false,
         created: now,
       };
@@ -285,89 +294,292 @@ export function adopt(value, spaces, panes, now, windowId = null) {
     }
   }
 
+  // Clear legacy split fields on stored entries.
   for (const e of Object.values(s.tabs)) {
-    if (e.chatPane === null) {
-      const chat = panes.find((p) => p.tab === e.tab && p.mod === "bw-chat");
-      if (chat) {
-        e.chatPane = chat.pane;
-        e.failed = false;
-        changed = true;
-      } else if (!e.failed && e.split && now >= e.split.at + SPLIT_RETRY_MS) {
-        if (e.split.tries < SPLIT_TRIES) {
-          e.split = { at: now, tries: e.split.tries + 1 };
-          actions.push(splitAction(e, windowId));
-        } else {
-          e.failed = true;
-          notices.push({ title: "Chat pane did not open", body: "The agent keeps running in this tab." });
-        }
-        changed = true;
-      }
-    }
-    if (e.chatPane !== null && !e.zoomed) {
-      e.zoomed = true;
-      actions.push(["pane.zoom", { pane: e.chatPane }]);
+    if (e.chatPane !== null || e.split !== null || e.zoomed || e.failed) {
+      e.chatPane = null;
+      e.split = null;
+      e.zoomed = false;
+      e.failed = false;
       changed = true;
     }
   }
+
+  // Close legacy bw-chat split panes on tabs that still hold a live terminal pane, once per pane id.
+  const liveChatPaneIds = new Set(panes.filter((p) => p.mod === "bw-chat" && isStr(p.pane)).map((p) => p.pane));
+  const prevClosing = s.closing ?? [];
+  const nextClosing = prevClosing.filter((id) => liveChatPaneIds.has(id));
+  if (nextClosing.length !== prevClosing.length) changed = true;
+  const closingSet = new Set(nextClosing);
+
+  for (const chat of panes) {
+    if (chat.mod !== "bw-chat" || !isStr(chat.pane) || !liveTabs.has(chat.tab)) continue;
+    if (!panes.some((p) => p.tab === chat.tab && !p.mod && isStr(p.terminal))) continue;
+    if (closingSet.has(chat.pane)) continue;
+    if (chat.zoomed) actions.push(["pane.zoom", { pane: chat.pane }]);
+    actions.push(["pane.close", { pane: chat.pane }]);
+    closingSet.add(chat.pane);
+    nextClosing.push(chat.pane);
+    changed = true;
+  }
+
+  if (nextClosing.length) s.closing = nextClosing;
+  else delete s.closing;
 
   return { next: changed ? s : null, actions, notices };
 }
 
 /**
- * When `adopt` next has something to do by the clock alone (a pending expiring, a split retry), or null.
+ * Reads `shared("bw.tab-view")` (`Record<tabId, "chat" | "panes">`).
  * @param {unknown} value
+ * @returns {Record<string, TabScreen>}
+ */
+export function readTabViews(value) {
+  /** @type {Record<string, TabScreen>} */
+  const out = {};
+  if (!isObj(value)) return out;
+  for (const [k, v] of Object.entries(value)) {
+    if (isStr(k) && isTabScreen(v)) out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * Sets `tabId`'s screen override and prunes closed tabs.
+ * @param {unknown} value
+ * @param {string} tabId
+ * @param {TabScreen} view
+ * @param {Iterable<string>} [liveTabs]
+ * @returns {Record<string, TabScreen>}
+ */
+export function writeTabView(value, tabId, view, liveTabs) {
+  const prev = readTabViews(value);
+  const keep = liveTabs ? new Set(liveTabs) : null;
+  /** @type {Record<string, TabScreen>} */
+  const out = {};
+  for (const [k, v] of Object.entries(prev)) {
+    if (!keep || keep.has(k) || k === tabId) out[k] = v;
+  }
+  out[tabId] = view;
+  return out;
+}
+
+/** @param {unknown} value @returns {PendingTabView[]} */
+export function readPendingTabViews(value) {
+  if (!Array.isArray(value)) return [];
+  /** @type {PendingTabView[]} */
+  const out = [];
+  for (const p of value) {
+    if (
+      !isObj(p) ||
+      !isStr(p.id) ||
+      !strOrNull(p.machine) ||
+      !strOrNull(p.space) ||
+      !strOrNull(p.folder) ||
+      !strOrNull(p.name) ||
+      !strings(p.beforeTabs) ||
+      !strings(p.beforeSpaces) ||
+      !isNum(p.at)
+    )
+      continue;
+    out.push({
+      id: p.id,
+      machine: p.machine,
+      space: p.space,
+      folder: p.folder,
+      beforeTabs: [...p.beforeTabs],
+      beforeSpaces: [...p.beforeSpaces],
+      name: p.name,
+      at: p.at,
+    });
+  }
+  return out;
+}
+
+/**
+ * Records a "New terminal" launch so `bw-tabs` marks its tab `"panes"` in `bw.tab-view` once it appears.
+ * @param {unknown} value
+ * @param {Omit<PendingTabView, "id" | "at">} p
+ * @param {number} now
+ * @returns {PendingTabView[]}
+ */
+export function addPendingTabView(value, p, now) {
+  const list = readPendingTabViews(value);
+  const ids = new Set(list.map((x) => x.id));
+  let n = 0;
+  while (ids.has(`tv-${now}-${n}`)) n += 1;
+  list.push({
+    id: `tv-${now}-${n}`,
+    machine: p.machine ?? null,
+    space: p.space ?? null,
+    folder: p.folder ?? null,
+    beforeTabs: [...(p.beforeTabs ?? [])],
+    beforeSpaces: [...(p.beforeSpaces ?? [])],
+    name: p.name ?? null,
+    at: now,
+  });
+  return list;
+}
+
+/**
+ * Adopts pending "New terminal" launches into `bw.tab-view` (`"panes"`) and prunes closed tabs.
+ * @param {unknown} viewsValue `shared("bw.tab-view")`
+ * @param {unknown} pendingValue `shared("bw.tab-view.pending")`
+ * @param {any[]} spaces
+ * @param {any[]} panes
+ * @param {unknown} chatTabsValue `shared("bw.chat-tabs")`
+ * @param {number} now
+ * @returns {{ nextViews: Record<string, TabScreen> | null, nextPending: PendingTabView[] | null }}
+ */
+export function adoptTabViews(viewsValue, pendingValue, spaces, panes, chatTabsValue, now) {
+  const views = readTabViews(viewsValue);
+  const pending = readPendingTabViews(pendingValue);
+  const chatTabs = readChatTabs(chatTabsValue);
+  const liveTabs = new Set(spaces.flatMap((sp) => sp.tabs.map((/** @type {any} */ t) => t.id)));
+  let viewsChanged = false;
+  let pendingChanged = false;
+
+  for (const id of Object.keys(views)) {
+    if (!liveTabs.has(id)) {
+      delete views[id];
+      viewsChanged = true;
+    }
+  }
+
+  const claimed = new Set(Object.keys(views));
+  for (const id of Object.keys(chatTabs.tabs)) claimed.add(id);
+
+  /** @type {PendingTabView[]} */
+  const waiting = [];
+  for (const p of pending) {
+    const matchTab = (/** @type {any} */ t) =>
+      !claimed.has(t.id) && (p.name === null ? !t.named : t.name === p.name) && Boolean(terminalPaneIn(panes, t.id));
+    let found = null;
+    if (p.space !== null) {
+      const space = spaces.find((s) => s.id === p.space);
+      found = space?.tabs.find((/** @type {any} */ t) => !p.beforeTabs.includes(t.id) && matchTab(t)) ?? null;
+    } else {
+      for (const space of spaces) {
+        if (p.beforeSpaces.includes(space.id) || (space.machine ?? null) !== p.machine) continue;
+        if (p.folder !== null && trimSlash(space.folder) !== trimSlash(p.folder)) continue;
+        const t = space.tabs[0];
+        if (t && matchTab(t)) {
+          found = t;
+          break;
+        }
+      }
+    }
+    if (found) {
+      views[found.id] = "panes";
+      claimed.add(found.id);
+      viewsChanged = true;
+      pendingChanged = true;
+    } else if (now - p.at > CHAT_PENDING_MS) {
+      pendingChanged = true;
+    } else {
+      waiting.push(p);
+    }
+  }
+
+  return {
+    nextViews: viewsChanged ? views : null,
+    nextPending: pendingChanged ? waiting : null,
+  };
+}
+
+/**
+ * Whether `tabId` is a chat-capable tab (listed in `bw.chat-tabs` or holding a Claude/Codex terminal pane).
+ * @param {string | null} tabId
+ * @param {any[]} panes
+ * @param {unknown} chatTabs
+ * @returns {boolean}
+ */
+export function isChatTab(tabId, panes, chatTabs) {
+  if (!tabId) return false;
+  if (readChatTabs(chatTabs).tabs[tabId]) return true;
+  return panes.some((p) => p.tab === tabId && !p.mod && paneKind(p) !== null);
+}
+
+/**
+ * Resolves `tabId`'s desired screen (`"chat"` or `"panes"`).
+ * @param {string | null} tabId
+ * @param {any[]} panes
+ * @param {unknown} chatTabs
+ * @param {unknown} tabViews
+ * @returns {TabScreen}
+ */
+export function desiredScreen(tabId, panes, chatTabs, tabViews) {
+  if (!tabId) return "chat";
+  const override = readTabViews(tabViews)[tabId];
+  if (override === "panes") return "panes";
+  const chat = isChatTab(tabId, panes, chatTabs);
+  if (override === "chat" && chat) return "chat";
+  return chat ? "chat" : "panes";
+}
+
+/**
+ * Resolves the target Claude/Codex agent pane in `tabId` in priority order:
+ * `bw.chat-agent[tabId]` -> focused Claude/Codex pane -> `bw.chat-tabs[tabId]` -> first Claude/Codex pane.
+ * @param {string | null} tabId
+ * @param {any[]} panes
+ * @param {unknown} [chatTabs]
+ * @param {unknown} [chatAgents]
+ * @returns {{ pane: string, terminal: string, kind: ChatKind } | null}
+ */
+export function resolveTabAgent(tabId, panes, chatTabs = null, chatAgents = null) {
+  if (!tabId) return null;
+  const agentPanes = panes
+    .filter((p) => p.tab === tabId && !p.mod && isStr(p.terminal) && paneKind(p) !== null)
+    .map((p) => ({
+      pane: String(p.pane ?? ""),
+      terminal: p.terminal,
+      kind: /** @type {ChatKind} */ (paneKind(p)),
+      focused: Boolean(p.focused),
+    }));
+  if (agentPanes.length === 0) return null;
+  const pinned = isObj(chatAgents) ? /** @type {any} */ (chatAgents)[tabId] : null;
+  if (isStr(pinned)) {
+    const hit = agentPanes.find((p) => p.terminal === pinned);
+    if (hit) return { pane: hit.pane, terminal: hit.terminal, kind: hit.kind };
+  }
+  const focusedPane = agentPanes.find((p) => p.focused);
+  if (focusedPane) return { pane: focusedPane.pane, terminal: focusedPane.terminal, kind: focusedPane.kind };
+  const recorded = readChatTabs(chatTabs).tabs[tabId]?.terminal;
+  if (isStr(recorded)) {
+    const hit = agentPanes.find((p) => p.terminal === recorded);
+    if (hit) return { pane: hit.pane, terminal: hit.terminal, kind: hit.kind };
+  }
+  const first = agentPanes[0];
+  return { pane: first.pane, terminal: first.terminal, kind: first.kind };
+}
+
+/**
+ * Resolves the active terminal address in `tabId` (target agent terminal, else focused terminal, else first terminal).
+ * @param {string | null} tabId
+ * @param {any[]} panes
+ * @param {unknown} [chatTabs]
+ * @param {unknown} [chatAgents]
+ * @returns {string | null}
+ */
+export function resolveTabTerminal(tabId, panes, chatTabs = null, chatAgents = null) {
+  if (!tabId) return null;
+  const agent = resolveTabAgent(tabId, panes, chatTabs, chatAgents);
+  if (agent) return agent.terminal;
+  const terms = panes.filter((p) => p.tab === tabId && !p.mod && isStr(p.terminal));
+  return (terms.find((p) => p.focused) ?? terms[0])?.terminal ?? null;
+}
+
+/**
+ * When `adopt` or `adoptTabViews` next has a pending expiry by the clock alone, or null.
+ * @param {unknown} value `shared("bw.chat-tabs")`
+ * @param {unknown} [pendingViews] `shared("bw.tab-view.pending")`
  * @returns {number | null}
  */
-export function wakeAt(value) {
+export function wakeAt(value, pendingViews = null) {
   const s = readChatTabs(value);
-  const times = [
-    ...s.pending.map((p) => p.at + CHAT_PENDING_MS + 1),
-    ...Object.values(s.tabs)
-      .filter((e) => e.chatPane === null && !e.failed && e.split)
-      .map((e) => /** @type {{ at: number }} */ (e.split).at + SPLIT_RETRY_MS),
-  ];
+  const pv = readPendingTabViews(pendingViews);
+  const times = [...s.pending.map((p) => p.at + CHAT_PENDING_MS + 1), ...pv.map((p) => p.at + CHAT_PENDING_MS + 1)];
   return times.length ? Math.min(...times) : null;
-}
-
-/**
- * @param {Entry} e
- * @param {any[]} panes PaneInfo[]
- */
-function panesOf(e, panes) {
-  const chat =
-    e.chatPane === null
-      ? null
-      : (panes.find((p) => p.pane === e.chatPane && p.tab === e.tab && p.mod === "bw-chat") ?? null);
-  const term = panes.find((p) => p.pane === e.terminalPane && p.tab === e.tab && p.terminal === e.terminal) ?? null;
-  return { chat, term };
-}
-
-/**
- * The commands ⌘J runs in the active tab: none unless it is a chat tab with both panes present.
- * @param {unknown} value
- * @param {string | null} activeTabId
- * @param {any[]} panes PaneInfo[]
- * @returns {Action[]}
- */
-export function flipActions(value, activeTabId, panes) {
-  const e = activeTabId === null ? null : readChatTabs(value).tabs[activeTabId];
-  if (!e) return [];
-  const { chat, term } = panesOf(e, panes);
-  if (!chat || !term) return [];
-  /** @param {any} from @param {any} to @returns {Action[]} */
-  const swap = (from, to) => [
-    ["pane.zoom", { pane: from.pane }],
-    ["pane.zoom", { pane: to.pane }],
-    ["pane.focus", { pane: to.pane }],
-  ];
-  if (chat.zoomed) return swap(chat, term);
-  if (term.zoomed) return swap(term, chat);
-  // With focus outside both panes, the chat is the one shown.
-  const target = chat.focused ? term : chat;
-  return [
-    ["pane.zoom", { pane: target.pane }],
-    ["pane.focus", { pane: target.pane }],
-  ];
 }
 
 /**
@@ -379,11 +591,8 @@ export function entryForTerminal(value, terminal) {
   return Object.values(readChatTabs(value).tabs).find((e) => e.terminal === terminal) ?? null;
 }
 
-/** `shared` key: the bw-chat panes on screen, which bw-tabs stores because Herdr draws no hidden copy. */
-export const CHAT_SHOWN = "bw.chat-shown";
-
 /**
- * The bw-chat panes on screen: in the active space's active tab, zoomed or in a tab with no zoom. Sorted.
+ * Legacy helper for per-pane `bw-chat` instances: the bw-chat panes on screen in the active tab.
  * @param {any[]} spaces SpaceInfo[]
  * @param {any[]} panes PaneInfo[]
  * @returns {string[]}
@@ -422,27 +631,27 @@ export function shownFrom(stored, pane, fallback) {
   return Array.isArray(stored) && stored.includes(pane);
 }
 
-/** `shared` key: the focused terminal and when focus last left each one, which bw-tabs keeps for the chats'
- *  focus guard, because Herdr draws no hidden chat to see its terminal take focus. */
-export const TERMINAL_FOCUS = "bw.terminal-focus";
-const FOCUS_KEEP_MS = 60_000;
-
 /**
- * The focus record after `focused()?.terminal` is `focused` at `now`, or null when it is unchanged.
- * Leaves older than a minute are dropped.
- * @param {unknown} stored @param {string | null} focused @param {number} now
+ * The focus record after `focused()?.terminal` is `focused` at `now`, or null when unchanged.
+ * Treating `screenActive !== "panes"` as `focused = null` records `leftAt` immediately when switching
+ * from `panes` to `chat` or `needs`, starting the 3 s answer-button cooldown cleanly.
+ * @param {unknown} stored
+ * @param {string | null} focused
+ * @param {number} now
+ * @param {string} [screenActive]
  * @returns {{ focused: string | null, left: Record<string, number> } | null}
  */
-export function focusRecord(stored, focused, now) {
+export function focusRecord(stored, focused, now, screenActive = "panes") {
+  const active = screenActive === "panes" ? focused : null;
   const was =
     isObj(stored) && strOrNull(/** @type {any} */ (stored).focused) ? /** @type {any} */ (stored).focused : null;
-  if (isObj(stored) ? was === focused : focused === null) return null;
+  if (isObj(stored) ? was === active : active === null) return null;
   const old = isObj(stored) && isObj(/** @type {any} */ (stored).left) ? /** @type {any} */ (stored).left : {};
   /** @type {Record<string, number>} */
   const left = {};
-  for (const [t, at] of Object.entries(old)) if (isNum(at) && now - at < FOCUS_KEEP_MS && t !== focused) left[t] = at;
-  if (was !== null && was !== focused) left[was] = now;
-  return { focused, left };
+  for (const [t, at] of Object.entries(old)) if (isNum(at) && now - at < FOCUS_KEEP_MS && t !== active) left[t] = at;
+  if (was !== null && was !== active) left[was] = now;
+  return { focused: active, left };
 }
 
 /** When focus last left `terminal` by the record, or null. @param {unknown} stored @param {string | null} terminal */
@@ -468,7 +677,7 @@ export function isShown(entry, spaces, panes) {
 }
 
 /**
- * The argv a chat tab starts its agent with; phase 4 passes its per-session additions as `extras`.
+ * The argv a chat tab starts its agent with; per-session browser flags pass as `extras`.
  * @param {ChatKind} _kind
  * @param {string[]} run `agent.run` from knownAgents
  * @param {string[]} [extras]

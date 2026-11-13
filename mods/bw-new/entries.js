@@ -160,6 +160,19 @@ export function terminalLaunch(action, ctx, argv) {
 }
 
 /**
+ * Pending `panes` screen marker for a "New terminal" launch (`Shell`, `Claude`, or `Codex`).
+ * @param {MenuContext} ctx
+ * @param {any[]} spaces
+ * @param {string | null} name
+ * @returns {Omit<import("./chat-tabs.js").PendingTabView, "id" | "at">}
+ */
+export function terminalPending(ctx, spaces, name) {
+  const { space, machine, folder } = ctx;
+  const beforeTabs = space ? (spaces.find((s) => s.id === space)?.tabs ?? []).map((/** @type {any} */ t) => t.id) : [];
+  return { machine, space, folder, beforeTabs, beforeSpaces: spaces.map((s) => s.id), name };
+}
+
+/**
  * The Codex profile an agent's run argv selects; with several, the last.
  * @param {string[]} run
  * @returns {string | null}

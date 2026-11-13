@@ -14,7 +14,7 @@ import {
   shared,
   spaces,
 } from "herdr";
-import { addPending, chatArgv } from "./chat-tabs.js";
+import { PENDING_TAB_VIEW, addPending, addPendingTabView, chatArgv } from "./chat-tabs.js";
 import {
   argsRequest,
   chatLaunch,
@@ -23,6 +23,7 @@ import {
   launchFolder,
   menuEntries,
   terminalLaunch,
+  terminalPending,
 } from "./entries.js";
 import { createHelper } from "./helper.js";
 import { ICONS, appear, card, hoverFill, programIcon, spinner, themeColors } from "./ui.js";
@@ -127,6 +128,11 @@ export default class NewMenu extends View {
       run(command[0], command[1]);
     } else if (action[0] === "run") {
       const [name, args] = terminalLaunch(action, ctx, argv);
+      const tabName = typeof (args.name ?? args.tab) === "string" ? String(args.name ?? args.tab) : null;
+      setShared(
+        PENDING_TAB_VIEW,
+        addPendingTabView(shared(PENDING_TAB_VIEW), terminalPending(ctx, all, tabName), Date.now()),
+      );
       run(name, args);
     }
     if (notice) notify({ title: "Started without the browser", body: notice, level: "warning" });
@@ -179,8 +185,13 @@ export default class NewMenu extends View {
             return;
           }
           if (overlay) closeOverlay(overlay);
-          if (r.action[0] === "run") run(r.action[1], r.action[2]);
-          else if (r.action[0] === "overlay") openOverlay(r.action[1]);
+          if (r.action[0] === "run") {
+            setShared(
+              PENDING_TAB_VIEW,
+              addPendingTabView(shared(PENDING_TAB_VIEW), terminalPending(ctx, all, null), Date.now()),
+            );
+            run(r.action[1], r.action[2]);
+          } else if (r.action[0] === "overlay") openOverlay(r.action[1]);
         })
         .child(hoverFill(t, `hover-${r.id}`, live && this.hovered === r.id, 8))
         .child(icon(r))

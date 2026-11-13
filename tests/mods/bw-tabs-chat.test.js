@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test, setSystemTime } from "bun:test";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { live, mount } from "../harness/mount.js";
 import { fake, inPhase, violations } from "../harness/herdr-stub.js";
 import { byId, findAll } from "../harness/kit-stub.js";
@@ -23,9 +23,28 @@ function commands() {
   };
 }
 
-/** chat-tab.json with tb8 not yet a chat tab: a pending Claude chat, no chat pane. @param {number} at */
-function pendingClaude(at) {
+/** Stack-mode chat-tab fixture with legacy bw-chat split panes already removed. */
+function stackChatTab() {
   const data = live("chat-tab");
+  data.panes = data.panes.filter((p) => p.mod !== "bw-chat");
+  for (const sp of data.spaces) {
+    for (const t of sp.tabs) {
+      t.panes = 1;
+      t.zoomed = false;
+    }
+  }
+  for (const e of Object.values(data.shared[KEY].tabs)) {
+    e.chatPane = null;
+    e.split = null;
+    e.zoomed = false;
+    e.failed = false;
+  }
+  return data;
+}
+
+/** Stack-mode fixture with tb8 not yet recorded: a pending Claude chat. @param {number} at */
+function pendingClaude(at) {
+  const data = stackChatTab();
   const s = data.shared[KEY];
   delete s.tabs.tb8;
   s.pending = [
@@ -41,31 +60,9 @@ function pendingClaude(at) {
       at,
     },
   ];
-  data.panes = data.panes.filter((p) => p.pane !== "p9");
-  data.spaces[0].tabs[1].zoomed = false;
   data.spaces[0].tabs[1].name = "Claude Code";
-  data.shared["bw.window-id"] = "w-book";
   return data;
 }
-
-const chatPane = {
-  pane: "p9",
-  terminal: null,
-  mod: "bw-chat",
-  tab: "tb8",
-  title: "Chat",
-  focused: false,
-  zoomed: false,
-};
-const split = [
-  "pane.split",
-  {
-    direction: "right",
-    pane: "p8",
-    mod: "bw-chat",
-    props: { terminal: "t8", machine: null, kind: "claude", window: "w-book" },
-  },
-];
 
 /** Runs the i-th timer.after callback as Herdr would, with phase "timer". @param {any} m @param {number} i */
 async function fireAfter(m, i) {
@@ -76,78 +73,95 @@ async function fireAfter(m, i) {
   await m.cx.flush();
 }
 
-/** bw-tabs's shared writes other than the shown chats and focus record it keeps for hidden bw-chat copies. @param {any} m */
-const kept = (m) => m.log.shared.filter(([k]) => k !== "bw.chat-shown" && k !== "bw.terminal-focus");
+const chatWrites = (/** @type {any} */ m) => m.log.shared.filter(([k]) => k === KEY);
 
-describe("bw-tabs chat adoption", () => {
-  test("bw-tabs adopts the new tab: split, then zoom once across renders", async () => {
+describe("bw-tabs stack chat adoption and migration", () => {
+  test("adopts a new chat tab without pane.split or pane.zoom", async () => {
     const m = await mount("bw-tabs", { live: pendingClaude(Date.now()) });
-    expect(m.log.run).toEqual([split]);
-    const adopted = kept(m).at(-1)[1];
+    expect(m.log.run).toEqual([]);
+    const adopted = chatWrites(m).at(-1)[1];
     expect(adopted.pending).toEqual([]);
-    expect(adopted.tabs.tb8).toMatchObject({ terminal: "t8", terminalPane: "p8", chatPane: null, kind: "claude" });
-    expect(adopted.tabs["macmini/tb5"]).toEqual(live("chat-tab").shared[KEY].tabs["macmini/tb5"]);
+    expect(adopted.tabs.tb8).toMatchObject({
+      terminal: "t8",
+      terminalPane: "p8",
+      chatPane: null,
+      split: null,
+      zoomed: false,
+      kind: "claude",
+    });
+    expect(fake.shared["bw.screen"]).toBe("chat");
 
-    const writes = kept(m).length;
+    const count = chatWrites(m).length;
     m.render();
-    expect(m.log.run).toEqual([split]);
-    expect(kept(m).length).toBe(writes);
-
-    fake.panes = [...fake.panes, chatPane];
-    m.render();
-    expect(m.log.run).toEqual([split, ["pane.zoom", { pane: "p9" }]]);
-    expect(kept(m).at(-1)[1].tabs.tb8).toMatchObject({ chatPane: "p9", zoomed: true });
-    m.render();
-    m.render();
-    expect(m.log.run).toEqual([split, ["pane.zoom", { pane: "p9" }]]);
-    expect(kept(m).length).toBe(writes + 1);
+    expect(m.log.run).toEqual([]);
+    expect(chatWrites(m).length).toBe(count);
     expect(m.log.notify).toEqual([]);
   });
 
-  test("an app home with no window id stores one before the first split names it", async () => {
-    const data = pendingClaude(Date.now());
-    delete data.shared["bw.window-id"];
-    const m = await mount("bw-tabs", { live: data });
-    const id = m.log.shared.find(([k]) => k === "bw.window-id")?.[1];
-    expect(typeof id).toBe("string");
-    expect(kept(m)[0][0]).toBe("bw.window-id");
-    expect(m.log.run).toEqual([["pane.split", { ...split[1], props: { ...split[1].props, window: id } }]]);
+  test("unzooms and closes legacy bw-chat split panes once without repeating while close is in flight", async () => {
+    const m = await mount("bw-tabs", { live: live("chat-tab") });
+    expect(m.log.run).toEqual([
+      ["pane.zoom", { pane: "p9" }],
+      ["pane.close", { pane: "p9" }],
+      ["pane.zoom", { pane: "macmini/p6" }],
+      ["pane.close", { pane: "macmini/p6" }],
+    ]);
+    expect(chatWrites(m).at(-1)[1].closing).toEqual(["p9", "macmini/p6"]);
+
+    m.render();
+    expect(m.log.run).toHaveLength(4);
+
+    fake.panes = fake.panes.filter((p) => p.mod !== "bw-chat");
+    m.render();
+    expect(m.log.run).toHaveLength(4);
+    expect(chatWrites(m).at(-1)[1].closing).toBe(undefined);
   });
 
-  test("nothing to adopt writes nothing and runs nothing", async () => {
-    const m = await mount("bw-tabs", { live: live("chat-tab") });
+  test("settled stack state writes nothing and schedules no timers", async () => {
+    const data = stackChatTab();
+    data.shared["bw.screen"] = "chat";
+    data.shared["bw.chat-shown"] = [];
+    const m = await mount("bw-tabs", { live: data });
     m.render();
     expect(m.log.run).toEqual([]);
-    expect(kept(m)).toEqual([]);
+    expect(chatWrites(m)).toEqual([]);
     expect(m.cx.afters).toEqual([]);
   });
 
-  test("expired pending is dropped with a notification", async () => {
-    const data = pendingClaude(Date.now() - 30001);
-    data.spaces[0].tabs = data.spaces[0].tabs.filter((t) => t.id !== "tb8");
-    data.panes = data.panes.filter((p) => p.tab !== "tb8");
+  test("adopts pending New terminal launches into bw.tab-view = panes and switches screen to panes", async () => {
+    const data = stackChatTab();
+    data.shared["bw.tab-view.pending"] = [
+      {
+        id: "tv-1",
+        machine: null,
+        space: "s1",
+        folder: "/r/alpha",
+        beforeTabs: ["tb7"],
+        beforeSpaces: ["s1", "macmini/s3"],
+        name: "Claude",
+        at: Date.now(),
+      },
+    ];
+    delete data.shared[KEY].tabs.tb8;
     const m = await mount("bw-tabs", { live: data });
-    expect(m.log.notify).toEqual([
-      { title: "Claude Code chat did not start", body: "No new tab appeared within 30 s.", level: "warning" },
+    expect(fake.shared["bw.tab-view"]).toEqual({ tb8: "panes" });
+    expect(fake.shared["bw.screen"]).toBe("panes");
+    expect(m.log.run).toEqual([
+      ["layout.select", { stack: "screen", child: "panes" }],
+      ["pane.focus", { terminal: "t8" }],
     ]);
-    expect(kept(m).at(-1)[1].pending).toEqual([]);
-    m.render();
-    expect(m.log.notify).toHaveLength(1);
-    expect(m.log.run).toEqual([]);
   });
 
-  test("a pending chat expires by the clock alone: one timer, its callback only notifies", async () => {
+  test("expired pending chat drops with a warning notification via clock timer without live reads in timer", async () => {
     const start = Date.now();
     setSystemTime(start);
     const data = pendingClaude(start);
     data.spaces[0].tabs = data.spaces[0].tabs.filter((t) => t.id !== "tb8");
     data.panes = data.panes.filter((p) => p.tab !== "tb8");
+    data.spaces[0].tabs[0].active = true;
     const m = await mount("bw-tabs", { live: data });
     await m.cx.flush();
     expect(m.cx.afters.map((a) => a.ms)).toEqual([30001]);
-    m.render();
-    await m.cx.flush();
-    expect(m.cx.afters).toHaveLength(1);
 
     setSystemTime(start + 30001);
     const notified = m.cx.notified;
@@ -160,34 +174,6 @@ describe("bw-tabs chat adoption", () => {
     expect(m.log.notify).toEqual([
       { title: "Claude Code chat did not start", body: "No new tab appeared within 30 s.", level: "warning" },
     ]);
-    await m.cx.flush();
-    expect(m.cx.afters).toHaveLength(1);
-  });
-
-  test("split retried once after 5 s, then a notification, each woken by its timer", async () => {
-    const start = Date.now();
-    setSystemTime(start);
-    const m = await mount("bw-tabs", { live: pendingClaude(start) });
-    await m.cx.flush();
-    expect(m.log.run).toEqual([split]);
-    expect(m.cx.afters.map((a) => a.ms)).toEqual([5000]);
-
-    setSystemTime(start + 5000);
-    await fireAfter(m, 0);
-    m.render();
-    expect(m.log.run).toEqual([split, split]);
-    await m.cx.flush();
-    expect(m.cx.afters.map((a) => a.ms)).toEqual([5000, 5000]);
-
-    setSystemTime(start + 10000);
-    await fireAfter(m, 1);
-    m.render();
-    expect(m.log.run).toEqual([split, split]);
-    expect(m.log.notify).toEqual([
-      { title: "Chat pane did not open", body: "The agent keeps running in this tab.", level: "warning" },
-    ]);
-    await m.cx.flush();
-    expect(m.cx.afters).toHaveLength(2);
   });
 
   test("a wake under a second waits a second", async () => {
@@ -196,149 +182,147 @@ describe("bw-tabs chat adoption", () => {
     const data = pendingClaude(start - 29500);
     data.spaces[0].tabs = data.spaces[0].tabs.filter((t) => t.id !== "tb8");
     data.panes = data.panes.filter((p) => p.tab !== "tb8");
+    data.spaces[0].tabs[0].active = true;
     const m = await mount("bw-tabs", { live: data });
     await m.cx.flush();
     expect(m.cx.afters.map((a) => a.ms)).toEqual([1000]);
   });
 });
 
-describe("bw-tabs ⌘J", () => {
-  test("⌘J flips chat → terminal and back", async () => {
+describe("bw-tabs screen routing and shortcuts", () => {
+  test("⌘J flips chat <-> panes with explicit focus handoff", async () => {
     const c = commands();
-    const m = await mount("bw-tabs", { live: { ...live("chat-tab"), nextCommand: c.next } });
+    const m = await mount("bw-tabs", { live: { ...stackChatTab(), nextCommand: c.next } });
+    expect(fake.shared["bw.screen"]).toBe("chat");
+
     c.send("chat-flip");
     await m.cx.flush();
     expect(m.log.run).toEqual([]);
     m.render();
+    expect(fake.shared["bw.tab-view"]).toEqual({ tb8: "panes" });
+    expect(fake.shared["bw.screen"]).toBe("panes");
     expect(m.log.run).toEqual([
-      ["pane.zoom", { pane: "p9" }],
-      ["pane.zoom", { pane: "p8" }],
-      ["pane.focus", { pane: "p8" }],
+      ["layout.select", { stack: "screen", child: "panes" }],
+      ["pane.focus", { terminal: "t8" }],
     ]);
-    m.render();
-    expect(m.log.run).toHaveLength(3);
 
-    fake.panes = fake.panes.map((p) =>
-      p.pane === "p9"
-        ? { ...p, zoomed: false, focused: false }
-        : p.pane === "p8"
-          ? { ...p, zoomed: true, focused: true }
-          : p,
-    );
+    // Simulate Herdr updating layout.screen.active to "panes".
+    const setScreen = (/** @type {any} */ n, /** @type {string} */ active) => {
+      if (n.id === "screen") n.active = active;
+      for (const ch of n.children ?? []) setScreen(ch, active);
+    };
+    setScreen(fake.layout, "panes");
+    m.render();
+    expect(m.log.run).toHaveLength(2);
+
     c.send("chat-flip");
     await m.cx.flush();
     m.render();
-    expect(m.log.run.slice(3)).toEqual([
-      ["pane.zoom", { pane: "p8" }],
-      ["pane.zoom", { pane: "p9" }],
-      ["pane.focus", { pane: "p9" }],
-    ]);
+    expect(fake.shared["bw.tab-view"]).toEqual({ tb8: "chat" });
+    expect(fake.shared["bw.screen"]).toBe("chat");
+    expect(m.log.run.slice(2)).toEqual([["layout.select", { stack: "screen", child: "chat" }], ["bw-chat.focus"]]);
   });
 
-  test("the command task only marks the flip and redraws", async () => {
+  test("the command task only queues the command and redraws without reading live data", async () => {
     const c = commands();
-    const m = await mount("bw-tabs", { live: { ...live("chat-tab"), nextCommand: c.next } });
+    const m = await mount("bw-tabs", { live: { ...stackChatTab(), nextCommand: c.next } });
     const notified = m.cx.notified;
     const reads = m.log.live.length;
     c.send("chat-flip");
     await m.cx.flush();
     expect(m.cx.notified).toBe(notified + 1);
     expect(m.log.live.length).toBe(reads);
-    expect(m.view.flip).toBe(true);
+    expect(m.view.pendingCmds).toEqual(["chat-flip"]);
     m.render();
-    expect(m.view.flip).toBe(false);
+    expect(m.view.pendingCmds).toEqual([]);
   });
 
-  test("⌘J flips an existing chat tab in an app home that never recorded it", async () => {
+  test("switching from a chat tab to a shell tab routes screen to panes and ignores ⌘J on shell tabs", async () => {
     const c = commands();
-    const data = live("chat-tab");
-    data.shared = {};
-    const m = await mount("bw-tabs", { live: { ...data, nextCommand: c.next } });
-    expect(Object.keys(kept(m).at(-1)[1].tabs).sort()).toEqual(["macmini/tb5", "tb8"]);
+    const m = await mount("bw-tabs", { live: { ...stackChatTab(), nextCommand: c.next } });
     expect(m.log.run).toEqual([]);
-    c.send("chat-flip");
-    await m.cx.flush();
+
+    fake.spaces[0].tabs = fake.spaces[0].tabs.map((t) => ({ ...t, active: t.id === "tb7" }));
     m.render();
+    expect(fake.shared["bw.screen"]).toBe("panes");
     expect(m.log.run).toEqual([
-      ["pane.zoom", { pane: "p9" }],
-      ["pane.zoom", { pane: "p8" }],
-      ["pane.focus", { pane: "p8" }],
+      ["layout.select", { stack: "screen", child: "panes" }],
+      ["pane.focus", { terminal: "t7" }],
     ]);
-  });
 
-  test("terminal gone: flip does nothing", async () => {
-    const c = commands();
-    const data = live("chat-tab");
-    data.panes = data.panes.filter((p) => p.pane !== "p8");
-    const m = await mount("bw-tabs", { live: { ...data, nextCommand: c.next } });
     c.send("chat-flip");
     await m.cx.flush();
     m.render();
-    expect(m.log.run).toEqual([]);
+    expect(m.log.run).toHaveLength(2);
   });
 
-  test("flip on a terminal tab does nothing", async () => {
+  test("⌘⇧', ⌘⇧N, and ⌘⇧O peek terminal and toggle needs and overview screens", async () => {
     const c = commands();
-    const data = live("chat-tab");
-    data.spaces[0].tabs = data.spaces[0].tabs.map((t) => ({ ...t, active: t.id === "tb7" }));
-    const m = await mount("bw-tabs", { live: { ...data, nextCommand: c.next } });
-    c.send("chat-flip");
-    await m.cx.flush();
-    m.render();
-    expect(m.log.run).toEqual([]);
-    // A flip asked for on a terminal tab is not kept for the next chat tab.
-    fake.spaces = live("chat-tab").spaces;
-    m.render();
-    expect(m.log.run).toEqual([]);
-  });
+    const m = await mount("bw-tabs", { live: { ...stackChatTab(), nextCommand: c.next } });
 
-  test("other commands do nothing", async () => {
-    const c = commands();
-    const m = await mount("bw-tabs", { live: { ...live("chat-tab"), nextCommand: c.next } });
-    c.send("focus");
+    c.send("terminal-peek");
     await m.cx.flush();
     m.render();
-    expect(m.log.run).toEqual([]);
-    c.send("chat-flip");
-    await m.cx.flush();
-    m.render();
-    expect(m.log.run).toHaveLength(3);
-  });
-});
+    expect(m.log.run).toEqual([["terminal.peek", { terminal: "t8" }]]);
 
-describe("bw-tabs shown chats", () => {
-  test("stores the chat panes on screen for hidden bw-chat copies, and writes again only when they change", async () => {
-    const m = await mount("bw-tabs", { live: live("chat-tab") });
-    expect(fake.shared["bw.chat-shown"]).toEqual(["p9"]);
-    const writes = () => m.log.shared.filter(([k]) => k === "bw.chat-shown").length;
-    const before = writes();
+    c.send("needs-toggle");
+    await m.cx.flush();
     m.render();
-    expect(writes()).toBe(before);
-    fake.panes = fake.panes.map((p) =>
-      p.pane === "p9" ? { ...p, zoomed: false } : p.pane === "p8" ? { ...p, zoomed: true } : p,
-    );
+    expect(fake.shared["bw.screen"]).toBe("needs");
+    expect(m.log.run.slice(1)).toEqual([["layout.select", { stack: "screen", child: "needs" }], ["bw-needs.focus"]]);
+
+    c.send("overview-toggle");
+    await m.cx.flush();
     m.render();
-    expect(fake.shared["bw.chat-shown"]).toEqual([]);
-    expect(writes()).toBe(before + 1);
+    expect(fake.shared["bw.screen"]).toBe("overview");
+    expect(m.log.run.slice(3)).toEqual([["layout.select", { stack: "screen", child: "overview" }]]);
+
+    // Clicking a tab while overview is active selects the tab and exits overview back to its screen.
+    const setScreen = (/** @type {any} */ n, /** @type {string} */ active) => {
+      if (n.id === "screen") n.active = active;
+      for (const ch of n.children ?? []) setScreen(ch, active);
+    };
+    setScreen(fake.layout, "overview");
+    m.render();
+    const beforeClick = m.log.run.length;
+    await m.click("tab-tb8");
+    m.render();
+    expect(m.log.run.slice(beforeClick)).toEqual([
+      ["tab.select", { id: "tb8" }],
+      ["layout.select", { stack: "screen", child: "chat" }],
+      ["bw-chat.focus"],
+    ]);
   });
 });
 
 describe("bw-tabs terminal focus", () => {
-  test("records when focus leaves a terminal, for a chat copy that was not drawn meanwhile", async () => {
+  test("records leftAt immediately when switching from panes to chat even before focused() changes", async () => {
     setSystemTime(new Date(1794032000000));
-    const m = await mount("bw-tabs", { live: { ...live("chat-tab"), focused: { pane: "p8", terminal: "t8" } } });
+    const c = commands();
+    const data = stackChatTab();
+    data.shared["bw.tab-view"] = { tb8: "panes" };
+    const walk = (/** @type {any} */ n) => {
+      if (n.id === "screen") n.active = "panes";
+      for (const ch of n.children ?? []) walk(ch);
+    };
+    data.layout = structuredClone(fake.layout);
+    walk(data.layout);
+    data.focused = { pane: "p8", terminal: "t8" };
+
+    const m = await mount("bw-tabs", { live: { ...data, nextCommand: c.next } });
     expect(fake.shared["bw.terminal-focus"]).toEqual({ focused: "t8", left: {} });
+
     setSystemTime(new Date(1794032005000));
-    fake.focused = { pane: "p9", terminal: null };
+    c.send("chat-flip");
+    await m.cx.flush();
     m.render();
     expect(fake.shared["bw.terminal-focus"]).toEqual({ focused: null, left: { t8: 1794032005000 } });
-    setSystemTime();
   });
 });
 
 describe("bw-tabs chat tab icon", () => {
   test("chat tab shows its agent's icon", async () => {
-    const m = await mount("bw-tabs", { live: live("chat-tab") });
+    const m = await mount("bw-tabs", { live: stackChatTab() });
     const icons = findAll(byId(m.el, "tab-tb8"), (e) => e.tag === "image" || e.tag === "svg").map((e) => e.attrs.path);
     expect(icons[0]).toBe("icons/claude.svg");
   });
@@ -357,7 +341,7 @@ describe("bw-tabs chat tab icon", () => {
       shell: true,
       agent: false,
     };
-    const panes = [chatPane, { pane: "p8", terminal: "t8", tab: "tb8", program: shell }];
+    const panes = [{ pane: "p8", terminal: "t8", tab: "tb8", program: shell }];
     expect(tabItems(space, panes)[0].program).toEqual(shell);
   });
 });

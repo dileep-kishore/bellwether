@@ -76,8 +76,17 @@ describe("mergeKeys", () => {
 });
 
 describe("keys/bellwether.json", () => {
-  test("binds cmd-alt-b and cmd-j in layout:bellwether", () => {
-    expect(FILE).toEqual({ "layout:bellwether": { "cmd-alt-b": "layout.toggle:right", "cmd-j": "bw-tabs.chat-flip" } });
+  test("binds all six shell and screen shortcuts in layout:bellwether", () => {
+    expect(FILE).toEqual({
+      "layout:bellwether": {
+        "cmd-alt-b": "layout.toggle:right",
+        "cmd-b": "layout.toggle:sidebar",
+        "cmd-j": "bw-tabs.chat-flip",
+        "cmd-shift-'": "bw-tabs.terminal-peek",
+        "cmd-shift-n": "bw-tabs.needs-toggle",
+        "cmd-shift-o": "bw-tabs.overview-toggle",
+      },
+    });
   });
 
   test("binds no key twice, however spelled", () => {
@@ -90,12 +99,16 @@ describe("keys/bellwether.json", () => {
   test("keys: cmd-j merges into an empty file and conflicts with a user's cmd-j", () => {
     const empty = mergeKeys(null, FILE);
     expect(empty.added).toContainEqual(["layout:bellwether", "cmd-j", "bw-tabs.chat-flip"]);
+    expect(empty.added).toContainEqual(["layout:bellwether", "cmd-b", "layout.toggle:sidebar"]);
+    expect(empty.added).toContainEqual(["layout:bellwether", "cmd-shift-'", "bw-tabs.terminal-peek"]);
+    expect(empty.added).toContainEqual(["layout:bellwether", "cmd-shift-n", "bw-tabs.needs-toggle"]);
+    expect(empty.added).toContainEqual(["layout:bellwether", "cmd-shift-o", "bw-tabs.overview-toggle"]);
     expect(empty.conflicts).toEqual([]);
     expect(empty.merged).toEqual(FILE);
 
     const layout = mergeKeys({ "layout:bellwether": { "cmd-j": "space.next" } }, FILE);
     expect(layout.conflicts).toEqual([["layout:bellwether", "cmd-j", "space.next", "bw-tabs.chat-flip"]]);
-    expect(layout.added).toEqual([["layout:bellwether", "cmd-alt-b", "layout.toggle:right"]]);
+    expect(layout.added).not.toContainEqual(["layout:bellwether", "cmd-j", "bw-tabs.chat-flip"]);
 
     const global = mergeKeys({ global: { "Cmd-J": "app.palette" } }, FILE);
     expect(global.conflicts).toEqual([["global", "Cmd-J", "app.palette", "bw-tabs.chat-flip"]]);

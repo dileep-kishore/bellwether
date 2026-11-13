@@ -1,4 +1,5 @@
-// What the tab bar draws for each tab, and where a dragged tab lands. Pure, so tests run it.
+// What the tab bar draws for each tab, where a dragged tab lands, and the window's Needs you count.
+// Pure, so tests run it.
 
 /** @typedef {import("./ui.js").Status} Status */
 
@@ -47,4 +48,39 @@ export function tabItems(space, panes) {
 export function moveIndex(items, fromId, overId) {
   if (fromId === null || fromId === overId || !items.some((i) => i.id === fromId)) return null;
   return items.find((i) => i.id === overId)?.index ?? null;
+}
+
+/**
+ * Counts blocked agents and PRs needing attention across all live spaces.
+ * @param {any[]} agents AgentInfo[]
+ * @param {any[]} panes PaneInfo[]
+ * @param {any[]} spaces SpaceInfo[]
+ * @param {unknown} prSummary `shared("bw.pr-summary")`
+ * @returns {number}
+ */
+export function needsCount(agents, panes, spaces, prSummary = null) {
+  const blocked = new Set();
+  for (const a of agents ?? []) {
+    if (a?.status === "blocked" && typeof a.address === "string" && a.address) blocked.add(a.address);
+  }
+  for (const p of panes ?? []) {
+    if (!p?.mod && p?.status === "blocked" && typeof p.terminal === "string" && p.terminal) blocked.add(p.terminal);
+  }
+  let prAttention = 0;
+  if (prSummary && typeof prSummary === "object" && !Array.isArray(prSummary)) {
+    const map = /** @type {Record<string, any>} */ (prSummary);
+    for (const sp of spaces ?? []) {
+      const pr = map[sp?.id];
+      if (!pr || typeof pr !== "object") continue;
+      if (
+        pr.attention === true ||
+        (Number(pr.failing) || 0) > 0 ||
+        (Number(pr.unresolvedThreads) || 0) > 0 ||
+        pr.reviewDecision === "CHANGES_REQUESTED"
+      ) {
+        prAttention += 1;
+      }
+    }
+  }
+  return blocked.size + prAttention;
 }

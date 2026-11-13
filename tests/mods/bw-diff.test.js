@@ -81,8 +81,9 @@ function world(machine = null, cwd = TOP) {
   };
 }
 
-/** Sets the right-body stack's active child, as layout.select does. @param {string} child */
+/** Sets the right-body stack's active child and shows the right column. @param {string} child */
 function showInLayout(child, node = fake.layout) {
+  if (node.id === "right") node.hidden = false;
   if (node.id === "right-body") node.active = child;
   for (const c of node.children ?? []) showInLayout(child, c);
 }
@@ -104,10 +105,8 @@ async function panel(o = {}) {
       watchFolder: o.watch ?? null,
     },
   });
-  if (o.hidden) {
-    showInLayout("browser");
-    m.render();
-  }
+  showInLayout(o.hidden ? "browser" : "changes");
+  m.render();
   await m.cx.flush();
   m.render();
   await m.cx.flush();
@@ -272,6 +271,8 @@ describe("model", () => {
 
   test("isShown is right-body showing changes with nothing above it hidden", () => {
     const l = structuredClone(fake.layout);
+    expect(isShown(l)).toBe(false);
+    showInLayout("changes", l);
     expect(isShown(l)).toBe(true);
     showInLayout("browser", l);
     expect(isShown(l)).toBe(false);

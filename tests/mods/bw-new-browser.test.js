@@ -501,7 +501,8 @@ describe("bw-new: the launch reads the spaces when it starts", () => {
     s1.tabs.push(tab("requested", "Claude Code"));
     fake.panes.push(pane("requested-pane", "t-new", "requested"));
     const r = adopt(value, fake.spaces, fake.panes, Date.now());
-    expect(r.actions.map((a) => /** @type {any} */ (a[1]).props?.terminal)).toEqual(["t-new"]);
+    expect(r.actions).toEqual([]);
+    expect(r.next?.tabs.requested?.terminal).toBe("t-new");
   });
 
   test("a space made while preparing is not taken as the new chat's space", async () => {
