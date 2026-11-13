@@ -365,6 +365,21 @@ the window machine itself, and runs setup in process.
 When the other machine has no helper, setup prints a `no_helper` error. [Hooks](usage.md#hooks)
 shows the same steps from the chat's dock.
 
+## `bw pr`
+
+```sh
+bw pr status --repo <owner/repo> --branch <branch> [--head <oid>] [--refresh]
+```
+
+`bw pr …` runs on the window machine, using this Mac's `gh` session (`BW_GH_BIN`, default `gh`) with
+a 10 s timeout so spaces on other machines need no GitHub token of their own. Replies cache for 60 s
+under `~/.cache/bellwether/pr/<sha256>.json` (`0600` in `0700` folder) and bypass the TTL on
+`--refresh` or when `--head` differs from the cached `headRefOid`.
+
+- `status` prints one `pr` line: `{"type":"pr","repo","branch","pr":null|{number,title,url,state,isDraft,baseRefName,headRefOid,reviewDecision,mergeStateStatus,unresolvedThreads,passing,failing,pending},"cached":bool,"age_s":u64,"stale":bool}`.
+- When `gh` is missing, unauthenticated, or offline, `status` prints the cached entry with
+  `"stale":true` when one exists, or an `error` line (`no_gh`, `unauthenticated`, `offline`).
+
 ## `bw version`
 
 ```sh
