@@ -25,18 +25,20 @@ const USAGE: &str =
 const DEFAULT_TTL_MS: i64 = 60_000;
 const DEFAULT_TIMEOUT_MS: u64 = 10_000;
 const MAX_STALE_MS: i64 = 30 * 24 * 60 * 60 * 1000;
-const CACHE_VERSION: u32 = 1;
+const CACHE_VERSION: u32 = 2;
 
 const QUERY: &str = r#"
 query($owner: String!, $name: String!, $headRefName: String!) {
   repository(owner: $owner, name: $name) {
-    open: pullRequests(headRefName: $headRefName, states: [OPEN], first: 5, orderBy: {field: UPDATED_AT, direction: DESC}) {
+    open: pullRequests(headRefName: $headRefName, states: [OPEN], first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes {
         number
         title
         url
         state
         isDraft
+        isCrossRepository
+        headRepositoryOwner { login }
         baseRefName
         headRefOid
         reviewDecision
@@ -64,13 +66,15 @@ query($owner: String!, $name: String!, $headRefName: String!) {
         }
       }
     }
-    closed: pullRequests(headRefName: $headRefName, states: [MERGED, CLOSED], first: 1, orderBy: {field: UPDATED_AT, direction: DESC}) {
+    closed: pullRequests(headRefName: $headRefName, states: [MERGED, CLOSED], first: 5, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes {
         number
         title
         url
         state
         isDraft
+        isCrossRepository
+        headRepositoryOwner { login }
         baseRefName
         headRefOid
         reviewDecision
@@ -384,11 +388,11 @@ fn query_gh(
         .args([
             "api",
             "graphql",
-            "-F",
+            "-f",
             &format!("owner={owner}"),
-            "-F",
+            "-f",
             &format!("name={name}"),
-            "-F",
+            "-f",
             &format!("headRefName={branch}"),
             "-f",
             &format!("query={QUERY}"),
@@ -433,7 +437,7 @@ fn query_gh(
 
     let stdout = stdout_handle.join().unwrap_or_default();
     let stderr = stderr_handle.join().unwrap_or_default();
-    parse_gh_output(status.success(), &stdout, &stderr)
+    parse_gh_output(status.success(), owner, &stdout, &stderr)
 }
 
 fn classify_gh_failure(stderr: &str, stdout: &str) -> Fail {
@@ -466,7 +470,21 @@ fn first_line<'a>(s: &'a str, fallback: &'a str) -> String {
         .to_string()
 }
 
-fn parse_gh_output(success: bool, stdout: &[u8], stderr: &[u8]) -> Result<Option<PrSummary>, Fail> {
+fn is_same_repo_pr(n: &Value, owner: &str) -> bool {
+    if n["isCrossRepository"].as_bool() != Some(false) {
+        return false;
+    }
+    n["headRepositoryOwner"]["login"]
+        .as_str()
+        .is_some_and(|login| login.eq_ignore_ascii_case(owner))
+}
+
+fn parse_gh_output(
+    success: bool,
+    owner: &str,
+    stdout: &[u8],
+    stderr: &[u8],
+) -> Result<Option<PrSummary>, Fail> {
     let stderr_str = String::from_utf8_lossy(stderr);
     let stdout_str = String::from_utf8_lossy(stdout);
     if !success {
@@ -494,8 +512,12 @@ fn parse_gh_output(success: bool, stdout: &[u8], stderr: &[u8]) -> Result<Option
     }
     let node = repo["open"]["nodes"]
         .as_array()
-        .and_then(|n| n.first())
-        .or_else(|| repo["closed"]["nodes"].as_array().and_then(|n| n.first()));
+        .and_then(|nodes| nodes.iter().find(|n| is_same_repo_pr(n, owner)))
+        .or_else(|| {
+            repo["closed"]["nodes"]
+                .as_array()
+                .and_then(|nodes| nodes.iter().find(|n| is_same_repo_pr(n, owner)))
+        });
     Ok(node.and_then(parse_pr_node))
 }
 
@@ -649,6 +671,8 @@ mod tests {
                             "url": "https://github.com/dkishore/bellwether/pull/17",
                             "state": "OPEN",
                             "isDraft": false,
+                            "isCrossRepository": false,
+                            "headRepositoryOwner": { "login": "dkishore" },
                             "baseRefName": "main",
                             "headRefOid": "ed8020b13676a153a8f528e5d5c6ce894ec81b3b",
                             "reviewDecision": null,
@@ -686,11 +710,93 @@ mod tests {
             }
         });
         let bytes = serde_json::to_vec(&reply).unwrap();
-        let pr = parse_gh_output(true, &bytes, b"").unwrap().unwrap();
+        let pr = parse_gh_output(true, "dkishore", &bytes, b"")
+            .unwrap()
+            .unwrap();
         assert_eq!(pr.number, 17);
         assert_eq!(pr.review_decision, None);
         assert_eq!(pr.unresolved_threads, 1);
         assert_eq!((pr.passing, pr.failing, pr.pending), (2, 1, 1));
+    }
+
+    #[test]
+    fn ignores_cross_repository_fork_prs_and_selects_same_owner_pr() {
+        let fork_only = json!({
+            "data": {
+                "repository": {
+                    "open": {
+                        "nodes": [{
+                            "number": 900,
+                            "title": "fork main PR",
+                            "url": "https://github.com/dkishore/bellwether/pull/900",
+                            "state": "OPEN",
+                            "isDraft": false,
+                            "isCrossRepository": true,
+                            "headRepositoryOwner": { "login": "stranger" },
+                            "baseRefName": "main",
+                            "headRefOid": "1111111111111111111111111111111111111111",
+                            "reviewDecision": "APPROVED",
+                            "mergeStateStatus": "CLEAN",
+                            "reviewThreads": { "totalCount": 0, "nodes": [] },
+                            "commits": { "nodes": [] }
+                        }]
+                    },
+                    "closed": { "nodes": [] }
+                }
+            }
+        });
+        let fork_bytes = serde_json::to_vec(&fork_only).unwrap();
+        assert_eq!(
+            parse_gh_output(true, "dkishore", &fork_bytes, b"").unwrap(),
+            None
+        );
+
+        let mixed = json!({
+            "data": {
+                "repository": {
+                    "open": {
+                        "nodes": [
+                            {
+                                "number": 901,
+                                "title": "fork patch-1",
+                                "url": "https://github.com/dkishore/bellwether/pull/901",
+                                "state": "OPEN",
+                                "isDraft": false,
+                                "isCrossRepository": true,
+                                "headRepositoryOwner": { "login": "stranger" },
+                                "baseRefName": "main",
+                                "headRefOid": "2222222222222222222222222222222222222222",
+                                "reviewDecision": null,
+                                "mergeStateStatus": "CLEAN",
+                                "reviewThreads": { "totalCount": 0, "nodes": [] },
+                                "commits": { "nodes": [] }
+                            },
+                            {
+                                "number": 902,
+                                "title": "local patch-1",
+                                "url": "https://github.com/dkishore/bellwether/pull/902",
+                                "state": "OPEN",
+                                "isDraft": false,
+                                "isCrossRepository": false,
+                                "headRepositoryOwner": { "login": "DKishore" },
+                                "baseRefName": "main",
+                                "headRefOid": "3333333333333333333333333333333333333333",
+                                "reviewDecision": null,
+                                "mergeStateStatus": "CLEAN",
+                                "reviewThreads": { "totalCount": 0, "nodes": [] },
+                                "commits": { "nodes": [] }
+                            }
+                        ]
+                    },
+                    "closed": { "nodes": [] }
+                }
+            }
+        });
+        let mixed_bytes = serde_json::to_vec(&mixed).unwrap();
+        let picked = parse_gh_output(true, "dkishore", &mixed_bytes, b"")
+            .unwrap()
+            .unwrap();
+        assert_eq!(picked.number, 902);
     }
 
     #[test]
@@ -741,6 +847,7 @@ mod tests {
     fn classifies_unauthenticated_and_offline_errors() {
         let auth = parse_gh_output(
             false,
+            "dkishore",
             b"",
             b"To get started with GitHub CLI, please run:  gh auth login\n",
         )
@@ -750,6 +857,7 @@ mod tests {
 
         let net = parse_gh_output(
             false,
+            "dkishore",
             b"",
             b"Post \"https://api.github.com/graphql\": dial tcp: i/o timeout\n",
         )

@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use herdr_core::conversation::{ConversationParser, FileScope};
 use herdr_core::hc::mapper::Term;
@@ -10,10 +10,11 @@ use herdr_core::{ItemKind, QuestionState};
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use super::store::{self, QueueState, StoreError};
+use super::store::{self, QueueItem, QueueState, StoreError};
 use crate::chat::locate::{self, LocateFailure};
 use crate::chat::send::{self, Expect, SendOutcome};
 use crate::chat::{cache, tail};
+use crate::events;
 use crate::hc;
 use crate::requests::{cards, counts, store as req_store};
 
@@ -102,7 +103,7 @@ enum ResolvedTarget {
         startup_resolved: bool,
     },
     NoLog {
-        session: Option<String>,
+        session: String,
     },
 }
 
@@ -114,10 +115,52 @@ pub struct TurnOutcome {
     pub has_reset_command: bool,
 }
 
-/// True when the final non-empty line outside fenced code blocks ends with a prose `?`.
+fn strip_inline_code(line: &str) -> String {
+    let bytes = line.as_bytes();
+    let mut out = String::with_capacity(line.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'`' {
+            let run_start = i;
+            while i < bytes.len() && bytes[i] == b'`' {
+                i += 1
+            }
+            let run_len = i - run_start;
+            let mut search = i;
+            let mut closed = None;
+            while search < bytes.len() {
+                if bytes[search] == b'`' {
+                    let close_start = search;
+                    while search < bytes.len() && bytes[search] == b'`' {
+                        search += 1;
+                    }
+                    if search - close_start == run_len {
+                        closed = Some(search);
+                        break;
+                    }
+                } else {
+                    search += 1;
+                }
+            }
+            if let Some(after_close) = closed {
+                out.push_str("code");
+                i = after_close;
+                continue;
+            }
+            out.push_str(&line[run_start..i]);
+            continue;
+        }
+        let ch = line[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+/// True when any non-empty prose line outside fenced code blocks, blockquotes, and inline code spans
+/// ends with `?` (catching questions followed by option lists or status summaries).
 pub fn ends_with_prose_question(text: &str) -> bool {
     let mut fence: Option<(char, usize)> = None;
-    let mut last_prose_line: Option<&str> = None;
 
     for raw in text.lines() {
         let indent = raw.bytes().take_while(|b| *b == b' ').count();
@@ -151,18 +194,19 @@ pub fn ends_with_prose_question(text: &str) -> bool {
         }
 
         let trimmed = raw.trim();
-        if !trimmed.is_empty() {
-            last_prose_line = Some(trimmed);
+        if trimmed.is_empty() || trimmed.starts_with('>') {
+            continue;
+        }
+        let cleaned = strip_inline_code(trimmed);
+        let core = cleaned
+            .trim_end_matches(['*', '_', ')', ']', '"', '\''])
+            .trim_end();
+        if core.ends_with('?') || core.ends_with('？') {
+            return true;
         }
     }
 
-    let Some(last) = last_prose_line else {
-        return false;
-    };
-    if last.ends_with('`') {
-        return false;
-    }
-    last.trim_end_matches(['*', '_']).trim_end().ends_with('?')
+    false
 }
 
 fn is_codex_harness_user_line(v: &Value) -> bool {
@@ -396,62 +440,11 @@ fn inspect_latest_turn(path: &Path) -> Result<TurnOutcome, ()> {
     Ok(analyze_root_lines(&read.lines))
 }
 
-fn file_mtime_ms(path: &Path) -> Option<i64> {
-    let m = fs::metadata(path).ok()?.modified().ok()?;
-    i64::try_from(m.duration_since(UNIX_EPOCH).ok()?.as_millis()).ok()
-}
-
-fn has_newer_sibling_session(path: &Path, agent: &str, since_ms: i64) -> bool {
-    let cutoff = since_ms.saturating_sub(2_000);
-    if agent == "claude" {
-        let Some(project_dir) = path.parent() else {
-            return true;
-        };
-        let Ok(entries) = fs::read_dir(project_dir) else {
-            return true;
-        };
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p == path || p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-                continue;
-            }
-            if file_mtime_ms(&p).is_some_and(|m| m >= cutoff) {
-                return true;
-            }
-        }
-        false
-    } else {
-        // Codex: sessions/YYYY/MM/DD/rollout-*.jsonl -> check same day folder and thread-writer-locks.
-        if let Some(day_dir) = path.parent() {
-            if let Ok(entries) = fs::read_dir(day_dir) {
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    if p == path || p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-                        continue;
-                    }
-                    // Skip sub-agent rollouts; only another root rollout indicates /new.
-                    let head = fs::read(&p).unwrap_or_default();
-                    let is_sub =
-                        herdr_core::resolver::codex_meta_full(&head[..head.len().min(64 * 1024)])
-                            .is_some_and(|m| m.subagent);
-                    if !is_sub && file_mtime_ms(&p).is_some_and(|m| m >= cutoff) {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
-    }
-}
-
-fn unverified_startup_valid(path: &Path, agent: &str, item_at_ms: i64) -> bool {
+fn unverified_startup_valid(path: &Path) -> bool {
     let Ok(meta) = fs::metadata(path) else {
         return false;
     };
     if meta.len() > STARTUP_SCAN_CAP {
-        return false;
-    }
-    if has_newer_sibling_session(path, agent, item_at_ms) {
         return false;
     }
     let Ok(read) = tail::read(path, Some(0), STARTUP_SCAN_CAP) else {
@@ -459,6 +452,31 @@ fn unverified_startup_valid(path: &Path, agent: &str, item_at_ms: i64) -> bool {
     };
     let outcome = analyze_root_lines(&read.lines);
     outcome.user_turns <= 1 && !outcome.has_reset_command
+}
+
+fn terminal_had_other_session(
+    core: &str,
+    terminal: &str,
+    item: &QueueItem,
+    prev_root: Option<&cache::Root>,
+    current_sid: Option<&str>,
+) -> bool {
+    if let Some(r) = prev_root {
+        if r.checked_ms >= item.at_ms
+            && !r.session.is_empty()
+            && Some(r.session.as_str()) != current_sid
+        {
+            return true;
+        }
+    }
+    events::read(terminal, item.at_ms).into_iter().any(|e| {
+        e.core == core
+            && e.agent == item.expect_kind
+            && e.agent_id.is_none()
+            && e.session
+                .as_deref()
+                .is_some_and(|s| !s.is_empty() && Some(s) != current_sid)
+    })
 }
 
 fn hold_and_save(
@@ -469,6 +487,7 @@ fn hold_and_save(
 ) -> Result<DrainReport, StoreError> {
     state.held = true;
     state.hold_reason = Some(reason.to_string());
+    state.inflight_item_id = None;
     store::write_in(core, terminal, state)?;
     Ok(DrainReport::from_state(
         terminal,
@@ -496,7 +515,7 @@ pub fn drain_terminal(
     let mut state = store::read_in(&core, terminal);
     let now_ms = store::now_ms();
 
-    // Gate 1: !held, non-empty, not duplicate stop, not inside post-send cooldown.
+    // Gate 1: !held, non-empty, no orphaned inflight send, not duplicate stop, not inside post-send cooldown.
     if state.items.is_empty() {
         return Ok(DrainReport::from_state(
             terminal,
@@ -514,6 +533,9 @@ pub fn drain_terminal(
             state.items.first().map(|i| i.id.clone()),
             &state,
         ));
+    }
+    if state.inflight_item_id.is_some() {
+        return hold_and_save(&core, terminal, &mut state, "uncertain_delivery");
     }
     if let Some(eid) = on_stop {
         if state.last_drain_event.as_deref() == Some(eid) {
@@ -555,6 +577,7 @@ pub fn drain_terminal(
         }
     }
 
+    let prev_root = cache::read(&cache::terminal_file(terminal)).root;
     let (record, found) = locate::locate_with_record(terminal, now_ms, true);
 
     // Gate 2: hc get reports live terminal with status "done" or "idle".
@@ -615,13 +638,18 @@ pub fn drain_terminal(
         }
     }
 
-    // Gate 3: zero pending requests across root and running sub-agents.
-    if let Ok(input) = cards::gather_with(terminal, Some(rec), &found, None, now_ms) {
-        if input.status.as_deref() == Some("blocked") {
+    // Gate 3: zero pending requests across root and all running sub-agents (failing closed if > 256).
+    if let Ok(input) = cards::gather_for_gate(terminal, Some(rec), &found, None, now_ms) {
+        if input.status.as_deref() == Some("blocked") || input.omitted_running_children {
+            let reason = if input.status.as_deref() == Some("blocked") {
+                "blocked"
+            } else {
+                "pending_request"
+            };
             return Ok(DrainReport::from_state(
                 terminal,
                 "pending",
-                Some("blocked".into()),
+                Some(reason.into()),
                 None,
                 &state,
             ));
@@ -665,7 +693,7 @@ pub fn drain_terminal(
                 agent,
                 session: Some(live_sid),
             }) if agent == &item.expect_kind && live_sid == want_sid => ResolvedTarget::NoLog {
-                session: Some(live_sid.clone()),
+                session: live_sid.clone(),
             },
             _ => return hold_and_save(&core, terminal, &mut state, "session_changed"),
         },
@@ -680,7 +708,14 @@ pub fn drain_terminal(
                 Ok(located)
                     if located.agent == item.expect_kind
                         && located.pid == Some(expected_pid)
-                        && unverified_startup_valid(&located.path, &located.agent, item.at_ms) =>
+                        && !terminal_had_other_session(
+                            &core,
+                            terminal,
+                            &item,
+                            prev_root.as_ref(),
+                            Some(&located.session),
+                        )
+                        && unverified_startup_valid(&located.path) =>
                 {
                     ResolvedTarget::Log {
                         session: located.session.clone(),
@@ -691,19 +726,51 @@ pub fn drain_terminal(
                 Err(LocateFailure::NoLog { agent, session }) if agent == &item.expect_kind => {
                     let live_pid = locate::live_agent_pid_of(rec)
                         .and_then(|(k, pid)| (k == item.expect_kind).then_some(pid));
-                    if live_pid != Some(expected_pid) {
+                    if live_pid != Some(expected_pid)
+                        || terminal_had_other_session(
+                            &core,
+                            terminal,
+                            &item,
+                            prev_root.as_ref(),
+                            session.as_deref(),
+                        )
+                    {
                         return hold_and_save(&core, terminal, &mut state, "session_changed");
                     }
-                    ResolvedTarget::NoLog {
-                        session: session.clone(),
+                    return Ok(DrainReport::from_state(
+                        terminal,
+                        "pending",
+                        Some("awaiting_session_log".into()),
+                        None,
+                        &state,
+                    ));
+                }
+                Err(LocateFailure::Ambiguous { agent, .. }) if agent == &item.expect_kind => {
+                    if locate::fresh_startup_pid_of(rec, &item.expect_kind) == Some(expected_pid)
+                        && !terminal_had_other_session(
+                            &core,
+                            terminal,
+                            &item,
+                            prev_root.as_ref(),
+                            None,
+                        )
+                    {
+                        return Ok(DrainReport::from_state(
+                            terminal,
+                            "pending",
+                            Some("awaiting_session_log".into()),
+                            None,
+                            &state,
+                        ));
                     }
+                    return hold_and_save(&core, terminal, &mut state, "session_changed");
                 }
                 _ => return hold_and_save(&core, terminal, &mut state, "session_changed"),
             }
         }
     };
 
-    // Gate 4: latest root session turn did not end in interruption, error, or trailing prose `?`.
+    // Gate 4: latest root session turn did not end in interruption, error, or prose `?`.
     if let ResolvedTarget::Log { ref path, .. } = target {
         let path_str = path.to_string_lossy().to_string();
         let cur_len = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
@@ -728,6 +795,11 @@ pub fn drain_terminal(
         }
     }
 
+    // Reserve item 0 on disk before typing into hc so a crash or post-send write failure
+    // holds as `uncertain_delivery` instead of delivering the same prompt twice.
+    state.inflight_item_id = Some(item.id.clone());
+    store::write_in(&core, terminal, &state)?;
+
     // Deliver item 0 via chat::send (never --force).
     let outcome = match &target {
         ResolvedTarget::Log { session, path, .. } => {
@@ -739,18 +811,19 @@ pub fn drain_terminal(
                 &item.text,
             )
         }
-        ResolvedTarget::NoLog { session: Some(sid) } => {
-            send::send_checked(terminal, &item.expect_kind, Expect::NoLog(sid), &item.text)
-        }
-        ResolvedTarget::NoLog { session: None } => {
-            send::send_checked(terminal, &item.expect_kind, Expect::Fresh, &item.text)
-        }
+        ResolvedTarget::NoLog { session } => send::send_checked(
+            terminal,
+            &item.expect_kind,
+            Expect::NoLog(session),
+            &item.text,
+        ),
     };
 
     match outcome {
         SendOutcome::Sent(_) => {
+            state.inflight_item_id = None;
             let popped = state.items.remove(0);
-            state.last_sent_ms = Some(now_ms);
+            state.last_sent_ms = Some(store::now_ms());
             state.resumed_turn = None;
             if let Some(eid) = on_stop {
                 state.last_drain_event = Some(eid.to_string());
@@ -797,12 +870,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn prose_question_ignores_fenced_and_inline_code() {
+    fn prose_question_catches_multiline_questions_and_ignores_code_and_quotes() {
         assert!(ends_with_prose_question("Which option do you prefer?"));
         assert!(ends_with_prose_question(
             "Updated parser.\n\n**Should I run tests now?**"
         ));
         assert!(ends_with_prose_question("Should I delete `old.rs`?"));
+        assert!(ends_with_prose_question(
+            "Which migration path should I take?\n\n1. Keep backwards compatibility (recommended)\n2. Break the API"
+        ));
+        assert!(ends_with_prose_question(
+            "Should I proceed with the rename?\n\nI finished the parser and the tests pass."
+        ));
         assert!(!ends_with_prose_question(
             "Done.\n```rust\nfn ok() -> Result<(), E> { work()? }\n```"
         ));
@@ -811,7 +890,10 @@ mod tests {
         ));
         assert!(!ends_with_prose_question("Escaped literal `?`"));
         assert!(!ends_with_prose_question(
-            "Why did it fail?\n\nFixed the off-by-one in main.rs."
+            "Checked `is_ready?` flag and updated tests."
+        ));
+        assert!(!ends_with_prose_question(
+            "> Why did it fail?\n\nFixed the off-by-one in main.rs."
         ));
     }
 
@@ -834,7 +916,7 @@ mod tests {
                 .to_string(),
         );
         recovered.push(
-            r#"{"isSidechain":false,"type":"assistant","uuid":"a2","message":{"model":"claude-sonnet","role":"assistant","content":[{"type":"text","text":"Should I also update docs?"}]}}"#
+            r#"{"isSidechain":false,"type":"assistant","uuid":"a2","message":{"model":"claude-sonnet","role":"assistant","content":[{"type":"text","text":"Should I also update docs?\n\n1. Yes\n2. No"}]}}"#
                 .to_string(),
         );
         let out2 = analyze_root_lines(&recovered);

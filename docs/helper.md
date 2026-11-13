@@ -406,9 +406,13 @@ file (`~/.cache/bellwether/queue/<core>/<terminal>.json`) and OS `FolderLock`
   0 immediately.
 - `drain` waits up to `BW_QUEUE_SETTLE_MAX_MS` (default 65 s) on `--on-stop` for sibling `Stop`
   hooks to finish (`status != "working"`), then verifies five gates under `FolderLock` before
-  calling `bw send`'s non-force `hc send` path: unheld queue, `done`/`idle` terminal, zero pending
-  approvals or questions, no turn-ending interruption/error (`interrupted_or_error`) or trailing
-  prose `?` (`assistant_question`), and matching live session (`session_changed`).
+  recording an in-flight delivery reservation and calling `bw send`'s non-force `hc send` path:
+  unheld queue (holding with `uncertain_delivery` if a prior drain crashed mid-send), `done`/`idle`
+  terminal, zero pending approvals or questions across root and running sub-agents, no turn-ending
+  interruption/error (`interrupted_or_error`) or prose `?` line (`assistant_question`), and matching
+  live session (`session_changed`, waiting as `awaiting_session_log` while a fresh startup agent has
+  not written its first transcript yet). `--force-next` bypasses the post-send cooldown and Gate 4's
+  prose/interruption hold for item 0 while keeping Gates 1, 2, 3, and 5 active.
 - `resume` re-binds queued items to the current live session, clears `held`, and runs a drain check.
 
 ## `bw drafts`
@@ -434,8 +438,9 @@ bw drafts stage --name <slug.html> [--machine <m> --path <worktree> --file <id>]
   512 KiB of UTF-8 text, and prints one `draft-read` JSON object.
 - `register-ledger` records a `0600` pointer JSON under
   `~/.local/state/bellwether/reviews/<sha256(worktree)>/` for an `independent-review` `ledger.md`.
-- `stage` runs on the window machine (`on: null`), reads an HTML artifact from stdin, a local
-  worktree, or a remote helper (`--machine <m>`), writes it into
+- `stage` runs on the window machine (`on: null`), reads an HTML artifact up to 5 MiB from stdin, a
+  local worktree, or a remote helper (`--machine <m>`, transported as base64 `html_b64` under
+  `hc exec`'s 8 MB output cap), writes it into
   `~/.cache/bellwether/drafts-stage/<sha256>/<slug.html>` (`0600` in `0700` dir, keeping the 32
   newest staged files), and prints `draft-staged` with its `file://` `url`.
 

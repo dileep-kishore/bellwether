@@ -55,6 +55,8 @@ pub struct QueueState {
     pub last_drain_event: Option<String>,
     pub last_sent_ms: Option<i64>,
     pub resumed_turn: Option<ResumedTurn>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inflight_item_id: Option<String>,
     pub items: Vec<QueueItem>,
 }
 
@@ -67,6 +69,7 @@ impl Default for QueueState {
             last_drain_event: None,
             last_sent_ms: None,
             resumed_turn: None,
+            inflight_item_id: None,
             items: Vec::new(),
         }
     }
@@ -266,6 +269,7 @@ pub fn bind_live_session(
     at_ms: i64,
 ) -> Result<BoundSession, StoreError> {
     let explicit = explicit_session.filter(|s| !s.is_empty());
+    let prev_root = cache::read(&cache::terminal_file(terminal)).root;
     let (record, found) = locate::locate_with_record(terminal, at_ms, true);
     match found {
         Ok(located) => {
@@ -355,7 +359,29 @@ pub fn bind_live_session(
             "no_agent",
             format!("no live {agent} process in {terminal}"),
         )),
-        Err(LocateFailure::Ambiguous { message, .. }) => {
+        Err(LocateFailure::Ambiguous { agent, message }) => {
+            if agent != expect_kind {
+                return Err(StoreError::runtime(
+                    "wrong_agent",
+                    format!("{terminal} runs {agent}, expected {expect_kind}"),
+                ));
+            }
+            if prev_root.is_none()
+                && events::read(terminal, 0).is_empty()
+                && explicit.is_none_or(|w| w == "none")
+            {
+                if let Some(pid) = record
+                    .as_ref()
+                    .and_then(|r| locate::fresh_startup_pid_of(r, expect_kind))
+                {
+                    return Ok(BoundSession {
+                        expect_session: None,
+                        unverified_startup: true,
+                        agent_pid: Some(pid),
+                        log_path_len: None,
+                    });
+                }
+            }
             Err(StoreError::runtime("ambiguous", message))
         }
         Err(LocateFailure::NotAgent(message)) => Err(StoreError::runtime("not_agent", message)),
@@ -466,10 +492,14 @@ pub fn remove_item(core: &str, terminal: &str, id: &str) -> Result<QueueState, S
             format!("queue item {id} not found"),
         ));
     }
+    if state.inflight_item_id.as_deref() == Some(id) {
+        state.inflight_item_id = None;
+    }
     if state.items.is_empty() {
         state.held = false;
         state.hold_reason = None;
         state.resumed_turn = None;
+        state.inflight_item_id = None;
     }
     write_in(core, terminal, &state)?;
     Ok(state)
@@ -483,6 +513,7 @@ pub fn clear_items(core: &str, terminal: &str) -> Result<QueueState, StoreError>
     state.held = false;
     state.hold_reason = None;
     state.resumed_turn = None;
+    state.inflight_item_id = None;
     write_in(core, terminal, &state)?;
     Ok(state)
 }
@@ -496,6 +527,7 @@ pub fn resume_queue(core: &str, terminal: &str) -> Result<QueueState, StoreError
         state.held = false;
         state.hold_reason = None;
         state.resumed_turn = None;
+        state.inflight_item_id = None;
         write_in(core, terminal, &state)?;
         return Ok(state);
     }
@@ -515,6 +547,7 @@ pub fn resume_queue(core: &str, terminal: &str) -> Result<QueueState, StoreError
     state.held = false;
     state.hold_reason = None;
     state.resumed_turn = bound.log_path_len;
+    state.inflight_item_id = None;
     write_in(core, terminal, &state)?;
     Ok(state)
 }

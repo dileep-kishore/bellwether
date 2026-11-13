@@ -10,6 +10,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -32,8 +33,8 @@ const MAX_SCAN_VISITS: usize = 4000;
 const MAX_SCAN_DEPTH: usize = 12;
 /// Maximum bytes read by `bw drafts read` (`512 KiB`).
 pub const MAX_READ_BYTES: usize = 512 * 1024;
-/// Maximum bytes staged for a self-contained HTML artifact (`6 MiB`, under `hc exec`'s `8 MiB` ceiling).
-pub const MAX_STAGE_BYTES: usize = 6 * 1024 * 1024;
+/// Maximum bytes staged for a self-contained HTML artifact (`5 MiB`; `html_b64` JSON <= ~6.99 MB under `hc exec`'s 8 MB cap).
+pub const MAX_STAGE_BYTES: usize = 5 * 1024 * 1024;
 /// Maximum staged HTML files retained under `~/.cache/bellwether/drafts-stage/`.
 pub const MAX_STAGED_FILES: usize = 32;
 /// Probe window for NUL bytes when rejecting binary files.
@@ -43,7 +44,7 @@ const SCAN_DIRS: [&str; 4] = ["docs/drafts", "docs/plans", "docs/superpowers", "
 const ROOT_FILES: [&str; 2] = ["decisions.tsv", "tasks.md"];
 
 #[derive(Debug)]
-struct DraftError {
+pub struct DraftError {
     code: &'static str,
     message: String,
     usage: bool,
@@ -178,11 +179,12 @@ fn run_stage(argv: &[String]) -> Result<(), DraftError> {
                 return Err(DraftError::usage("--file cannot be empty"));
             }
             let v = read_entry(Path::new(p), f, true)?;
-            v["text"]
+            let b64 = v["html_b64"]
                 .as_str()
-                .unwrap_or_default()
-                .as_bytes()
-                .to_vec()
+                .ok_or_else(|| DraftError::runtime("bad_output", "missing html_b64 payload"))?;
+            base64::engine::general_purpose::STANDARD
+                .decode(b64)
+                .map_err(|e| DraftError::runtime("bad_output", format!("invalid html_b64: {e}")))?
         }
         (None, None, None) => read_stdin_stage_html()?,
         _ => {
@@ -731,20 +733,14 @@ pub fn read_entry(worktree: &Path, file_id: &str, for_stage: bool) -> Result<Val
                 ),
             ));
         }
-        let (text, truncated, _) = read_capped_utf8(&canon_file, MAX_STAGE_BYTES)?;
-        if truncated {
-            return Err(DraftError::runtime(
-                "too_big",
-                format!("HTML artifact {file_id:?} exceeds {MAX_STAGE_BYTES} bytes"),
-            ));
-        }
+        let raw_bytes = read_stage_bytes(&canon_file, MAX_STAGE_BYTES)?;
         return Ok(json!({
             "type": "draft-read",
             "id": file_id,
             "kind": kind,
-            "size": meta.len(),
+            "size": raw_bytes.len(),
             "truncated": false,
-            "text": text,
+            "html_b64": base64::engine::general_purpose::STANDARD.encode(&raw_bytes),
             "file_url": file_url(&canon_file),
         }));
     }
@@ -759,6 +755,55 @@ pub fn read_entry(worktree: &Path, file_id: &str, for_stage: bool) -> Result<Val
         "text": text,
         "file_url": (kind == "html").then(|| file_url(&canon_file)),
     }))
+}
+
+fn read_stage_bytes(path: &Path, limit: usize) -> Result<Vec<u8>, DraftError> {
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|e| {
+            DraftError::runtime("io_error", format!("cannot open {}: {e}", path.display()))
+        })?;
+    let fmeta = file.metadata().map_err(|e| {
+        DraftError::runtime("io_error", format!("cannot stat {}: {e}", path.display()))
+    })?;
+    if !fmeta.is_file() {
+        return Err(DraftError::runtime(
+            "not_found",
+            format!("{} is not a regular file", path.display()),
+        ));
+    }
+    if fmeta.len() > limit as u64 {
+        return Err(DraftError::runtime(
+            "too_big",
+            format!(
+                "HTML artifact {} is {} bytes (max {limit})",
+                path.display(),
+                fmeta.len()
+            ),
+        ));
+    }
+    let mut buf = Vec::with_capacity((fmeta.len() as usize).min(limit).saturating_add(1));
+    file.take((limit as u64).saturating_add(1))
+        .read_to_end(&mut buf)
+        .map_err(|e| {
+            DraftError::runtime("io_error", format!("cannot read {}: {e}", path.display()))
+        })?;
+    if buf.len() > limit {
+        return Err(DraftError::runtime(
+            "too_big",
+            format!("HTML artifact {} exceeds {limit} bytes", path.display()),
+        ));
+    }
+    let probe_end = buf.len().min(BINARY_PROBE_BYTES);
+    if buf[..probe_end].contains(&0) {
+        return Err(DraftError::runtime(
+            "binary",
+            format!("{} appears to be a binary file", path.display()),
+        ));
+    }
+    Ok(buf)
 }
 
 fn read_capped_utf8(path: &Path, limit: usize) -> Result<(String, bool, u64), DraftError> {
@@ -921,19 +966,30 @@ fn fetch_remote_stage_html(
             format!("{machine}'s helper returned unexpected drafts read payload"),
         ));
     }
-    let Some(text) = line["text"].as_str() else {
+    let bytes = if let Some(b64) = line["html_b64"].as_str() {
+        base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|e| {
+                DraftError::runtime(
+                    "bad_output",
+                    format!("{machine}'s helper returned invalid html_b64: {e}"),
+                )
+            })?
+    } else if let Some(text) = line["text"].as_str() {
+        text.as_bytes().to_vec()
+    } else {
         return Err(DraftError::runtime(
             "bad_output",
-            format!("{machine}'s helper returned no HTML text"),
+            format!("{machine}'s helper returned no HTML payload"),
         ));
     };
-    if text.len() > MAX_STAGE_BYTES {
+    if bytes.len() > MAX_STAGE_BYTES {
         return Err(DraftError::runtime(
             "too_big",
             format!("remote HTML exceeds {MAX_STAGE_BYTES} bytes"),
         ));
     }
-    Ok(text.as_bytes().to_vec())
+    Ok(bytes)
 }
 
 pub fn stage_html_bytes(stage_root: &Path, name: &str, bytes: &[u8]) -> Result<Value, DraftError> {
@@ -1253,5 +1309,35 @@ mod tests {
             .map(|e| fs::read_dir(e.path()).unwrap().flatten().count())
             .sum();
         assert_eq!(remaining, MAX_STAGED_FILES);
+    }
+
+    #[test]
+    fn stage_read_uses_base64_and_stays_under_hc_exec_8mb_cap() {
+        with_isolated_env(|root, _| {
+            let wt = root.join("wt");
+            fs::create_dir_all(wt.join("docs/drafts")).unwrap();
+            let prefix = b"<!doctype html><pre>";
+            let suffix = b"</pre>";
+            let body_len = MAX_STAGE_BYTES - prefix.len() - suffix.len();
+            let mut raw = Vec::with_capacity(MAX_STAGE_BYTES);
+            raw.extend_from_slice(prefix);
+            raw.resize(prefix.len() + body_len, b'"');
+            raw.extend_from_slice(suffix);
+            assert_eq!(raw.len(), MAX_STAGE_BYTES);
+            fs::write(wt.join("docs/drafts/quotes.html"), &raw).unwrap();
+
+            let v = read_entry(&wt, "docs/drafts/quotes.html", true).unwrap();
+            let encoded = serde_json::to_vec(&v).unwrap();
+            // hc exec truncates stdout at 8 MB (8_000_000 bytes).
+            assert!(
+                encoded.len() < 7_100_000,
+                "stage JSON must stay well under 8 MB, got {}",
+                encoded.len()
+            );
+            let decoded = base64::engine::general_purpose::STANDARD
+                .decode(v["html_b64"].as_str().unwrap())
+                .unwrap();
+            assert_eq!(decoded, raw);
+        });
     }
 }

@@ -35,8 +35,10 @@ use crate::events::{self, Event};
 
 /// A resolved request is listed this long after it resolved.
 pub const RESOLVED_SHOW_MS: i64 = 10_000;
-/// At most this many sub-agents' logs are read per pass, running ones first.
+/// At most this many sub-agents' logs are read per UI pass, running ones first.
 const MAX_CHILD_LOGS: usize = 16;
+/// Safety-gate child log ceiling for `bw queue drain` Gate 3 (`omitted_running_children` fails closed if exceeded).
+pub const MAX_GATE_CHILD_LOGS: usize = 256;
 /// A sub-agent that ended this recently still has its log read, so a prompt it answered just before ending
 /// resolves by its call's result.
 const RECENT_CHILD_MS: i64 = 60_000;
@@ -66,6 +68,8 @@ pub struct CardsInput {
     pub events: Vec<Event>,
     /// The root's items (child None) and each read sub-agent's.
     pub logs: Vec<(Option<String>, Vec<ConversationItem>)>,
+    /// True when one or more running sub-agents exceeded the pass's child-log ceiling.
+    pub omitted_running_children: bool,
     /// `bw hooks check`'s word for this agent: `ok`, `missing`, `untrusted`, `outdated`.
     pub hooks: String,
 }
@@ -123,6 +127,29 @@ pub fn gather_with(
     tree: Option<Tree>,
     now_ms: i64,
 ) -> Result<CardsInput, LocateFailure> {
+    gather_inner(terminal, record, found, tree, now_ms, MAX_CHILD_LOGS)
+}
+
+/// Exhaustive child-log gather for `bw queue drain` Gate 3, reading up to `MAX_GATE_CHILD_LOGS` running children
+/// and setting `omitted_running_children` when even that ceiling is exceeded so Gate 3 can fail closed.
+pub fn gather_for_gate(
+    terminal: &str,
+    record: Option<&Value>,
+    found: &Result<Located, LocateFailure>,
+    tree: Option<Tree>,
+    now_ms: i64,
+) -> Result<CardsInput, LocateFailure> {
+    gather_inner(terminal, record, found, tree, now_ms, MAX_GATE_CHILD_LOGS)
+}
+
+fn gather_inner(
+    terminal: &str,
+    record: Option<&Value>,
+    found: &Result<Located, LocateFailure>,
+    tree: Option<Tree>,
+    now_ms: i64,
+    child_log_limit: usize,
+) -> Result<CardsInput, LocateFailure> {
     let (agent, root, located) = match found {
         Ok(l) => (l.agent.clone(), l.session.clone(), Some(l)),
         Err(LocateFailure::NoLog { agent, session }) => (
@@ -153,6 +180,7 @@ pub fn gather_with(
         },
     };
     let mut logs = Vec::new();
+    let mut omitted_running_children = false;
     if let Some(l) = located {
         logs.push((None, items_of(&l.path, FileScope::Root)));
         let mut kids: Vec<&tree::Child> = tree
@@ -161,7 +189,13 @@ pub fn gather_with(
             .filter(|c| c.running || c.ended_ms.is_some_and(|e| now_ms - e <= RECENT_CHILD_MS))
             .collect();
         kids.sort_by_key(|c| !c.running);
-        for c in kids.into_iter().take(MAX_CHILD_LOGS) {
+        for (idx, c) in kids.into_iter().enumerate() {
+            if idx >= child_log_limit {
+                if c.running {
+                    omitted_running_children = true;
+                }
+                continue;
+            }
             if c.path.is_file() {
                 logs.push((Some(c.id.clone()), items_of(&c.path, c.scope)));
             }
@@ -180,6 +214,7 @@ pub fn gather_with(
         tree,
         events: events::read(terminal, now_ms - EVENTS_MS),
         logs,
+        omitted_running_children,
     })
 }
 

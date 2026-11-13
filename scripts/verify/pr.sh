@@ -33,22 +33,33 @@ mode_file="$root/mode"
 cat > "$fake_gh" <<'EOF'
 #!/bin/sh
 set -eu
+for arg in "$@"; do
+  if [ "$arg" = "-F" ]; then
+    echo "unexpected -F flag in gh invocation" >&2
+    exit 9
+  fi
+done
 printf 'call\n' >> "$FAKE_GH_CALLS"
 mode=$(cat "$FAKE_GH_MODE")
 case "$mode" in
   approved)
     cat <<'JSON'
-{"data":{"repository":{"open":{"nodes":[{"number":42,"title":"feat: cockpit","url":"https://github.com/dkishore/bellwether/pull/42","state":"OPEN","isDraft":false,"baseRefName":"main","headRefOid":"1111111111111111111111111111111111111111","reviewDecision":"APPROVED","mergeStateStatus":"CLEAN","reviewThreads":{"totalCount":1,"nodes":[{"isResolved":true}]},"commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS","contexts":{"totalCount":2,"nodes":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","state":"SUCCESS"}]}}}}]}}]},"closed":{"nodes":[]}}}}
+{"data":{"repository":{"open":{"nodes":[{"number":42,"title":"feat: cockpit","url":"https://github.com/dkishore/bellwether/pull/42","state":"OPEN","isDraft":false,"isCrossRepository":false,"headRepositoryOwner":{"login":"dkishore"},"baseRefName":"main","headRefOid":"1111111111111111111111111111111111111111","reviewDecision":"APPROVED","mergeStateStatus":"CLEAN","reviewThreads":{"totalCount":1,"nodes":[{"isResolved":true}]},"commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS","contexts":{"totalCount":2,"nodes":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","state":"SUCCESS"}]}}}}]}}]},"closed":{"nodes":[]}}}}
 JSON
     ;;
   solo_null)
     cat <<'JSON'
-{"data":{"repository":{"open":{"nodes":[{"number":43,"title":"feat: solo pr","url":"https://github.com/dkishore/bellwether/pull/43","state":"OPEN","isDraft":false,"baseRefName":"main","headRefOid":"2222222222222222222222222222222222222222","reviewDecision":null,"mergeStateStatus":"CLEAN","reviewThreads":{"totalCount":0,"nodes":[]},"commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS","contexts":{"totalCount":1,"nodes":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]}}}}]}}]},"closed":{"nodes":[]}}}}
+{"data":{"repository":{"open":{"nodes":[{"number":43,"title":"feat: solo pr","url":"https://github.com/dkishore/bellwether/pull/43","state":"OPEN","isDraft":false,"isCrossRepository":false,"headRepositoryOwner":{"login":"dkishore"},"baseRefName":"main","headRefOid":"2222222222222222222222222222222222222222","reviewDecision":null,"mergeStateStatus":"CLEAN","reviewThreads":{"totalCount":0,"nodes":[]},"commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS","contexts":{"totalCount":1,"nodes":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]}}}}]}}]},"closed":{"nodes":[]}}}}
 JSON
     ;;
   changes_failing_draft)
     cat <<'JSON'
-{"data":{"repository":{"open":{"nodes":[{"number":44,"title":"wip: draft","url":"https://github.com/dkishore/bellwether/pull/44","state":"OPEN","isDraft":true,"baseRefName":"main","headRefOid":"3333333333333333333333333333333333333333","reviewDecision":"CHANGES_REQUESTED","mergeStateStatus":"BLOCKED","reviewThreads":{"totalCount":2,"nodes":[{"isResolved":false},{"isResolved":true}]},"commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"FAILURE","contexts":{"totalCount":2,"nodes":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"},{"__typename":"CheckRun","status":"IN_PROGRESS","conclusion":null}]}}}}]}}]},"closed":{"nodes":[]}}}}
+{"data":{"repository":{"open":{"nodes":[{"number":44,"title":"wip: draft","url":"https://github.com/dkishore/bellwether/pull/44","state":"OPEN","isDraft":true,"isCrossRepository":false,"headRepositoryOwner":{"login":"dkishore"},"baseRefName":"main","headRefOid":"3333333333333333333333333333333333333333","reviewDecision":"CHANGES_REQUESTED","mergeStateStatus":"BLOCKED","reviewThreads":{"totalCount":2,"nodes":[{"isResolved":false},{"isResolved":true}]},"commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"FAILURE","contexts":{"totalCount":2,"nodes":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"},{"__typename":"CheckRun","status":"IN_PROGRESS","conclusion":null}]}}}}]}}]},"closed":{"nodes":[]}}}}
+JSON
+    ;;
+  fork_only)
+    cat <<'JSON'
+{"data":{"repository":{"open":{"nodes":[{"number":999,"title":"fork patch","url":"https://github.com/dkishore/bellwether/pull/999","state":"OPEN","isDraft":false,"isCrossRepository":true,"headRepositoryOwner":{"login":"stranger"},"baseRefName":"main","headRefOid":"4444444444444444444444444444444444444444","reviewDecision":"APPROVED","mergeStateStatus":"CLEAN","reviewThreads":{"totalCount":0,"nodes":[]},"commits":{"nodes":[]}}]},"closed":{"nodes":[]}}}}
 JSON
     ;;
   offline)
@@ -132,7 +143,20 @@ else
   bad "changes-requested-failing-draft" "out6=$out6"
 fi
 
-# 5. Live gh check when online
+# 5. Fork PR filtering + literal -f string variables (@probe, 2048, true)
+printf 'fork_only' > "$mode_file"
+out_fork=$(run_pr status --repo dkishore/bellwether --branch patch-1)
+out_at=$(run_pr status --repo dkishore/bellwether --branch @probe)
+out_num=$(run_pr status --repo dkishore/bellwether --branch 2048)
+if [ "$(printf '%s' "$out_fork" | jq -r '[.type,(.pr == null)] | @tsv')" = "pr	true" ] &&
+   [ "$(printf '%s' "$out_at" | jq -r '[.type,.branch,(.pr == null)] | @tsv')" = "pr	@probe	true" ] &&
+   [ "$(printf '%s' "$out_num" | jq -r '[.type,.branch,(.pr == null)] | @tsv')" = "pr	2048	true" ]; then
+  pass "fork-pr-ignored-and-literal-string-graphql-args"
+else
+  bad "fork-pr-ignored-and-literal-string-graphql-args" "fork=$out_fork at=$out_at num=$out_num"
+fi
+
+# 6. Live gh check when online
 if [ "$offline" = 0 ]; then
   if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     live_out=$(BW_CACHE_DIR="$cache" "$bw" pr status --repo cli/cli --branch trunk)
