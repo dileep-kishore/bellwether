@@ -20,7 +20,7 @@ test("the palette key reads as bound, or not at all", () => {
   expect(paletteKey([], true)).toBeNull();
 });
 
-test("machine, branch, agent count and a breathing needs-you pill", async () => {
+test("machine, branch, agent count and a static needs-you pill", async () => {
   const data = live("chat-requests");
   data.agents = [agent("t1", "working"), agent("t2", "blocked"), agent("t3", "idle")];
   data.keys = [{ section: "global", keys: "cmd-shift-p", action: "app.palette" }];
@@ -29,7 +29,7 @@ test("machine, branch, agent count and a breathing needs-you pill", async () => 
   expect(text).toContain("This Mac");
   expect(text).toContain("3 agents");
   expect(text).toContain("⌘⇧P commands");
-  expect(byId(m.el, "status-needs").attrs.loop).toEqual(["opacity", { from: 0.65, to: 1, period: 1400 }]);
+  expect(byId(m.el, "status-needs").attrs.loop).toBeUndefined();
   expect(textOf(byId(m.el, "status-needs"))).toBe("1 needs you");
   await m.click("status-palette");
   expect(m.log.run).toContainEqual(["app.palette"]);

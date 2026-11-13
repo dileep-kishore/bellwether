@@ -456,4 +456,24 @@ describe("bw-projects", () => {
     fake.window = { ...fake.window, fullscreen: true };
     expect(byId(m.render(), "projects-header").attrs.pl).toBe(12);
   });
+
+  test("flat Flockbook rows use 28 px headers, 26 px rows, 7 px corners, and peek drawer hides while sidebar shows", async () => {
+    const m = await mounted();
+    expect(byId(m.el, `project-${ALPHA}`).attrs).toMatchObject({ h: 28, rounded: 7 });
+    expect(byId(m.el, `worktree-${FEAT}`).attrs).toMatchObject({ h: 26, rounded: 7 });
+    expect(byId(m.el, "agent-macmini/t5").attrs).toMatchObject({ h: 26, rounded: 7 });
+
+    calls = [];
+    const peek = await mount("bw-projects", { props: { peek: true }, live: withExec("two-machines") });
+    await settle(peek);
+    expect(peek.el.kids).toEqual([]);
+    expect(calls).toEqual([]);
+
+    const sb = fake.layout.children.find((/** @type {any} */ c) => c.id === "sidebar");
+    sb.hidden = true;
+    await settle(peek);
+    expect(byId(peek.el, "root").attrs.w).toBe(244);
+    expect(byId(peek.el, "projects-header").attrs.pl).toBe(12);
+    expect(byId(peek.el, `project-${ALPHA}`)).not.toBeNull();
+  });
 });

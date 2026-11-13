@@ -49,9 +49,10 @@ test("buttons stay mounted and fade in while the header is hovered", async () =>
   expect(findAll(actions(), (e) => /^(split-right|split-down|zoom|close)-p8$/.test(e.attrs.id))).toHaveLength(4);
 });
 
-test("a blocked pane shows a breathing Needs you pill and its status mark", async () => {
+test("a blocked pane shows a static Needs you pill and its status mark", async () => {
   const m = await mount("bw-pane", { props: { pane: "p8" }, live: withPane({ status: "blocked" }) });
-  expect(byId(m.el, "needs-p8").attrs.loop).toEqual(["opacity", { from: 0.65, to: 1, period: 1400 }]);
+  expect(byId(m.el, "needs-p8").attrs.loop).toBeUndefined();
+  expect(textOf(byId(m.el, "needs-p8"))).toBe("Needs you");
   expect(textOf(m.el)).toContain("Claude Code");
   const working = await mount("bw-pane", { props: { pane: "p8" }, live: withPane({ status: "working" }) });
   expect(byId(working.el, "needs-p8")).toBeNull();

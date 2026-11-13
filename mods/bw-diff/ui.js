@@ -4,7 +4,7 @@
 import { div, image, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { theme } from "herdr";
-import { MUTED_ON_SELECTED, MOCHA, TILE_HUES, mix } from "./palette.js";
+import { MUTED_ON_SELECTED, MOCHA, ROLES, TILE_HUES, mix } from "./palette.js";
 
 /** @typedef {import("gpui-kit").Color} Color */
 /** Theme colours by name, as `themeColors()` returns them. @typedef {Record<string, Color>} Theme */
@@ -34,7 +34,7 @@ const NAMES = [
 /** Paths of Bellwether's own SVGs, as svg() takes them. @type {Readonly<Record<string, string>>} */
 export const ICONS = Object.freeze(Object.fromEntries(NAMES.map((n) => [n, `mods/bw-projects/icons/${n}.svg`])));
 
-/** How each status moves; idle and done are still once settled. */
+/** How each status moves; blocked marks stay still so only the top-bar Needs you badge breathes. */
 export const MOTION = Object.freeze({
   spin: 900,
   breathe: Object.freeze({ from: 0.65, to: 1, period: 1400 }),
@@ -43,23 +43,37 @@ export const MOTION = Object.freeze({
   hover: 120,
 });
 
-/** Secondary text on a Surface 1 fill (selected rows, the active tab), where `muted` falls under 4.5:1. */
+/** Secondary text on a selected fill (#333546) or hovered raised fill (#272738). */
 export const mutedOnSelected = /** @type {Color} */ (MUTED_ON_SELECTED);
 
-/** A Surface 0 fill under the pointer: the hover tint composited, so it lightens rather than replaces. */
-export const raisedHover = /** @type {Color} */ (mix(MOCHA.text, MOCHA.surface0, 0x14 / 255));
+/** A raised fill (#272738) under the pointer: the 7% hover tint composited, so it lightens rather than replaces. */
+export const raisedHover = /** @type {Color} */ (mix(MOCHA.text, ROLES.raised, 0.07));
 
-/** A Surface 1 fill under the pointer, the hover tint composited. */
-export const selectedHover = /** @type {Color} */ (mix(MOCHA.text, MOCHA.surface1, 0x14 / 255));
+/** A selected fill (#333546) under the pointer, the 7% hover tint composited. */
+export const selectedHover = /** @type {Color} */ (mix(MOCHA.text, ROLES.selected, 0.07));
 
 /** @param {unknown} status @returns {status is Status} */
 const isStatus = (status) => status === "working" || status === "blocked" || status === "done" || status === "idle";
 
 /**
- * An agent's state, drawn the same everywhere: working is a Blue arc that spins, blocked a Peach
- * question mark that breathes, done a Green check, idle a still ring. Anything else draws an empty
- * box so rows stay aligned. With `id`, the check stays mounted under it and fades in when the
- * status turns done; without one it simply appears.
+ * Finds a layout node by `id` across `children` and `floating` drawers.
+ * @param {any} node @param {string} id @returns {any}
+ */
+export function findLayout(node, id) {
+  if (!node || typeof node !== "object") return null;
+  if (node.id === id) return node;
+  for (const c of [...(node.children ?? []), ...(node.floating ?? [])]) {
+    const hit = findLayout(c, id);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
+ * An agent's state, drawn the same everywhere: working is a Blue arc that spins, blocked a still
+ * Peach question mark, done a Green check, idle a still ring. Anything else draws an empty box so
+ * rows stay aligned. With `id`, the check stays mounted under it and fades in when the status turns
+ * done; without one it simply appears.
  * @param {Theme} t themeColors()
  * @param {Status | null | undefined} status
  * @param {number} [size]
@@ -89,8 +103,7 @@ export function statusMark(t, status, size = 12, id = null) {
 function glyph(t, status, size) {
   if (status === "working")
     return svg(ICONS["ring-spin"]).size(size).flex_none().text_color(t.working).spin(MOTION.spin);
-  if (status === "blocked")
-    return svg(ICONS.question).size(size).flex_none().text_color(t.blocked).loop("opacity", MOTION.breathe);
+  if (status === "blocked") return svg(ICONS.question).size(size).flex_none().text_color(t.blocked);
   if (status === "done") return svg(ICONS.check).size(size).flex_none().text_color(t.done);
   return svg(ICONS.ring).size(size).flex_none().text_color(t.idle);
 }
@@ -152,6 +165,33 @@ export function pill(t, text, tone = "count", id = null) {
 }
 
 /**
+ * The top-bar `Needs you` count pill: the sole element in the window that breathes (`0.65` to `1`).
+ * @param {Theme} t themeColors()
+ * @param {number} count
+ * @param {{ id?: string, active?: boolean, onClick?: (e: unknown, cx: any) => void }} [o]
+ */
+export function needsCountPill(t, count, o = {}) {
+  const active = Boolean(o.active);
+  return h_flex()
+    .id(o.id ?? "tabs-needs")
+    .flex_none()
+    .h(24)
+    .px(9)
+    .gap(5)
+    .items_center()
+    .rounded(12)
+    .bg(t.blocked)
+    .text_color(t.accent_foreground)
+    .text_size(11.5)
+    .font_semibold()
+    .when(active, (el) => el.border(1).border_color(t.foreground))
+    .when(Boolean(o.onClick), (el) => el.cursor_pointer().on_click(/** @type {any} */ (o.onClick)))
+    .loop("opacity", MOTION.breathe)
+    .child(svg(ICONS.question).size(11).flex_none().text_color(t.accent_foreground))
+    .child(`${count} needs you`);
+}
+
+/**
  * The name of a space's machine as a small pill.
  * @param {string} name
  * @param {Theme} t themeColors()
@@ -161,9 +201,8 @@ export function machineTag(name, t) {
 }
 
 /**
- * A 28 px fully rounded Surface 0 chip, content-wide; add its icon and text as children. Its hover is
- * a plain style swap, so it works inside a virtual list, whose rows take no handlers. Secondary
- * text moves to Subtext 1 on the hovered fill to keep 4.5:1; a chip given `color` keeps it.
+ * A 28 px fully rounded raised chip, content-wide; add its icon and text as children. Its hover is
+ * a plain style swap, so it works inside a virtual list, whose rows take no handlers.
  * @param {Theme} t themeColors() @param {{ color?: Color }} [o]
  */
 export function chip(t, o = {}) {
@@ -182,7 +221,7 @@ export function chip(t, o = {}) {
     .hover((s) => (color ? s.bg(raisedHover) : s.bg(raisedHover).text_color(mutedOnSelected)));
 }
 
-/** A stable hue per key, so a tile keeps its colour as projects come and go. @param {string} key */
+/** A stable hue per key, kept for callers needing deterministic Mocha accents. @param {string} key */
 export function tileHue(key) {
   let h = 0;
   for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -190,16 +229,19 @@ export function tileHue(key) {
 }
 
 /**
- * A rounded square with one or two letters in Crust on a Catppuccin accent.
- * @param {Theme} t themeColors() @param {string} key @param {string} letters @param {number} [size]
+ * A neutral rounded square (`bg(t.raised)`, `1 px t.border`, `text_color(t.muted)`, `rounded(6)` at 20 px)
+ * so accent colour stays reserved for primary actions and active states.
+ * @param {Theme} t themeColors() @param {string} _key @param {string} letters @param {number} [size]
  */
-export function monogram(t, key, letters, size = 20) {
+export function monogram(t, _key, letters, size = 20) {
   return div()
     .size(size)
     .flex_none()
     .rounded(Math.round(size * 0.3))
-    .bg(tileHue(key))
-    .text_color(t.accent_foreground)
+    .bg(t.raised)
+    .border(1)
+    .border_color(t.border)
+    .text_color(t.muted)
     .text_size(Math.round(size * 0.55))
     .font_semibold()
     .flex()

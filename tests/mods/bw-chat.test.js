@@ -834,9 +834,11 @@ describe("bw-chat", () => {
     m.render();
     expect(textOf(m.el)).toContain("Claude is waiting for you · Answer in terminal (⌘J)");
     expect(textOf(m.el)).not.toMatch(/Allow|Deny|Approve/);
-    // The waiting line's mark breathes in Peach until the person answers.
-    const breathing = findAll(m.el, (e) => e.attrs.loop !== undefined);
-    expect(breathing.map((e) => [e.attrs.text_color, e.attrs.loop[0]])).toEqual([["#blocked", "opacity"]]);
+    // The waiting line's mark stays static Peach so only the top-bar Needs you badge breathes.
+    const marks = findAll(m.el, (e) => e.tag === "svg" && e.attrs.path === "mods/bw-projects/icons/question.svg");
+    expect(marks.length).toBeGreaterThan(0);
+    expect(marks[0].attrs.text_color).toBe("#blocked");
+    expect(findAll(m.el, (e) => e.attrs.loop !== undefined)).toEqual([]);
     fire(list(m), "on_item_click", "perm-tu1", m.cx);
     expect(m.log.run).toEqual([["bw-tabs.chat-flip"]]);
   });

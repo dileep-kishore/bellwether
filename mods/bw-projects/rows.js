@@ -38,15 +38,15 @@ export const projectFold = (key) => `p${key}`;
 /** @param {string} key */
 export const worktreeFold = (key) => `w${key}`;
 
-/** A project's tile: its letter on its own hue, or a quiet Surface 1 tile while none of its spaces is open.
+/** A project's neutral monogram tile, quieter on Mantle in the narrow rail while closed.
  * @param {Theme} t @param {ProjectNode} p @param {number} size @param {boolean} [quiet] */
 export function letterTile(t, p, size, quiet = false) {
   const tile = monogram(t, p.key, p.letter, size);
-  return quiet ? tile.bg(t.selected).text_color(mutedOnSelected) : tile;
+  return quiet ? tile.bg(t.chrome) : tile;
 }
 
 /**
- * A sidebar row's frame: rounded, with a hover fill that fades and, when selected, a Surface 1 fill
+ * A sidebar row's frame: 7 px corners, a hover fill that fades and, when selected, `selected` fill
  * with a 2 px Mauve bar.
  * @param {Draw} d @param {string} hoverKey @param {string} id @param {boolean} selected
  */
@@ -55,12 +55,12 @@ function rowFrame(d, hoverKey, id, selected) {
   return h_flex()
     .id(id)
     .relative()
-    .rounded(8)
+    .rounded(7)
     .when(selected, (el) => el.bg(t.selected))
     .on_hover((/** @type {boolean} */ on, /** @type {any} */ cx) => d.hover(hoverKey, on, cx))
-    .child(hoverFill(t, `hover-${id}`, !selected && d.hovered === hoverKey, 8))
+    .child(hoverFill(t, `hover-${id}`, !selected && d.hovered === hoverKey, 7))
     .when(selected, (el) =>
-      el.child(div().id(`bar-${id}`).absolute().left(0).top(6).bottom(6).w(2).rounded(1).bg(t.accent)),
+      el.child(div().id(`bar-${id}`).absolute().left(0).top(5).bottom(5).w(2).rounded(1).bg(t.accent)),
     );
 }
 
@@ -94,7 +94,7 @@ function machineHeading(d, m) {
   const busy = m.state === "loading" || (m.state === "ready" && helper?.state === "installing");
   return h_flex()
     .id(`machine-${m.name ?? "local"}`)
-    .h(26)
+    .h(24)
     .flex_none()
     .px(12)
     .gap(6)
@@ -127,9 +127,9 @@ function projectHeader(d, p, m) {
   const button = (/** @type {string} */ id, /** @type {string} */ icon, /** @type {() => void} */ act) =>
     div()
       .id(id)
-      .size(22)
+      .size(20)
       .flex_none()
-      .rounded(11)
+      .rounded(6)
       .flex()
       .items_center()
       .justify_center()
@@ -140,7 +140,7 @@ function projectHeader(d, p, m) {
       .child(svg(icon).size(12));
   return (
     rowFrame(d, p.key, `project-${p.key}`, false)
-      .h(32)
+      .h(28)
       .flex_none()
       .pl(8)
       .pr(6)
@@ -160,7 +160,7 @@ function projectHeader(d, p, m) {
           .child(chevron(t, !folded))
           .child(letterTile(t, p, 20))
           .child(
-            div().flex_1().min_w(0).truncate().text_size(13).font_semibold().text_color(t.foreground).child(p.name),
+            div().flex_1().min_w(0).truncate().text_size(12.5).font_semibold().text_color(t.foreground).child(p.name),
           )
           .when(folded, (el) => el.child(statusMark(t, p.status, 12, `mark-project-${p.key}`))),
       )
@@ -173,18 +173,20 @@ function projectHeader(d, p, m) {
   );
 }
 
-/** The right side of a worktree row: `missing`, or ahead/behind and line counts. @param {Draw} d @param {WorktreeNode} w @param {boolean} selected */
+/** The right side of a worktree row: `missing`, or ahead/behind and line counts when non-zero.
+ * @param {Draw} d @param {WorktreeNode} w @param {boolean} selected */
 function worktreeCounts(d, w, selected) {
   const { t } = d;
   const quiet = selected ? mutedOnSelected : t.muted;
-  const out = h_flex().flex_none().gap(6).items_center().text_size(11);
-  if (w.prunable) return out.child(div().text_color(quiet).child("missing"));
+  if (w.prunable)
+    return h_flex().flex_none().gap(6).items_center().text_size(11).child(div().text_color(quiet).child("missing"));
   const c = w.counts;
-  if (!c) return out;
+  if (!c || (c.ahead <= 0 && c.behind <= 0 && c.added <= 0 && c.removed <= 0)) return null;
+  const out = h_flex().flex_none().gap(6).items_center().text_size(11);
   // Counts from an earlier read keep their place in Subtext until the next one lands.
   const stale = w.stale;
   const add = stale ? quiet : t.ansi2;
-  // Red on a selected row's Surface 1 is 3.9:1; the bright red keeps 4.5:1 there.
+  // Red on a selected row uses the bright red to keep >= 4.5:1 AA.
   const del = stale ? quiet : selected ? t.ansi9 : t.ansi1;
   if (c.ahead > 0) out.child(div().text_color(add).child(`↑${c.ahead}`));
   if (c.behind > 0) out.child(div().text_color(del).child(`↓${c.behind}`));
@@ -212,6 +214,7 @@ function worktreeRow(d, w, p) {
   const fold = worktreeFold(w.key);
   const folded = d.isFolded(fold);
   const selected = d.active !== null && w.spaces.includes(d.active);
+  const counts = worktreeCounts(d, w, selected);
   const lead = w.agents.length
     ? div()
         .id(`fold-${w.key}`)
@@ -225,7 +228,7 @@ function worktreeRow(d, w, p) {
         .child(chevron(t, !folded))
     : div().size(16).flex_none();
   return h_flex()
-    .h(30)
+    .h(26)
     .flex_none()
     .pl(14)
     .pr(6)
@@ -236,7 +239,7 @@ function worktreeRow(d, w, p) {
       rowFrame(d, `w:${w.key}`, `worktree-${w.key}`, selected)
         .flex_1()
         .min_w(0)
-        .h(28)
+        .h(26)
         .px(8)
         .gap(6)
         .items_center()
@@ -253,12 +256,12 @@ function worktreeRow(d, w, p) {
             .flex_1()
             .min_w(0)
             .truncate()
-            .text_size(13)
+            .text_size(12.5)
             .text_color(w.open ? t.foreground : selected ? mutedOnSelected : t.muted)
             .child(branchLabel(w)),
         )
         .when(folded && w.status !== null, (el) => el.child(statusMark(t, w.status, 12, `mark-worktree-${w.key}`)))
-        .child(worktreeCounts(d, w, selected)),
+        .when(counts !== null, (el) => el.child(/** @type {any} */ (counts))),
     );
 }
 
@@ -303,7 +306,7 @@ function plainSpace(d, s) {
     .flex_none()
     .child(
       rowFrame(d, `s:${s.id}`, `space-${s.id}`, s.active)
-        .h(28)
+        .h(26)
         .flex_none()
         .ml(30)
         .mr(6)
@@ -313,7 +316,7 @@ function plainSpace(d, s) {
         .cursor_pointer()
         .on_click(() => d.selectSpace(s.id))
         .child(svg(ICONS.terminal).size(12).flex_none().text_color(t.muted))
-        .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground).child(s.name))
+        .child(div().flex_1().min_w(0).truncate().text_size(12.5).text_color(t.foreground).child(s.name))
         .when(s.agents.length === 0 && s.status !== null, (el) =>
           el.child(statusMark(t, s.status, 12, `mark-space-${s.id}`)),
         ),

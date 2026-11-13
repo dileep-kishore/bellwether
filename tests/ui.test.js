@@ -3,7 +3,19 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { div } from "gpui-kit";
 import { findAll, textOf } from "./harness/kit-stub.js";
-import { ICONS, ago, appear, button, chip, machineTag, monogram, programIcon, statusMark } from "../shared/ui.js";
+import {
+  ICONS,
+  ago,
+  appear,
+  button,
+  chip,
+  findLayout,
+  machineTag,
+  monogram,
+  needsCountPill,
+  programIcon,
+  statusMark,
+} from "../shared/ui.js";
 
 const ROOT = join(import.meta.dir, "..");
 const t = new Proxy({}, { get: (_o, k) => `#${String(k)}` });
@@ -16,11 +28,22 @@ test("working spins at 900 in working colour", () => {
   expect(el.attrs.loop).toBeUndefined();
 });
 
-test("blocked breathes its opacity between 0.65 and 1 and never spins", () => {
+test("blocked mark is static Peach and only needsCountPill breathes", () => {
   const el = statusMark(t, "blocked", 11);
   expect(el.attrs).toMatchObject({ path: ICONS.question, text_color: "#blocked", size: 11 });
-  expect(el.attrs.loop).toEqual(["opacity", { from: 0.65, to: 1, period: 1400 }]);
+  expect(el.attrs.loop).toBeUndefined();
   expect(el.attrs.spin).toBeUndefined();
+
+  const badge = needsCountPill(t, 2, { active: true });
+  expect(badge.attrs).toMatchObject({
+    id: "tabs-needs",
+    bg: "#blocked",
+    text_color: "#accent_foreground",
+    border: 1,
+    border_color: "#foreground",
+  });
+  expect(badge.attrs.loop).toEqual(["opacity", { from: 0.65, to: 1, period: 1400 }]);
+  expect(textOf(badge)).toBe("2 needs you");
 });
 
 test("idle and done are still: no spin, no loop", () => {
@@ -43,7 +66,7 @@ test("with an id the check stays mounted and fades to 1 only when done", () => {
     const c = check(el);
     expect(c.attrs).toMatchObject({ path: ICONS.check, text_color: "#done", opacity: status === "done" ? 1 : 0 });
     expect(c.attrs.transition).toEqual(["opacity", 180]);
-    expect(findAll(el, (e) => e.attrs.loop !== undefined).length).toBe(status === "blocked" ? 1 : 0);
+    expect(findAll(el, (e) => e.attrs.loop !== undefined).length).toBe(0);
     expect(findAll(el, (e) => e.attrs.spin !== undefined).length).toBe(status === "working" ? 1 : 0);
   }
 });
@@ -78,11 +101,20 @@ test("appear starts at 0 and 6 px down, and transitions both", () => {
   expect(el.attrs.transition).toEqual(["top", 140]);
 });
 
-test("a monogram keeps its hue for a key and writes Crust on it", () => {
+test("a monogram is a neutral raised 20 px rounded square with 1 px border and muted text", () => {
   const a = monogram(t, "m:/repo/.git", "B");
-  expect(a.attrs.bg).toBe(monogram(t, "m:/repo/.git", "B").attrs.bg);
-  expect(a.attrs.text_color).toBe("#accent_foreground");
+  expect(a.attrs).toMatchObject({
+    size: 20,
+    rounded: 6,
+    bg: "#raised",
+    border: 1,
+    border_color: "#border",
+    text_color: "#muted",
+  });
   expect(textOf(a)).toBe("B");
+  expect(findLayout({ id: "root", floating: [{ id: "sidebar-peek" }] }, "sidebar-peek")).toEqual({
+    id: "sidebar-peek",
+  });
 });
 
 test("ago: 59 s now, 3 min 3m, 2 h 2h, 4 d 4d", () => {
@@ -153,10 +185,10 @@ test("on a Surface 0 card, secondary is Surface 1 and disabled keeps Surface 0 w
   expect(button(t, { id: "b", label: "Go", kind: "primary", on: "raised" }).attrs.bg).toBe("#solid");
 });
 
-test("a chip lifts muted text to Subtext 1 on hover, and keeps a colour it was given", () => {
+test("a chip keeps Subtext 0 on hover over raised, and keeps a colour it was given", () => {
   const plain = chip(t);
   expect(plain.attrs).toMatchObject({ h: 28, rounded: 14, bg: "#raised", text_color: "#muted" });
-  expect(plain.attrs.hover.text_color).toBe("#bac2de");
+  expect(plain.attrs.hover.text_color).toBe("#a6adc8");
   const failed = chip(t, { color: "#blocked" });
   expect(failed.attrs.text_color).toBe("#blocked");
   expect(failed.attrs.hover.text_color).toBeUndefined();

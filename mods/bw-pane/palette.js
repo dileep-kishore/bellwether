@@ -81,16 +81,16 @@ const M = MOCHA;
 
 /** Herdr's panel roles as the spec's table names them; themes/bellwether.json `colors` holds these. */
 export const ROLES = Object.freeze({
-  canvas: M.crust,
+  canvas: M.base,
   chrome: M.mantle,
   surface: M.base,
   popover: M.mantle,
-  raised: M.surface0,
-  border: M.surface1,
-  // An editable field's edge carries meaning, so it needs 3:1 on Base, Mantle and Surface 0.
+  raised: mix(M.surface0, M.base, 0.45),
+  border: M.surface0,
+  // An editable field's edge carries meaning, so it needs 3:1 on Base, Mantle and raised (#272738).
   input: M.overlay1,
-  hover: alpha(M.text, 0x14 / 255),
-  selected: M.surface1,
+  hover: alpha(M.text, 0.07),
+  selected: mix(M.surface1, M.base, 0.55),
   foreground: M.text,
   muted: M.subtext0,
   dim: M.overlay2,
@@ -136,8 +136,8 @@ export const TERMINAL = Object.freeze({
   ),
 });
 
-/** Secondary text on Surface 1 or on a hovered Surface 0, where Subtext 0 falls under 4.5:1. */
-export const MUTED_ON_SELECTED = M.subtext1;
+/** Secondary text on selected (#333546) or hovered raised (#272738), where Subtext 0 keeps >= 5.4:1 AA. */
+export const MUTED_ON_SELECTED = M.subtext0;
 
 /** Hues a monogram tile can take; its text is Crust on every one. */
 export const TILE_HUES = Object.freeze([
