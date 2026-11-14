@@ -727,6 +727,107 @@ describe("bw-chat stack mode", () => {
     expect(items).toEqual([]);
   });
 
+  test("drains when queue add finishes after working -> done or when an idle session gains queued items", async () => {
+    const RealNow = Date.now;
+    let clock = 100_000;
+    Date.now = () => clock;
+    try {
+      const data = stackLive();
+      data.panes[0].status = "working";
+      data.terminals[0].status = "working";
+      data.agents[0].status = "working";
+      data.spaces[0].status = "working";
+      data.spaces[0].tabs[0].status = "working";
+
+      /** @type {any[]} */
+      let items = [];
+      /** @type {(() => void) | null} */
+      let releaseAdd = null;
+      const queueReply = () => out([{ type: "queue", terminal: "t1", held: false, hold_reason: null, items }]);
+
+      data.exec = bwAndGit({
+        feed: () => out(golden("claude-approval", "t1", CLAUDE_PATH)),
+        queue: async (args) => {
+          const op = args[0];
+          if (op === "list") return queueReply();
+          if (op === "add") {
+            const text = args[args.indexOf("--text") + 1];
+            const sessIdx = args.indexOf("--session");
+            await new Promise((r) => {
+              releaseAdd = () => r(undefined);
+            });
+            items = [
+              ...items,
+              {
+                id: `q${items.length + 1}`,
+                text,
+                at_ms: clock,
+                expect_kind: "claude",
+                expect_session: sessIdx >= 0 ? args[sessIdx + 1] : null,
+              },
+            ];
+            return queueReply();
+          }
+          if (op === "drain") {
+            items = items.slice(1);
+            return out([
+              { type: "drain", result: "sent", item_id: "q1", held: false, hold_reason: null, remaining: items.length },
+            ]);
+          }
+          return queueReply();
+        },
+      });
+
+      const m = await mount("bw-chat", { props: {}, live: data });
+
+      // 1. User hits Enter while working; `queue add` is still in flight when agent flips working -> done.
+      await typeText(m, "in-flight follow-up");
+      const state = textarea(m).attrs.state;
+      inspect(state).value = "in-flight follow-up\n";
+      await emit(state, "change", {}, m.cx);
+      await emit(state, "submit", { shift: false }, m.cx);
+      await m.cx.flush();
+      expect(typeof releaseAdd).toBe("function");
+
+      // Agent finishes BEFORE `queue add` resolves -> render observes working -> done with empty session.queue.
+      fake.panes[0].status = "done";
+      fake.terminals[0].status = "done";
+      fake.agents[0].status = "done";
+      fake.spaces[0].status = "done";
+      fake.spaces[0].tabs[0].status = "done";
+      m.render();
+      expect(m.view.session?.status).toBe("done");
+      expect(m.view.session?.queue.items).toHaveLength(0);
+
+      // Now `queue add` resolves on the already-done session -> schedules and executes drain automatically!
+      releaseAdd?.();
+      await m.cx.flush();
+      m.render();
+      const drainsAfterAdd = calls(m, "queue").filter(([, a]) => a[4] === "drain");
+      expect(drainsAfterAdd).toHaveLength(1);
+      expect(items).toEqual([]);
+
+      // 2. External enqueue (e.g. bw-diff Queue review) arrives on an already-idle session -> readQueue schedules drain!
+      clock += 15_000;
+      items = [
+        {
+          id: "q-ext",
+          text: "external diff review",
+          at_ms: clock,
+          expect_kind: "claude",
+          expect_session: CLAUDE_SESSION,
+        },
+      ];
+      await nextPoll(m);
+      await m.cx.flush();
+      const drainsAfterList = calls(m, "queue").filter(([, a]) => a[4] === "drain");
+      expect(drainsAfterList).toHaveLength(2);
+      expect(items).toEqual([]);
+    } finally {
+      Date.now = RealNow;
+    }
+  });
+
   test("renders PR status chip with Merge PR on null reviewDecision, opens PR with Chrome up fallback, runs PR skills, and clears stale PR on branch change", async () => {
     const data = stackLive();
     let chromeRunning = false;

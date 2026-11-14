@@ -83,6 +83,7 @@ export const MAX_SESSIONS = 24;
  * @property {string | null} status
  * @property {boolean} wantDrain
  * @property {boolean} draining
+ * @property {number} lastDrainAt
  * @property {QueueView} queue
  * @property {boolean} queueLoaded
  * @property {number} queueCheckedAt
@@ -95,6 +96,9 @@ export const MAX_SESSIONS = 24;
  * @property {number} prCheckedAt
  * @property {boolean} prBusy
  */
+
+/** @param {string | null} status */
+export const isIdleStatus = (status) => status === "done" || status === "idle";
 
 /** @returns {QueueView} */
 export function emptyQueue() {
@@ -184,6 +188,7 @@ export function createSession(target, slot, now) {
     status: target.status ?? null,
     wantDrain: false,
     draining: false,
+    lastDrainAt: 0,
     queue: emptyQueue(),
     queueLoaded: false,
     queueCheckedAt: 0,
@@ -273,6 +278,7 @@ function rebindKind(s, target, now) {
   s.note = null;
   s.wantDrain = false;
   s.draining = false;
+  s.lastDrainAt = 0;
   s.queue = emptyQueue();
   s.queueLoaded = false;
   s.queueCheckedAt = 0;

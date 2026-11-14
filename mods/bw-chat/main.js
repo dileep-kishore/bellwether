@@ -74,7 +74,7 @@ import {
   updateSharedPrSummary,
 } from "./pr-model.js";
 import { createPoke } from "./refresh-driver.js";
-import { MAX_SESSIONS, SessionMap, createSession, parseQueueLine, pinTabAgent } from "./sessions.js";
+import { MAX_SESSIONS, SessionMap, createSession, isIdleStatus, parseQueueLine, pinTabAgent } from "./sessions.js";
 import {
   TRUST_STEP,
   agentName,
@@ -117,6 +117,7 @@ const RIGHT_TAB = "bw.right.tab";
 const WINDOW_ID = "bw.window-id";
 const DISMISSED = "bw.hooks-dismissed";
 const ROOT_ENDED = "This conversation ended; showing the new one";
+const QUEUE_DRAIN_RETRY_MS = 2_000;
 const QUEUE_IDLE_POLL_MS = 10_000;
 const PR_SHOWN_POLL_MS = 30_000;
 const PR_HIDDEN_POLL_MS = 60_000;
@@ -323,7 +324,14 @@ export default class Chat extends View {
               if (s.wantOlder) await this.readOlder(s, target, cx);
               this.startPictures(s, target, cx);
               if (this.stackMode) {
-                if (s.wantDrain && !s.draining && !s.queueBusy) {
+                const retryReady =
+                  this.shouldDrainIdleQueue(s) && s.queueLoaded && started - s.lastDrainAt >= QUEUE_DRAIN_RETRY_MS;
+                if (
+                  (s.wantDrain || retryReady) &&
+                  !s.draining &&
+                  !s.queueBusy &&
+                  this.editingQueue?.terminal !== s.terminal
+                ) {
                   await this.drainQueueFallback(s, cx);
                 } else if (!s.queueBusy) {
                   await this.maybeReadQueue(s, started, cx);
@@ -420,6 +428,18 @@ export default class Chat extends View {
     return s.requests.some((r) => r.state === "pending" && r.answerable);
   }
 
+  /** @param {SessionState} s */
+  shouldDrainIdleQueue(s) {
+    return (
+      this.stackMode &&
+      isIdleStatus(s.status) &&
+      s.queue.items.length > 0 &&
+      !s.queue.held &&
+      !s.draining &&
+      this.editingQueue?.terminal !== s.terminal
+    );
+  }
+
   /**
    * Resolves the current target and active `SessionState` in either stack mode or per-pane props mode.
    * Returns whether the active target or status changed.
@@ -457,17 +477,14 @@ export default class Chat extends View {
         prKeyChanged = true;
       }
       const nextStatus = located.target.status ?? null;
-      if (
-        !created &&
-        session.status === "working" &&
-        (nextStatus === "done" || nextStatus === "idle") &&
-        session.queue.items.length > 0 &&
-        !session.queue.held &&
-        !session.draining
-      ) {
-        session.wantDrain = true;
-      }
+      const turnedIdle = !created && session.status === "working" && isIdleStatus(nextStatus);
       session.status = nextStatus;
+      if (turnedIdle) {
+        session.lastDrainAt = 0;
+        if (this.shouldDrainIdleQueue(session) && !session.queueBusy) {
+          session.wantDrain = true;
+        }
+      }
       const switched = prevSession !== session;
       this.sessionSwitched = prevSession !== null && switched;
       this.session = session;
@@ -753,6 +770,8 @@ export default class Chat extends View {
 
   /** @param {SessionState} s @param {any} cx */
   async readQueue(s, cx) {
+    const wasRunnable = s.queueLoaded && s.queue.items.length > 0 && !s.queue.held;
+    const prevHeadId = s.queue.items[0]?.id ?? null;
     s.queueCheckedAt = Date.now();
     const answer = await this.helper.call(s.machine, ["queue", "list", "--terminal", s.local]);
     if (!answer.ok) return;
@@ -761,6 +780,12 @@ export default class Chat extends View {
     const changed = !s.queueLoaded || JSON.stringify(next) !== JSON.stringify(s.queue);
     s.queue = next;
     s.queueLoaded = true;
+    const nextRunnable = next.items.length > 0 && !next.held;
+    if (nextRunnable && (!wasRunnable || (next.items[0]?.id ?? null) !== prevHeadId) && this.shouldDrainIdleQueue(s)) {
+      s.lastDrainAt = 0;
+      s.wantDrain = true;
+      this.poke.poke();
+    }
     if (changed) cx.notify();
   }
 
@@ -768,6 +793,7 @@ export default class Chat extends View {
   async drainQueueFallback(s, cx) {
     s.wantDrain = false;
     s.draining = true;
+    s.lastDrainAt = Date.now();
     try {
       await this.helper.call(s.machine, ["queue", "drain", "--terminal", s.local]);
       await this.readQueue(s, cx);
@@ -939,6 +965,10 @@ export default class Chat extends View {
             s.queue = q;
             s.queueLoaded = true;
             s.queueCheckedAt = Date.now();
+            if (this.shouldDrainIdleQueue(s)) {
+              s.lastDrainAt = 0;
+              s.wantDrain = true;
+            }
             s.draftText = "";
             s.composer?.clear?.();
             if (tab !== null && chips.length) {
@@ -982,6 +1012,7 @@ export default class Chat extends View {
         const went = result === "sent" || result === "unconfirmed";
         s.note = result === "sent" ? null : { text: sendText(result, st.name, message), bad: !went };
         if (went) {
+          s.lastDrainAt = Date.now();
           s.draftText = "";
           s.composer?.clear?.();
         }
@@ -1034,6 +1065,10 @@ export default class Chat extends View {
             s.queue = q;
             s.queueLoaded = true;
             s.queueCheckedAt = Date.now();
+            if (this.shouldDrainIdleQueue(s)) {
+              s.lastDrainAt = 0;
+              s.wantDrain = true;
+            }
             s.note = { text: `Queued ${commandText}.`, bad: false };
           } else {
             const err = answer.ok ? answer.lines.find((/** @type {any} */ l) => l?.type === "error") : null;
@@ -1062,6 +1097,7 @@ export default class Chat extends View {
         const result = typeof line?.result === "string" ? line.result : "failed";
         const message = answer.ok === true ? String(line?.message || "bw send printed no result") : answer.message;
         const went = result === "sent" || result === "unconfirmed";
+        if (went) s.lastDrainAt = Date.now();
         s.note = went
           ? { text: `Sent ${commandText}.`, bad: false }
           : { text: sendText(result, st.name, message), bad: true };
@@ -1134,6 +1170,12 @@ export default class Chat extends View {
           s.queueLoaded = true;
           s.queueCheckedAt = Date.now();
           afterOk?.();
+          if (subArgs[0] === "resume") {
+            s.lastDrainAt = Date.now();
+          } else if (this.shouldDrainIdleQueue(s)) {
+            s.lastDrainAt = 0;
+            s.wantDrain = true;
+          }
         } else {
           const err = answer.ok ? answer.lines.find((/** @type {any} */ l) => l?.type === "error") : null;
           const why = answer.ok === true ? String(err?.message || "no result") : answer.message;
@@ -1206,6 +1248,7 @@ export default class Chat extends View {
             ? String(line?.message || err?.message || "bw queue send printed no result")
             : answer.message;
         const went = result === "sent" || result === "unconfirmed" || result === "already-sent";
+        if (went) s.lastDrainAt = Date.now();
         s.note =
           result === "sent" || result === "already-sent"
             ? null
@@ -2046,6 +2089,11 @@ export default class Chat extends View {
           onQueueEditCancel: (cx) => {
             this.editingQueue = null;
             this.editInput.set_value("");
+            if (this.shouldDrainIdleQueue(s)) {
+              s.lastDrainAt = 0;
+              s.wantDrain = true;
+              this.poke.poke();
+            }
             cx.notify();
           },
           onQueueMove: (id, to, cx) =>
