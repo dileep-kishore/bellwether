@@ -36,6 +36,7 @@ Copyright (c) 2026 Min-Chen Lee.
 | `crates/bw/src/requests/cards.rs` (the screen-first rule of `cards.rs:108-146` (`look`): the card is the box on screen, read only while the agent is blocked, the log's call bound only when it is that box; adapted to occurrences, sub-agents, hook events and Codex's `/new` folder prompt) | `xplat/flockbook-modfeed/src/cards.rs` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
 | `crates/bw/src/requests/claims.rs` (one claim per prompt: an exclusive create linked from a temp file under a `flock` in the folder, `hold` while blocked, `release` when nothing went out, `seen`; claims match their occurrence id only, never the tool and command, and a claim that cannot be written claims nothing) | `xplat/flockbook-modfeed/src/answered.rs` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
 | `crates/bw/src/requests/answer.rs` (`approve` and `answer`, `cards.rs:150-282`: the claim before the key, the key gate, the screen read again right before the key, the claim held after a timeout and given back when nothing went out; `parse_answers`; adapted to occurrences, `bw send`'s conversation guard, keys from the box at the second read, the 3 s re-read and Bellwether's states) | `xplat/flockbook-modfeed/src/cards.rs` | `c0420c7f9a720631108f2d269dcf9f4bd62634ff` | adapted |
+| `mods/bw-projects/rows.js`, `mods/bw-projects/main.js` (flat `28 px` project header and `26 px` worktree/agent row proportions with `rounded(7)`, neutral `20 px` monogram tile, and empty `div()` gate when docked sidebar is visible for `props.peek` left-edge drawer) | `herdr-app/mods/flockbook/sidebar.js` | `c9afaf7` | adapted |
 
 ## herdr-t3
 
@@ -59,3 +60,14 @@ Copyright (c) 2026 Elias Stravik.
 | File here | Source path | Commit | How |
 | --- | --- | --- | --- |
 | `hooks/bw-event` (the `$HC_TERMINAL_ID` gate: exit 0 without a terminal id or with one holding `/` or `..`) | `mods/chat/ask-hook.sh:19-21` | `4552191829b5e67dee60a1c780f41224575ef685` | adapted |
+
+## Cockpit
+
+Source: https://github.com/quaresc/cockpit, MIT License,
+Copyright (c) 2026 quaresc.
+
+| File here | Source path | Commit | How |
+| --- | --- | --- | --- |
+| `mods/bw-needs/main.js`, `mods/bw-needs/model.js` (`Whose move` cross-agent triage grouping and inline `1-9` / `Other…` answer workflow) | `herdr/tui/inbox/` | `7ae5aa6c16db3547d34b2270d56e4884c09abadd` | workflow design adapted in clean-room JS |
+| `mods/bw-diff/comments.js`, `mods/bw-diff/main.js`, `mods/bw-diff/patch.js` (`Uncommitted` / `Branch` / `PR` diff scopes, line-anchored review comments, and structured `path:line (side)` batch markdown formatting) | `herdr/tui/hub/` | `7ae5aa6c16db3547d34b2270d56e4884c09abadd` | workflow and markdown formatting adapted in clean-room JS |
+

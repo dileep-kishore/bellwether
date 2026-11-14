@@ -165,6 +165,53 @@ pub fn locate_with_record(
     (Some(term), found)
 }
 
+/// The live agent kind and PID running in `term`, even before its first session log exists.
+pub(crate) fn live_agent_pid_of(term: &Value) -> Option<(String, i32)> {
+    let t = Term::parse(term)?;
+    if t.state != "live" {
+        return None;
+    }
+    let kind = mapper::kind(&t).filter(|k| k == "claude" || k == "codex")?;
+    let pane = mapper::pane(&t);
+    let procs = resolver::processes();
+    let agent = resolver::hc_agent_process(&pane.process_ids, &kind, &procs)?;
+    Some((kind, agent.pid))
+}
+
+/// Returns the live agent PID only when `term` runs a brand-new `expect_kind` process that has not yet
+/// created any Claude `sessions/<pid>.json`, Codex `.lock`, or open `.jsonl` transcript.
+pub(crate) fn fresh_startup_pid_of(term: &Value, expect_kind: &str) -> Option<i32> {
+    let t = Term::parse(term)?;
+    if t.state != "live" {
+        return None;
+    }
+    let kind = mapper::kind(&t).filter(|k| k == expect_kind)?;
+    let pane = mapper::pane(&t);
+    let procs = resolver::processes();
+    let agent = resolver::hc_agent_process(&pane.process_ids, &kind, &procs)?;
+    let tree = resolver::subtree(agent.pid, &procs);
+    let open = resolver::open_files(&tree);
+    if open
+        .iter()
+        .any(|f| f.ends_with(".jsonl") || f.ends_with(".lock"))
+    {
+        return None;
+    }
+    if kind == "claude" {
+        let own_env: HashMap<String, String> = std::env::vars().collect();
+        let home = PathBuf::from(session_log::home_dir());
+        let dirs = dirs::agent_dirs(&agent.line, &own_env, &home);
+        let sessions = dirs.claude_sessions();
+        if std::iter::once(agent.pid)
+            .chain(pane.process_ids.iter().copied())
+            .any(|p| sessions.join(format!("{p}.json")).exists())
+        {
+            return None;
+        }
+    }
+    Some(agent.pid)
+}
+
 /// This core's live terminal addresses; none when `hc ls` fails, which only means nothing counts as taken.
 fn live_terminals() -> Vec<String> {
     let Ok(v) = hc::hc_ls() else {

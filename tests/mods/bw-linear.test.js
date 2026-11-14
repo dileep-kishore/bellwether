@@ -106,6 +106,7 @@ function live(machine = null, chat = false) {
 
 /** @param {string} child */
 function showInLayout(child, node = fake.layout) {
+  if (node.id === "right") node.hidden = false;
   if (node.id === "right-body") node.active = child;
   for (const c of node.children ?? []) showInLayout(child, c);
 }

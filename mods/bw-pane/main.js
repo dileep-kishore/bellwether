@@ -105,9 +105,7 @@ export default class PaneHeader extends View {
             .child(paneName(p)),
         )
         .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(folder))
-        .when(p.status === "blocked", (el) =>
-          el.child(pill(t, "Needs you", "request", `needs-${pane}`).loop("opacity", MOTION.breathe)),
-        )
+        .when(p.status === "blocked", (el) => el.child(pill(t, "Needs you", "request", `needs-${pane}`)))
         .child(
           h_flex()
             .id(`actions-${pane}`)

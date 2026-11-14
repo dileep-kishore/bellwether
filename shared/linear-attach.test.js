@@ -101,10 +101,13 @@ describe("chatTabOf", () => {
       ],
     },
   ];
-  test("the active tab when it holds a chat", () => {
+  test("the active tab when it holds a chat or stack-mode agent terminal", () => {
     expect(chatTabOf(spaces, [{ pane: "p", tab: "t2", mod: "bw-chat" }])).toBe("t2");
+    expect(chatTabOf(spaces, [{ pane: "p", tab: "t2", terminal: "t8", program: { key: "claude" } }])).toBe("t2");
+    expect(chatTabOf(spaces, [{ pane: "p", tab: "t2", terminal: "macmini/t5", app: "codex" }])).toBe("t2");
   });
-  test("none when the active tab is a terminal or no space is active", () => {
+  test("none when the active tab is a plain shell terminal or no space is active", () => {
+    expect(chatTabOf(spaces, [{ pane: "p", tab: "t2", terminal: "t9", program: { key: "zsh" } }])).toBe(null);
     expect(chatTabOf(spaces, [{ pane: "p", tab: "t1", mod: "bw-chat" }])).toBe(null);
     expect(chatTabOf([{ ...spaces[0], active: false }], [{ pane: "p", tab: "t2", mod: "bw-chat" }])).toBe(null);
   });

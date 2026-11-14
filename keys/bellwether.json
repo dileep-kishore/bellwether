@@ -1,6 +1,10 @@
 {
   "layout:bellwether": {
     "cmd-alt-b": "layout.toggle:right",
-    "cmd-j": "bw-tabs.chat-flip"
+    "cmd-b": "layout.toggle:sidebar",
+    "cmd-j": "bw-tabs.chat-flip",
+    "cmd-shift-'": "bw-tabs.terminal-peek",
+    "cmd-shift-n": "bw-tabs.needs-toggle",
+    "cmd-shift-o": "bw-tabs.overview-toggle"
   }
 }

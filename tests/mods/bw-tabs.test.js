@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { live, mount } from "../harness/mount.js";
 import { fake } from "../harness/herdr-stub.js";
 import { byId, findAll, fire, textOf } from "../harness/kit-stub.js";
-import { moveIndex, tabItems } from "../../mods/bw-tabs/model.js";
+import { moveIndex, needsCount, tabItems } from "../../mods/bw-tabs/model.js";
 
 const MODS = { shift: false, control: false, alt: false, platform: false, function: false };
 const press = (button = "left") => ({ button, click_count: 1, position: { x: 0, y: 0 }, modifiers: MODS });
@@ -74,15 +74,46 @@ describe("model", () => {
     expect(moveIndex(items, "gone", "b")).toBe(null);
     expect(moveIndex(items, "a", "gone")).toBe(null);
   });
+
+  test("needsCount deduplicates blocked terminals and counts live-space PR attention", () => {
+    const agents = [
+      { address: "t1", status: "blocked" },
+      { address: "t2", status: "working" },
+    ];
+    const panes = [
+      { terminal: "t1", status: "blocked" },
+      { terminal: "t3", status: "blocked" },
+    ];
+    const spaces = [{ id: "s1" }, { id: "s2" }, { id: "s3" }];
+    const prSummary = {
+      s1: { failing: 1, unresolvedThreads: 0, reviewDecision: null },
+      s2: { failing: 0, unresolvedThreads: 2, reviewDecision: null },
+      s3: { failing: 0, unresolvedThreads: 0, reviewDecision: "APPROVED" },
+      closedSpace: { reviewDecision: "CHANGES_REQUESTED" },
+    };
+    expect(needsCount(agents, panes, spaces, prSummary)).toBe(4);
+    expect(needsCount([], [], spaces, { s3: { reviewDecision: "CHANGES_REQUESTED" } })).toBe(1);
+  });
 });
 
 describe("bw-tabs", () => {
-  test("draws the active space's tabs with their titles", async () => {
+  test("draws the 48 px surface bar with floating tab and utility capsules", async () => {
     const m = await mount("bw-tabs", { live: live("two-machines") });
-    expect(m.el.attrs.h).toBe(32);
-    expect(m.el.attrs.bg).toBe("#canvas");
-    expect(byId(m.el, "tab-capsule").attrs).toMatchObject({ bg: "#chrome", rounded: 14, border_color: "#border" });
-    expect(byId(m.el, "tab-tb1").attrs).toMatchObject({ bg: "#selected", text_color: "#foreground", rounded: 12 });
+    expect(m.el.attrs.h).toBe(48);
+    expect(m.el.attrs.bg).toBe("#surface");
+    expect(byId(m.el, "tab-capsule").attrs).toMatchObject({
+      bg: "#raised",
+      rounded: 18,
+      border_color: "#border",
+      h: 36,
+    });
+    expect(byId(m.el, "utility-capsule").attrs).toMatchObject({
+      bg: "#raised",
+      rounded: 18,
+      border_color: "#border",
+      h: 36,
+    });
+    expect(byId(m.el, "tab-tb1").attrs).toMatchObject({ bg: "#selected", text_color: "#foreground", rounded: 13 });
     expect(byId(m.el, "tab-mark-tb1").attrs.bg).toBe("#accent");
     expect(byId(m.el, "tab-mark-tb2")).toBe(null);
     expect(["tb1", "tb2", "tb7"].map((id) => textOf(byId(m.el, `tab-${id}`)))).toEqual([
@@ -92,6 +123,15 @@ describe("bw-tabs", () => {
     ]);
     expect(byId(m.el, "tab-tb3")).toBe(null);
     expect(textOf(m.el)).not.toContain("macmini");
+    expect(textOf(byId(m.el, "tabs-needs"))).toContain("1 needs you");
+  });
+
+  test("hides Needs you pill when zero agents and PRs require attention", async () => {
+    const data = live("two-machines");
+    data.agents = data.agents.map((a) => ({ ...a, status: "working" }));
+    data.panes = data.panes.map((p) => ({ ...p, status: p.status === "blocked" ? "working" : p.status }));
+    const m = await mount("bw-tabs", { live: data });
+    expect(byId(m.el, "tabs-needs")).toBe(null);
   });
 
   test("status icons follow each tab's status", async () => {
@@ -150,13 +190,35 @@ describe("bw-tabs", () => {
     expect(m.log.run).toEqual([]);
   });
 
-  test("every control stops the window drag on mouse down", async () => {
+  test("every capsule and control stops the window drag on mouse down", async () => {
     const m = await mount("bw-tabs", { live: live("two-machines") });
-    for (const id of ["tab-tb1", "tab-tb2", "close-tb1", "tab-new"])
-      await fire(byId(m.el, id), "on_mouse_down:left", press(), m.cx);
-    expect(m.cx.stopped).toBe(4);
+    const ids = [
+      "tab-capsule",
+      "utility-capsule",
+      "tab-tb1",
+      "tab-tb2",
+      "close-tb1",
+      "tab-new",
+      "tabs-needs",
+      "tabs-overview",
+      "tabs-terminal",
+      "tabs-peek",
+      "tabs-inspector",
+    ];
+    for (const id of ids) await fire(byId(m.el, id), "on_mouse_down:left", press(), m.cx);
+    expect(m.cx.stopped).toBe(ids.length);
     await fire(m.el, "on_mouse_down:left", press(), m.cx);
-    expect(m.cx.stopped).toBe(4);
+    expect(m.cx.stopped).toBe(ids.length);
+  });
+
+  test("utility buttons toggle inspector and peek active terminal", async () => {
+    const m = await mount("bw-tabs", { live: live("two-machines") });
+    await m.click("tabs-peek");
+    await m.click("tabs-inspector");
+    expect(m.log.run).toEqual([
+      ["terminal.peek", { terminal: "t1" }],
+      ["layout.toggle", { id: "right" }],
+    ]);
   });
 
   test("remote space tabs carry the machine tag", async () => {
@@ -197,6 +259,7 @@ describe("bw-tabs", () => {
   test("+ with no space opens bw-new on this Mac's home", async () => {
     const m = await mount("bw-tabs", { live: live("empty") });
     expect(findAll(m.el, (e) => typeof e.attrs.id === "string" && /^tab-tb/.test(e.attrs.id))).toEqual([]);
+    expect(byId(m.el, "tabs-peek").attrs.opacity).toBe(0.45);
     await m.click("tab-new");
     expect(m.log.overlays).toEqual([
       {
@@ -210,20 +273,29 @@ describe("bw-tabs", () => {
     ]);
   });
 
-  test("left padding clears the traffic lights only when the sidebar is hidden", async () => {
-    expect((await mount("bw-tabs", { live: live("two-machines") })).el.attrs.pl).toBe(8);
+  test("left padding clears traffic lights with zoom scaling and shows sidebar toggle when sidebar is hidden", async () => {
+    const shown = await mount("bw-tabs", { live: live("two-machines") });
+    expect(shown.el.attrs.pl).toBe(10);
+    expect(byId(shown.el, "tabs-sidebar")).toBe(null);
+
     const hidden = withLayout((n) => {
       if (n.id === "sidebar") n.hidden = true;
     });
-    expect((await mount("bw-tabs", { live: hidden })).el.attrs.pl).toBe(76);
+    const mHidden = await mount("bw-tabs", { live: hidden });
+    expect(mHidden.el.attrs.pl).toBe(78);
+    expect(byId(mHidden.el, "tabs-sidebar")).not.toBe(null);
+    await mHidden.click("tabs-sidebar");
+    expect(mHidden.log.run).toEqual([["layout.toggle", { id: "sidebar" }]]);
+
+    expect((await mount("bw-tabs", { live: { ...hidden, settings: { zoom: 1.25 } } })).el.attrs.pl).toBe(98);
     expect(
       (await mount("bw-tabs", { live: { ...hidden, window: { ...fake.window, fullscreen: true } } })).el.attrs.pl,
-    ).toBe(8);
+    ).toBe(10);
     expect(
       (await mount("bw-tabs", { live: { ...hidden, window: { ...fake.window, titlebar: "system" } } })).el.attrs.pl,
-    ).toBe(8);
+    ).toBe(10);
     expect(
       (await mount("bw-tabs", { live: { ...hidden, window: { ...fake.window, platform: "linux" } } })).el.attrs.pl,
-    ).toBe(8);
+    ).toBe(10);
   });
 });

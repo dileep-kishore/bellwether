@@ -7,9 +7,11 @@ import {
   agents,
   exec,
   home,
+  layout,
   machines,
   openOverlay,
   panes,
+  props,
   run,
   setAgentOrder,
   setShared,
@@ -33,7 +35,7 @@ import { createPoke, runRefresher } from "./refresh-driver.js";
 import { createSchedule } from "./refresh-schedule.js";
 import { machineSection, rail } from "./rows.js";
 import { makeRun, mergeResult } from "./run-git.js";
-import { ICONS, button, themeColors } from "./ui.js";
+import { ICONS, button, findLayout, themeColors } from "./ui.js";
 
 const STORE = "bw.projects";
 const FOLDED = "bw-projects.folded";
@@ -263,6 +265,16 @@ export default class Projects extends View {
   }
 
   render() {
+    const peek = Boolean(/** @type {{ peek?: boolean } | null} */ (props())?.peek);
+    const layoutTree = layout();
+    const sidebarHidden = Boolean(findLayout(layoutTree, "sidebar")?.hidden);
+    if (peek && !sidebarHidden) {
+      this.showsTime = false;
+      if (this.schedule.setTargets([], Date.now())) this.poke.poke();
+      this.syncCounts({ machines: [], agentOrder: [], remember: [] }, [], []);
+      return div();
+    }
+
     const t = themeColors();
     // Null under herdr-app check, which renders without a window.
     const win = window();
@@ -284,6 +296,13 @@ export default class Projects extends View {
     this.sync(tree, input, active, stored);
     this.syncCounts(tree, input.agents, all);
 
+    const screenActive = findLayout(layoutTree, "screen")?.active ?? null;
+    const leaveFleetScreen = () => {
+      if (screenActive === "needs" || screenActive === "overview") {
+        run("layout.select", { stack: "screen", child: "chat" });
+      }
+    };
+
     this.showsTime = false;
     /** @type {import("./rows.js").Draw} */
     const d = {
@@ -300,9 +319,25 @@ export default class Projects extends View {
         this.hovered = next;
         cx.notify();
       },
-      openWorktree: (w, p) => runAll(openWorktree(w, p.machine)),
-      focusAgent: (a) => runAll(focusAgent(a)),
-      selectSpace: (id) => run("space.select", { id }),
+      openWorktree: (w, p) => {
+        const cmds = openWorktree(w, p.machine);
+        runAll(cmds);
+        if (cmds.length) leaveFleetScreen();
+      },
+      focusAgent: (a) => {
+        if (a.tab) {
+          const pins = /** @type {Record<string, string> | null | undefined} */ (shared("bw.chat-agent"));
+          if (pins && typeof pins === "object" && a.tab in pins && pins[a.tab] !== a.address) {
+            setShared("bw.chat-agent", { ...pins, [a.tab]: a.address });
+          }
+        }
+        runAll(focusAgent(a));
+        leaveFleetScreen();
+      },
+      selectSpace: (id) => {
+        run("space.select", { id });
+        leaveFleetScreen();
+      },
       projectMenu: (p) => openOverlay(projectMenu(p)),
       newInMain: (p) => openOverlay(newInMain(p)),
       addProject: () => openOverlay(addProject()),
@@ -311,18 +346,22 @@ export default class Projects extends View {
       },
     };
 
-    const narrow = this.width !== null && this.width < RAIL_BELOW;
-    // Leave the macOS window buttons room when the layout hides the title bar.
-    const lights = win?.platform === "macos" && win.titlebar === "none" && !win.fullscreen;
-    const root = v_flex()
-      .id("root")
-      .size_full()
-      .bg(t.chrome)
-      .on_size_change((size, cx) => {
-        if (size.width === this.width) return;
-        this.width = size.width;
-        cx.notify();
-      });
+    const narrow = !peek && this.width !== null && this.width < RAIL_BELOW;
+    // Leave the macOS window buttons room when the docked sidebar sits at the top-left of a frameless window.
+    const lights = !peek && win?.platform === "macos" && win.titlebar === "none" && !win.fullscreen;
+    const root = v_flex().id("root");
+    if (peek) {
+      root.w(244);
+    } else {
+      root
+        .size_full()
+        .bg(t.chrome)
+        .on_size_change((size, cx) => {
+          if (size.width === this.width) return;
+          this.width = size.width;
+          cx.notify();
+        });
+    }
 
     const add = h_flex()
       .id("add-project")
@@ -342,7 +381,7 @@ export default class Projects extends View {
     root.child(
       h_flex()
         .id("projects-header")
-        .h(46)
+        .h(peek ? 36 : 46)
         .flex_none()
         .pl(lights ? 76 : 12)
         .pr(8)
@@ -359,7 +398,9 @@ export default class Projects extends View {
       return root.child(rail(d, tree.machines, openFirst));
     }
 
-    const body = v_flex().id("projects-body").flex_1().min_h(0).overflow_y_scrollbar().pb(8);
+    const body = peek
+      ? v_flex().id("projects-body").w_full().max_h(560).overflow_y_scrollbar().pb(6)
+      : v_flex().id("projects-body").flex_1().min_h(0).overflow_y_scrollbar().pb(8);
     body.children(tree.machines.map((m) => machineSection(d, m)));
     if (tree.machines.every((m) => m.projects.length === 0 && m.plain.length === 0)) {
       body.child(

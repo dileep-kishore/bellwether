@@ -262,6 +262,16 @@ describe("bw-new", () => {
     expect(m.log.shared).toEqual([["bw.known-agents", { macmini: [codex(true)], "": [claude(true)] }]]);
     await m.click("row-codex");
     expect(m.log.closed).toEqual(["o3"]);
+    expect(m.log.shared.at(-1)?.[0]).toBe("bw.tab-view.pending");
+    expect(m.log.shared.at(-1)?.[1]).toEqual([
+      expect.objectContaining({
+        machine: "macmini",
+        space: "macmini/s3",
+        folder: "/home/u/gamma",
+        beforeTabs: ["macmini/tb5"],
+        name: "Codex",
+      }),
+    ]);
     expect(m.log.run).toEqual([
       ["tab.new", { space: "macmini/s3", folder: "/home/u/gamma", name: "Codex", argv: ["codex"] }],
     ]);
@@ -292,6 +302,10 @@ describe("bw-new", () => {
     });
     await m.click("row-shell");
     expect(m.log.closed).toEqual(["o5"]);
+    expect(m.log.shared.at(-1)?.[0]).toBe("bw.tab-view.pending");
+    expect(m.log.shared.at(-1)?.[1]).toEqual([
+      expect.objectContaining({ machine: null, space: null, folder: "/r/beta", name: null }),
+    ]);
     expect(m.log.run).toEqual([["space.new", { folder: "/r/beta", machine: "" }]]);
     await m.click("row-worktree-new");
     expect(m.log.overlays).toEqual([

@@ -3,7 +3,7 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { agents, keys, run, spaces, window } from "herdr";
-import { ICONS, MOTION, pill, statusMark, themeColors } from "./ui.js";
+import { ICONS, pill, statusMark, themeColors } from "./ui.js";
 
 /** @typedef {import("./ui.js").Theme} Theme */
 /** @typedef {"working" | "blocked" | "done" | "idle"} Status */
@@ -71,9 +71,7 @@ export default class StatusBar extends View {
           .child(statusMark(t, urgent ?? "idle", 12, "status-agents"))
           .child(`${list.length} ${list.length === 1 ? "agent" : "agents"}`),
       )
-      .when(needs > 0, (el) =>
-        el.child(pill(t, `${needs} needs you`, "request", "status-needs").loop("opacity", MOTION.breathe)),
-      )
+      .when(needs > 0, (el) => el.child(pill(t, `${needs} needs you`, "request", "status-needs")))
       .child(div().flex_1())
       .child(
         h_flex()

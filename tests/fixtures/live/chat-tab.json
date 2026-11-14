@@ -527,7 +527,7 @@
       ],
       "result": {
         "code": 0,
-        "stdout": "{\"type\":\"version\",\"protocol\":7,\"version\":\"0.7.0\"}\n",
+        "stdout": "{\"type\":\"version\",\"protocol\":8,\"version\":\"0.8.0\"}\n",
         "stderr": ""
       }
     },
@@ -540,7 +540,7 @@
       ],
       "result": {
         "code": 0,
-        "stdout": "{\"type\":\"version\",\"protocol\":7,\"version\":\"0.7.0\"}\n",
+        "stdout": "{\"type\":\"version\",\"protocol\":8,\"version\":\"0.8.0\"}\n",
         "stderr": ""
       }
     },

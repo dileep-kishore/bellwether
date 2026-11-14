@@ -219,28 +219,31 @@ fn fresh_unread(path: &Path, mark: &Option<Mark>, now: SystemTime) -> bool {
     }
 }
 
-/// An OS lock (`flock`) on the folder's `.lock`, held while one run claims. The kernel lets it go when its run
-/// ends, so no run ever breaks another's lock.
-struct FolderLock {
+/// An OS lock (`flock`) on the folder's `.lock` (or an explicit `.lock` path), held while one run works.
+/// The kernel lets it go when its run ends, so no run ever breaks another's lock.
+pub(crate) struct FolderLock {
     _file: fs::File,
 }
 
 impl FolderLock {
-    fn take(dir: &Path) -> Option<FolderLock> {
+    pub(crate) fn take(dir: &Path) -> Option<FolderLock> {
+        Self::take_file(&dir.join(".lock"), LOCK_TRIES, LOCK_WAIT)
+    }
+
+    pub(crate) fn take_file(lock_path: &Path, tries: u32, wait: Duration) -> Option<FolderLock> {
         let file = fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
             .mode(0o600)
-            .open(dir.join(".lock"))
+            .open(lock_path)
             .ok()?;
-        for i in 0..LOCK_TRIES {
+        let tries = tries.max(1);
+        for i in 0..tries {
             match file.try_lock() {
                 Ok(()) => return Some(FolderLock { _file: file }),
-                Err(fs::TryLockError::WouldBlock) if i + 1 < LOCK_TRIES => {
-                    std::thread::sleep(LOCK_WAIT)
-                }
+                Err(fs::TryLockError::WouldBlock) if i + 1 < tries => std::thread::sleep(wait),
                 Err(_) => return None,
             }
         }

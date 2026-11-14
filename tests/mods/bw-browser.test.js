@@ -43,8 +43,9 @@ function bw(answers) {
   };
 }
 
-/** Sets the right-body stack's active child, as layout.select does. @param {string} child */
+/** Sets the right-body stack's active child and shows the right inspector, as layout.show + layout.select do. @param {string} child */
 function showInLayout(child, node = fake.layout) {
+  if (node.id === "right") node.hidden = false;
   if (node.id === "right-body") node.active = child;
   for (const c of node.children ?? []) showInLayout(child, c);
 }

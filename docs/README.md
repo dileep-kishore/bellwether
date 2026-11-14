@@ -10,9 +10,9 @@ they record what was asked, decided and measured, and they stay as written.
   steps, and every known limit.
 - [helper.md](helper.md) is the `bw` command reference: each command's flags, where it runs, and
   every output line it prints.
-- [architecture.md](architecture.md) explains the pieces and how they talk: the layout, the twelve
-  mods and their shared state, the helper, the machines each call runs on, request cards, Changes,
-  Issues, the Browser, and what each poll costs.
+- [architecture.md](architecture.md) explains the pieces and how they talk: the layout, the fifteen
+  mods and their shared state, the helper, the machines each call runs on, request cards, queued
+  prompts, PR status, Changes, Issues, Drafts, the Browser, and what each poll costs.
 - [development.md](development.md) is the reference for changing the code: the repository map, the
   toolchain, `scripts/test.sh` and CI, the headless harness, fixtures, every verify script, the
   stage window, version bumps, and the repository's rules.
@@ -34,6 +34,11 @@ project.
   is the spec for the Catppuccin Mocha look.
 - [specs/2026-11-07-bellwether-visual-overhaul-intent.md](specs/2026-11-07-bellwether-visual-overhaul-intent.md)
   records the user's answers behind the look's spec.
+- [specs/2026-11-13-bellwether-ui-cockpit-refinement.md](specs/2026-11-13-bellwether-ui-cockpit-refinement.md)
+  is the spec for the Flockbook four-screen stack, flattened Mocha steps, and Cockpit workflow
+  features (`bw pr`, `bw queue`, `bw drafts`, `bw-needs`, `bw-overview`, `bw-diff` comments, `bw-drafts`).
+- [specs/2026-11-13-bellwether-ui-cockpit-refinement-intent.md](specs/2026-11-13-bellwether-ui-cockpit-refinement-intent.md)
+  records the user's answers and council design review fixes behind the UI and Cockpit refinement.
 - [plans/2026-11-06-bellwether-phases.md](plans/2026-11-06-bellwether-phases.md) is the plan that
   split the work into phases.
 - [plans/2026-11-06-bellwether-phases-intent.md](plans/2026-11-06-bellwether-phases-intent.md)
@@ -48,6 +53,8 @@ project.
   implementation plan for sub-agents and requests.
 - [plans/2026-11-06-bellwether-phase-4.md](plans/2026-11-06-bellwether-phase-4.md) is the
   implementation plan for the browser.
+- [plans/2026-11-13-bellwether-ui-cockpit-refinement-plan.md](plans/2026-11-13-bellwether-ui-cockpit-refinement-plan.md)
+  is the implementation plan for the UI and Cockpit refinement.
 - [research/2026-11-06-reference-survey.md](research/2026-11-06-reference-survey.md) records what
   Flockbook, Shepherdr, herdr-t3 and Herdr's example layouts do, with file paths.
 - [research/2026-11-06-phase0-spike.md](research/2026-11-06-phase0-spike.md) tested per-session agent

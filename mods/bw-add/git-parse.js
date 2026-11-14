@@ -123,3 +123,62 @@ export function parseCounts(status, numstat) {
   }
   return c;
 }
+
+const GH_PART = /^[A-Za-z0-9_.-]+$/;
+
+/**
+ * Extracts `"owner/repo"` from a GitHub remote URL, or `null` for non-GitHub remotes.
+ * Supports `git@github.com:owner/repo(.git)`, `https://github.com/owner/repo(.git)`, and
+ * `ssh://git@github.com/owner/repo(.git)`.
+ *
+ * @param {string | null | undefined} remoteUrl
+ * @returns {string | null}
+ */
+export function parseGithubRepo(remoteUrl) {
+  if (typeof remoteUrl !== "string") return null;
+  const raw = remoteUrl.trim();
+  if (!raw) return null;
+
+  /** @type {string | null} */
+  let owner = null;
+  /** @type {string | null} */
+  let repo = null;
+
+  const scp = /^(?:[^@/\s]+@)?github\.com:([^/\s]+)\/([^/\s]+?)\/?$/i.exec(raw);
+  if (scp) {
+    owner = scp[1];
+    repo = scp[2];
+  } else {
+    const url = /^(?:https?|ssh|git):\/\/(?:[^@/\s]+@)?github\.com(?::\d+)?\/([^/?#\s]+)\/([^/?#\s]+?)\/?$/i.exec(raw);
+    if (url) {
+      owner = url[1];
+      repo = url[2];
+    }
+  }
+  if (!owner || !repo) return null;
+  if (repo.toLowerCase().endsWith(".git")) repo = repo.slice(0, -4);
+  if (!owner || !repo || owner === "." || owner === ".." || repo === "." || repo === "..") return null;
+  if (!GH_PART.test(owner) || !GH_PART.test(repo)) return null;
+  return `${owner}/${repo}`;
+}
+
+/**
+ * Parses a commit OID from `git rev-parse --verify HEAD` or `# branch.oid <oid>` in porcelain v2 status.
+ * Returns `null` when HEAD is unborn or malformed.
+ *
+ * @param {string | null | undefined} stdout
+ * @returns {string | null}
+ */
+export function parseHeadOid(stdout) {
+  if (typeof stdout !== "string") return null;
+  for (const part of stdout.split(/[\0\n]/)) {
+    const line = part.trim();
+    if (!line) continue;
+    if (line.startsWith("# branch.oid ")) {
+      const oid = line.slice("# branch.oid ".length).trim();
+      return /^[0-9a-f]{40,64}$/i.test(oid) ? oid.toLowerCase() : null;
+    }
+    if (/^[0-9a-f]{40,64}$/i.test(line)) return line.toLowerCase();
+  }
+  return null;
+}

@@ -4,12 +4,13 @@ import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { layout, props, run, setShared, shared, spaces } from "herdr";
 import { PANELS, choose, chosen, wanted } from "./choice.js";
-import { themeColors } from "./ui.js";
+import { ICONS, themeColors } from "./ui.js";
 
 /** Each panel's placeholder icon, from the mod that will fill it. @type {Record<string, string>} */
 const PANEL_ICON = {
   changes: "mods/bw-chat/icons/changes.svg",
   issues: "mods/bw-right/icons/issues.svg",
+  drafts: "mods/bw-right/icons/issues.svg",
   browser: "mods/bw-browser/icons/globe.svg",
 };
 
@@ -66,7 +67,8 @@ export default class Right extends View {
       .h(36)
       .w_full()
       .flex_none()
-      .px(8)
+      .px(6)
+      .gap(6)
       .items_center()
       .bg(t.chrome)
       .border_b(1)
@@ -75,6 +77,7 @@ export default class Right extends View {
         h_flex()
           .id("right-track")
           .flex_1()
+          .min_w(0)
           .h(28)
           .p(2)
           .gap(2)
@@ -87,10 +90,11 @@ export default class Right extends View {
               return h_flex()
                 .id(`right-tab-${p.id}`)
                 .flex_1()
+                .min_w(0)
                 .justify_center()
                 .h(24)
-                .px(10)
-                .gap(6)
+                .px(6)
+                .gap(5)
                 .items_center()
                 .rounded(12)
                 .cursor_pointer()
@@ -109,9 +113,25 @@ export default class Right extends View {
                   this.asked = `${space.id}\n${p.id}`;
                   setShared(KEY, choose(shared(KEY), space.id, p.id, ids));
                 })
-                .child(p.label);
+                .child(div().min_w(0).truncate().child(p.label));
             }),
           ),
+      )
+      .child(
+        h_flex()
+          .id("right-hide")
+          .size(24)
+          .flex_none()
+          .items_center()
+          .justify_center()
+          .rounded(6)
+          .cursor_pointer()
+          .text_color(t.muted)
+          .hover((s) => s.bg(t.hover).text_color(t.foreground))
+          .on_click(() => {
+            run("layout.hide", { id: "right" });
+          })
+          .child(svg(ICONS.close).size(12)),
       );
   }
 

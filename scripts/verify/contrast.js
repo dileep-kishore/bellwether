@@ -5,7 +5,7 @@
 //   bun scripts/verify/contrast.js   prints each pair and exits 1 when any falls short
 import { MOCHA as M, MUTED_ON_SELECTED, ROLES as R, TERMINAL, TILE_HUES, contrast, mix } from "../../shared/palette.js";
 
-const HOVER = 0x14 / 255;
+const HOVER = 0.07;
 const BREATHE_MIN = 0.65;
 const hovered = (/** @type {string} */ fill) => mix(M.text, fill, HOVER);
 const primaryHover = mix(M.text, M.mauve, 0.15);
@@ -14,12 +14,11 @@ const primaryHover = mix(M.text, M.mauve, 0.15);
 
 /** Every fill a text or mark sits on, by name. */
 const FILLS = {
-  crust: M.crust,
-  mantle: M.mantle,
-  base: M.base,
-  "surface 0": M.surface0,
-  "hover on mantle": hovered(M.mantle),
-  "hover on base": hovered(M.base),
+  mantle: R.chrome,
+  base: R.surface,
+  raised: R.raised,
+  "hover on mantle": hovered(R.chrome),
+  "hover on base": hovered(R.surface),
 };
 
 /** @returns {Pair[]} */
@@ -37,32 +36,32 @@ export function pairs() {
     text(`removed (Red) on ${name}`, M.red, bg);
     text(`added (Green) on ${name}`, M.green, bg);
     text(`blocked text (Peach) on ${name}`, R.blocked, bg);
-    for (const s of ["working", "done", "idle"]) mark(`${s} mark on ${name}`, R[/** @type {"working"} */ (s)], bg);
-    mark(`blocked mark at ${BREATHE_MIN} on ${name}`, mix(R.blocked, bg, BREATHE_MIN), bg);
+    for (const s of ["working", "done", "blocked", "idle"])
+      mark(`${s} mark on ${name}`, R[/** @type {"working"} */ (s)], bg);
     mark(`icon (dim) on ${name}`, R.dim, bg);
   }
-  text("Mauve link on Surface 0 chip", R.accent, M.surface0);
-  text("Mauve link on hovered Surface 0 chip", R.accent, hovered(M.surface0));
-  text("Mauve heading on Mantle", R.accent, M.mantle);
-  for (const bg of [M.surface1, hovered(M.surface0)]) {
-    const name = bg === M.surface1 ? "Surface 1" : "hovered Surface 0";
+  text("Mauve link on raised chip", R.accent, R.raised);
+  text("Mauve link on hovered raised chip", R.accent, hovered(R.raised));
+  text("Mauve heading on Mantle", R.accent, R.chrome);
+  for (const bg of [R.selected, hovered(R.raised)]) {
+    const name = bg === R.selected ? "selected (#333546)" : "hovered raised (#272738)";
     text(`text on ${name}`, R.foreground, bg);
-    text(`muted-on-selected (Subtext 1) on ${name}`, MUTED_ON_SELECTED, bg);
+    text(`muted-on-selected (Subtext 0) on ${name}`, MUTED_ON_SELECTED, bg);
     text(`removed on a selected row (bright Red) on ${name}`, TERMINAL.ansi[9], bg);
     text(`added (Green) on ${name}`, M.green, bg);
-    for (const s of ["working", "done", "idle"]) mark(`${s} mark on ${name}`, R[/** @type {"working"} */ (s)], bg);
-    mark(`blocked mark at ${BREATHE_MIN} on ${name}`, mix(R.blocked, bg, BREATHE_MIN), bg);
+    for (const s of ["working", "done", "blocked", "idle"])
+      mark(`${s} mark on ${name}`, R[/** @type {"working"} */ (s)], bg);
     mark(`Mauve marker on ${name}`, R.accent, bg);
   }
   // The Changes panel: status letters in Blue and Peach on rows, and patch rows tinted over Base.
   for (const [n, bg] of [
-    ["Mantle", M.mantle],
-    ["hover on Mantle", hovered(M.mantle)],
-    ["Surface 1", M.surface1],
+    ["Mantle", R.chrome],
+    ["hover on Mantle", hovered(R.chrome)],
+    ["selected", R.selected],
   ]) {
     text(
-      `renamed letter (${n === "Surface 1" ? "bright Blue" : "Blue"}) on ${n}`,
-      n === "Surface 1" ? TERMINAL.ansi[12] : R.working,
+      `renamed letter (${n === "selected" ? "bright Blue" : "Blue"}) on ${n}`,
+      n === "selected" ? TERMINAL.ansi[12] : R.working,
       bg,
     );
     text(`modified letter (Peach) on ${n}`, R.blocked, bg);
@@ -71,38 +70,44 @@ export function pairs() {
     ["added", M.green],
     ["removed", M.red],
   ]) {
-    text(`patch text on the ${n} tint`, R.foreground, mix(tint, M.base, 0.12));
-    text(`line numbers (muted) on the ${n} tint`, R.muted, mix(tint, M.base, 0.12));
+    text(`patch text on the ${n} tint`, R.foreground, mix(tint, R.surface, 0.12));
+    text(`line numbers (muted) on the ${n} tint`, R.muted, mix(tint, R.surface, 0.12));
   }
-  text("hunk header (muted) on Surface 0", R.muted, M.surface0);
-  text("text on hovered Surface 1 button", R.foreground, mix(M.text, M.surface1, HOVER));
+  text("hunk header (muted) on raised", R.muted, R.raised);
+  text("text on hovered selected button", R.foreground, hovered(R.selected));
   text("text on terminal selection", R.foreground, mix(M.mauve, M.base, 0.25));
   text("Crust on Mauve (primary button, accent pill)", M.crust, M.mauve);
   text("Crust on hovered primary button", M.crust, primaryHover);
   for (const [n, c] of Object.entries({ Peach: M.peach, Blue: M.blue, Green: M.green, Red: M.red }))
     text(`Crust on ${n} pill`, M.crust, c);
-  for (const hue of TILE_HUES) text(`Crust on monogram ${hue}`, M.crust, hue);
-  mark("empty option box (Overlay 2) on a Surface 0 card", R.dim, M.surface0);
+  text("neutral monogram letter (Subtext 0) on raised", R.muted, R.raised);
+  text("quiet rail monogram letter (Subtext 0) on Mantle", R.muted, R.chrome);
+  for (const hue of TILE_HUES) text(`Crust on Mocha accent ${hue}`, M.crust, hue);
+  const breathePillBg = mix(R.blocked, R.raised, BREATHE_MIN);
+  const breathePillFg = mix(R.accent_foreground, R.raised, BREATHE_MIN);
+  mark(`breathing Needs you pill at ${BREATHE_MIN} on raised`, breathePillBg, R.raised);
+  text(`breathing Needs you pill text at ${BREATHE_MIN} on raised`, breathePillFg, breathePillBg);
+  mark("empty option box (Overlay 2) on a raised card", R.dim, R.raised);
   for (const [n, bg] of [
-    ["Base", M.base],
-    ["Mantle", M.mantle],
-    ["Surface 0", M.surface0],
+    ["Base", R.surface],
+    ["Mantle", R.chrome],
+    ["raised", R.raised],
+    ["selected", R.selected],
   ])
     mark(`input field border on ${n}`, R.input, bg);
-  mark("Mauve focus border on Base", R.accent, M.base);
-  mark("Mauve focus border on Crust", R.accent, M.crust);
-  mark("Mauve insertion line on Mantle", R.accent, M.mantle);
+  mark("Mauve focus border on Base", R.accent, R.surface);
+  mark("Mauve focus border on Mantle", R.accent, R.chrome);
+  mark("Mauve insertion line on Mantle", R.accent, R.chrome);
   return out;
 }
 
 /** Disabled controls are exempt from the text minimum but must look different from enabled ones. */
 export function disabledDiffers() {
-  const enabled = [`${R.solid}/${R.solid_foreground}`, `${M.surface0}/${R.foreground}`, `none/${R.muted}`];
-  // On a Surface 0 card secondary is Surface 1; disabled keeps Surface 0 and adds a Surface 1 border.
-  const onCard = [`${R.solid}/${R.solid_foreground}`, `${M.surface1}/${R.foreground}`];
+  const enabled = [`${R.solid}/${R.solid_foreground}`, `${R.raised}/${R.foreground}`, `none/${R.muted}`];
+  // On a raised card secondary is selected; disabled keeps raised and adds a border.
+  const onCard = [`${R.solid}/${R.solid_foreground}`, `${R.selected}/${R.foreground}`];
   return (
-    enabled.every((look) => look !== `${M.surface0}/${R.dim}`) &&
-    onCard.every((look) => look !== `${M.surface0}/${R.dim}`)
+    enabled.every((look) => look !== `${R.raised}/${R.dim}`) && onCard.every((look) => look !== `${R.raised}/${R.dim}`)
   );
 }
 

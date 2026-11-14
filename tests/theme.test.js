@@ -19,9 +19,18 @@ test("themes/bellwether.json is what scripts/gen-theme.js writes from palette.js
   });
 });
 
-test("Mocha's own values: Base background, Text foreground, Rosewater cursor, Mauve accent", () => {
+test("Mocha's flattened roles: Base field, Text foreground, Rosewater cursor, Mauve accent, 1.12:1 raised", () => {
   expect(theme).toMatchObject({ background: "#1e1e2e", foreground: "#cdd6f4", cursor: "#f5e0dc" });
-  expect(theme.colors).toMatchObject({ accent: "#cba6f7", canvas: "#11111b", chrome: "#181825", raised: "#313244" });
+  expect(theme.colors).toMatchObject({
+    accent: "#cba6f7",
+    canvas: "#1e1e2e",
+    surface: "#1e1e2e",
+    chrome: "#181825",
+    raised: "#272738",
+    border: "#313244",
+    selected: "#333546",
+    hover: "#cdd6f412",
+  });
   expect(Object.keys(MOCHA)).toHaveLength(26);
 });
 

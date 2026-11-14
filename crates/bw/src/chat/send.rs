@@ -169,6 +169,55 @@ fn timeout() -> Duration {
     Duration::from_secs(s)
 }
 
+#[derive(Debug, PartialEq)]
+pub(crate) enum SendOutcome {
+    Sent(String),
+    RefusedConversation(String),
+    RefusedPrompt(String),
+    Unconfirmed(String),
+    Error { code: &'static str, message: String },
+}
+
+pub(crate) fn send_checked(address: &str, kind: &str, expected: Expect, text: &str) -> SendOutcome {
+    match check(shown_here(address), kind, expected) {
+        Check::Pass => {}
+        Check::Refuse(why) => {
+            return SendOutcome::RefusedConversation(format!(
+                "{address} now shows another conversation ({why}); nothing was sent"
+            ))
+        }
+        Check::Error(code, message) => return SendOutcome::Error { code, message },
+    }
+
+    let wait = timeout();
+    match hc::hc_send(address, text, wait) {
+        Ok(_) => SendOutcome::Sent(format!("sent to {address}")),
+        Err(HcError::TimedOut) => SendOutcome::Unconfirmed(format!(
+            "hc send did not answer in {} s; the text may still arrive",
+            wait.as_secs()
+        )),
+        Err(HcError::Refused { kind, message }) => match kind.as_str() {
+            "blocked" => SendOutcome::RefusedPrompt(message),
+            "not_found" | "finished" => SendOutcome::Error {
+                code: "no_terminal",
+                message,
+            },
+            _ => SendOutcome::Error {
+                code: "failed",
+                message: format!("{kind}: {message}"),
+            },
+        },
+        Err(HcError::Unreachable(message)) => SendOutcome::Error {
+            code: "unreachable",
+            message,
+        },
+        Err(e @ (HcError::NoProgram(_) | HcError::Failed(_))) => SendOutcome::Error {
+            code: "failed",
+            message: e.to_string(),
+        },
+    }
+}
+
 pub fn run(argv: &[String]) -> ExitCode {
     let a = match args::parse(
         argv,
@@ -206,36 +255,12 @@ pub fn run(argv: &[String]) -> ExitCode {
             "{address}: run bw send on the terminal's own machine with its local address; {USAGE}"
         ));
     }
-    match check(shown_here(address), kind, expected) {
-        Check::Pass => {}
-        Check::Refuse(why) => {
-            return result(
-                "refused-conversation",
-                &format!("{address} now shows another conversation ({why}); nothing was sent"),
-            )
-        }
-        Check::Error(code, message) => return super::error(code, &message),
-    }
-
-    let wait = timeout();
-    match hc::hc_send(address, text, wait) {
-        Ok(_) => result("sent", &format!("sent to {address}")),
-        Err(HcError::TimedOut) => result(
-            "unconfirmed",
-            &format!(
-                "hc send did not answer in {} s; the text may still arrive",
-                wait.as_secs()
-            ),
-        ),
-        Err(HcError::Refused { kind, message }) => match kind.as_str() {
-            "blocked" => result("refused-prompt", &message),
-            "not_found" | "finished" => super::error("no_terminal", &message),
-            _ => super::error("failed", &format!("{kind}: {message}")),
-        },
-        Err(HcError::Unreachable(m)) => super::error("unreachable", &m),
-        Err(e @ (HcError::NoProgram(_) | HcError::Failed(_))) => {
-            super::error("failed", &e.to_string())
-        }
+    match send_checked(address, kind, expected, text) {
+        SendOutcome::Sent(m) => result("sent", &m),
+        SendOutcome::RefusedConversation(m) => result("refused-conversation", &m),
+        SendOutcome::RefusedPrompt(m) => result("refused-prompt", &m),
+        SendOutcome::Unconfirmed(m) => result("unconfirmed", &m),
+        SendOutcome::Error { code, message } => super::error(code, &message),
     }
 }
 

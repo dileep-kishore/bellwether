@@ -167,19 +167,25 @@ export function threadsButton(count, t, onClick) {
  * The 44 px bar of a sub-agent's view: "Explore · sub-agent of Claude · running · Back to Claude".
  * @param {string} text barText(row, parentName) @param {string} parentName @param {Theme} t
  * @param {(cx: any) => void} onBack
+ * @param {{ centered?: boolean, maxW?: number }} [opts]
  */
-export function subagentBar(text, parentName, t, onBack) {
-  return h_flex()
-    .id("subagent-bar")
-    .h(44)
+export function subagentBar(text, parentName, t, onBack, opts = {}) {
+  const inner = h_flex()
+    .h(opts.centered ? 38 : 44)
     .w_full()
-    .flex_none()
-    .px(16)
+    .px(opts.centered ? 12 : 16)
     .gap(6)
     .items_center()
     .justify_center()
-    .border_t(1)
-    .border_color(t.border)
+    .when(!opts.centered, (el) => el.id("subagent-bar").flex_none().border_t(1).border_color(t.border))
+    .when(Boolean(opts.centered), (el) =>
+      el
+        .max_w(opts.maxW ?? 760)
+        .rounded(12)
+        .bg(t.chrome)
+        .border(1)
+        .border_color(t.border),
+    )
     .child(div().min_w(0).truncate().text_size(13).text_color(t.muted).child(text))
     .child(div().flex_none().text_size(13).text_color(t.dim).child("·"))
     .child(
@@ -199,4 +205,6 @@ export function subagentBar(text, parentName, t, onBack) {
         .child(svg(icon("back")).size(14).flex_none())
         .child(`Back to ${parentName}`),
     );
+  if (!opts.centered) return inner;
+  return v_flex().id("subagent-bar").w_full().flex_none().px(16).pt(6).pb(10).items_center().child(inner);
 }

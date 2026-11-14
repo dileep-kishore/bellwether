@@ -47,9 +47,14 @@ without `herdr-app` it renders each mod in the headless harness instead and prin
 
 ### Merge the key bindings
 
-`keys/bellwether.json` binds two keys in the `layout:bellwether` section. `cmd-alt-b` runs
-`layout.toggle:right`, which hides and shows the right sidebar. `cmd-j` runs `bw-tabs.chat-flip`,
-which flips a chat tab between its chat and its terminal.
+`keys/bellwether.json` binds six keys in the `layout:bellwether` section:
+
+- `cmd-b` runs `layout.toggle:sidebar` to hide or show the left project sidebar.
+- `cmd-j` runs `bw-tabs.chat-flip` to flip the center stack between `chat` and `panes`.
+- `cmd-shift-'` runs `bw-tabs.terminal-peek` to peek at `panes` and flip back.
+- `cmd-shift-n` runs `bw-tabs.needs-toggle` to open or leave the `Needs you` triage screen.
+- `cmd-shift-o` runs `bw-tabs.overview-toggle` to open or leave the `Overview` fleet screen.
+- `cmd-alt-b` runs `layout.toggle:right` to hide or show the right inspector.
 
 ```sh
 bun scripts/keys-merge.js                       # print each section before and after; write nothing
@@ -99,26 +104,33 @@ verify scripts.
 
 The `bellwether` layout has three columns:
 
-- The left sidebar is 248 px wide and resizes from 160 to 480 px.
-- The middle column holds the active tab, with a 32 px tab bar over it and the `bw-status` bar under
-  it.
-- The right sidebar is 360 px wide and resizes from 280 to 900 px. `cmd-alt-b` hides and shows it.
+- The left sidebar is 244 px wide and resizes from 200 to 420 px. `cmd-b` hides and shows it; when
+  hidden, moving the pointer within 6 px of the left edge reveals a floating `bw-projects` peek
+  drawer over `chat` and `panes`.
+- The middle column holds a 48 px `bw-tabs` top bar with two floating capsules over the `screen`
+  stack (`chat`, `panes`, `needs`, `overview`).
+- The right inspector starts hidden at 380 px wide and resizes from 280 to 620 px. `cmd-alt-b`, the
+  strip's `×` button, or any `Open in ...` button shows or hides it.
 
-Mods draw each part. [Mods](architecture.md#mods) lists all twelve with what each draws and the props
+Mods draw each part. [Mods](architecture.md#mods) lists all fifteen with what each draws and the props
 it takes.
 
-- `bw-projects` fills the left sidebar with each machine's projects, worktrees and agents.
-- `bw-tabs` is the tab bar of the active space. Drag a tab onto another to move it there.
+- `bw-projects` fills the left sidebar and its left-edge peek drawer with each machine's projects,
+  worktrees and agents.
+- `bw-tabs` draws the two floating capsules at the top of the work column: space tabs and "+" on the
+  left, and `Chat` / `Panes`, the breathing `Needs you` count pill, `Overview`, and the inspector
+  toggle on the right.
 - `bw-new` is the tab bar's "+" menu: New chat (Claude, Codex), New terminal (Shell, Claude, Codex)
-  and Worktree (New worktree…, Open worktree…). The worktree rows open Herdr's own worktree dialogs.
-- `bw-pane` is each pane's header: the agent's status, the program, its title and folder, and Split
-  right, Split down, Zoom and Close buttons that fade in while the pointer is on the header.
-- `bw-status` is the bar under the active tab. It shows the shown space's machine and branch, the
-  agent count beside the most urgent status, a "N needs you" pill while any agent waits, and the
-  command palette's key. Click the key to open the palette.
-- `bw-right` is the right sidebar's strip of Changes, Issues and Browser. `bw-diff` fills Changes,
-  `bw-linear` fills Issues and `bw-browser` fills Browser.
-- `bw-chat` draws a chat pane, `bw-menu` a project's menu and `bw-add` the Add project dialog.
+  and Worktree (New worktree…, Open worktree…).
+- `bw-pane` is each terminal pane's hover-revealed 28 px header on multi-pane tabs.
+- `bw-chat` draws the frameless conversation screen, PR status strip and per-terminal prompt queue.
+- `bw-needs` draws the two-column `Needs you` triage screen across every open space.
+- `bw-overview` draws the cross-space `Overview` fleet grid.
+- `bw-right` is the right inspector's 36 px strip of Changes, Issues, Drafts and Browser plus `×`.
+  `bw-diff` fills Changes, `bw-linear` fills Issues, `bw-drafts` fills Drafts and `bw-browser` fills
+  Browser.
+- `bw-menu` draws a project's menu, `bw-add` draws the Add project dialog, and `bw-status` remains
+  available for custom layouts.
 
 A space on another machine works the same way. Its Git reads run on that machine, and an offline
 machine keeps its last rows. [Machines and where code runs](architecture.md#machines-and-where-code-runs)
@@ -154,24 +166,24 @@ the project's spaces is open.
 
 ## Chats
 
-"+" → New chat → Claude or Codex starts the agent in a new tab on the space's machine. Bellwether
-splits a chat pane to the right of the agent's terminal and zooms the chat.
+"+" → New chat → Claude or Codex starts the agent in a single full-width pane on the space's machine
+and shows its conversation on the `chat` screen. When a tab runs several Claude or Codex panes, an
+agent switcher pill above the composer picks which conversation `bw-chat` shows (`bw.chat-agent`).
 
-`⌘J` flips the zoom and focus between the chat and the terminal. The chat header's
-"Terminal ⌘J" button does the same. A chat tab made in another Herdr window flips too. In a
-terminal sub-agent's view, `⌘J` flips to the parent agent's terminal. `⌘J` needs the key bindings
-merged as in [Merge the key bindings](#merge-the-key-bindings).
+`⌘J` flips the center stack between `chat` and `panes`, giving the terminal the full work width on
+narrow tiled windows. The right capsule's `Chat` / `Panes` toggle and `⌘⇧'` (`terminal-peek`) do the
+same. `⌘J` needs the key bindings merged as in [Merge the key bindings](#merge-the-key-bindings).
 
-The chat reads the agent's session log every 2 s while it is shown and every 10 s while it is
-hidden. A chat behind its terminal's zoom counts as hidden, and flipping back reads at once. The
-chat shows:
+The chat reads the agent's session log every 2 s while `screen` is `chat` and every 10 s while
+`panes`, `needs`, or `overview` is active. Flipping back to `chat` reads at once. The chat shows:
 
 - your messages as bubbles and the agent's replies as Markdown;
 - one line per run of tool calls, written as a sentence such as "Read 3 files and ran 2 commands",
   with a spinner until every call has a result, then a check, or a cross when a call failed; click
   the line to list the calls;
 - a line such as "Changed 2 files · Open in Changes" at the end of a turn that edited files;
-  clicking it selects the Changes panel and, when the line names one file, that file;
+  clicking it reveals the right inspector, selects the Changes panel and, when the line names one
+  file, selects that file;
 - pictures inline, up to 320 px tall, each copied once into the app home's
   `data/bellwether/pictures/` (4 MB at most);
 - an approval or question the agent waits on, as one line that says where to answer it.
@@ -181,10 +193,29 @@ Scrolling up with the first row on screen loads older rows.
 While the chat cannot read a log, it says why, for example "Waiting for Claude's session log" or
 "This terminal runs no Claude or Codex".
 
-### Sending a message
+### Sending, queueing, and PR skills
 
-The composer sends with Enter. Shift-Enter adds a line. A send that goes through clears the
-composer and shows no line. Otherwise a line under the composer gives the result:
+When the agent is idle or done, Enter sends through `bw send` and Shift-Enter adds a line. While the
+agent's status is `working`, Enter enqueues the prompt into that terminal's persistent queue
+(`bw queue add`) and `⇧⌘Enter` sends immediately.
+
+Queued items appear in a compact drawer above the composer with inline edit, move up/down, delete,
+`Resume` (when held), and `Send now` (when idle). When a turn finishes (`Stop` hook or status
+transition from `working` to `done` or `idle`), `bw queue drain` runs five safety gates before
+delivering item 0: it checks the 15 s duplicate-drain guard, confirms the terminal is no longer
+working, verifies no approval or question card is pending, checks that the last turn neither ended on
+an error/interrupt nor asked a trailing prose question (`?`), and verifies `expect_session` still
+matches. Any blocker holds the queue with a clear reason (`assistant_question`,
+`interrupted_or_error`, or `session_changed`) until you click `Resume`.
+
+When the active space's branch has an open GitHub pull request (`bw pr status`), a 1-line PR strip
+sits above the composer with check counts, review state, unresolved review threads, `Open PR` (opens
+in Bellwether Chrome), `Babysit PR` (sends or queues `/babysit-pr <n>`), and `Merge PR` (shown when
+checks are green, `unresolvedThreads === 0`, `headRefOid` matches `HEAD`, and `reviewDecision` is
+`APPROVED` or empty; sends or queues `/merge-pr <n>` and never calls `gh pr merge` directly).
+
+A send that goes through clears the composer and shows no line. Otherwise a line under the composer
+gives the result:
 
 - "Not sent: Claude is waiting on a prompt. Answer it in the terminal (⌘J)." when the agent waits on
   a prompt.
@@ -235,9 +266,30 @@ drawn, an answer presses nothing and the card says "Changed on screen; nothing w
 [Claims, the store and card states](architecture.md#claims-the-store-and-card-states) lists every
 card state and when each applies.
 
+## Needs you and Overview
+
+Clicking the top bar's breathing `N needs you` pill or pressing `⌘⇧N` switches `screen` to `bw-needs`,
+a two-column triage view across all open spaces:
+
+- The left 300 px column groups spaces and agents into `Needs you`, `Ready to land`, `Working` and
+  `Idle`.
+- The right detail column renders `answerable` approval and question cards with inline `1` to `9`
+  digit shortcuts, `y` / `a` / `n` approval keys, and `Other…` input (honoring the 3 s terminal focus
+  guard and invoking `bw answer` on `space.machine`). When a terminal reports `blocked` without a
+  session card (for example `sudo` or an interactive shell prompt), `bw-needs` renders `Waiting in
+  terminal` and `Open terminal` with zero fabricated answer buttons.
+- Clicking `Open chat` or double-clicking a row pins `bw.chat-agent` to that terminal so multi-agent
+  tabs open the exact agent's conversation. PR rows also surface `Open PR`, `Babysit PR`, and
+  `Merge PR`.
+
+Pressing `⌘⇧O` or clicking the top bar's grid icon switches `screen` to `bw-overview`, a cross-space
+fleet grid showing neutral project monograms, machine badges, branch and PR badges, and per-agent
+rows that jump directly to `chat` or `panes`.
+
 ## Hooks
 
-Bellwether's optional hooks tell the chat which sub-agent asked and which call a prompt belongs to.
+Bellwether's optional hooks tell the chat which sub-agent asked, which call a prompt belongs to, and
+when a turn stops so queued prompts can auto-drain.
 Without them the dock still shows each prompt on screen, but names a sub-agent only when that
 sub-agent's log shows the call. [Hooks](architecture.md#hooks) describes what the hook does and the
 files `--apply` writes.
@@ -270,8 +322,15 @@ writes Codex's `config.toml`.
 The right sidebar's Changes panel shows the Git changes of the active space's worktree, on this Mac
 or on another machine. Every read runs `bw diff` on the space's machine.
 
-The header reads `<branch> → <base> ▾`, then the base's short hash and age, for example
-`feat → origin/main ▾ 9d6c68d · 3d`. Clicking it opens the base picker.
+Three scope pills sit at the top of the panel:
+
+- `Uncommitted` shows `Staged` and `Changes` in the working tree.
+- `Branch` shows `Committed on branch` against the chosen base ref (`Merge base | Tip`).
+- `PR` diffs against `<remote>/<baseRefName>` from the branch's open GitHub PR (`bw pr status`),
+  falling back to the `Branch` base picker when no open PR exists.
+
+On `Branch` (or `PR` fallback), the header reads `<branch> → <base> ▾`, then the base's short hash
+and age, for example `feat → origin/main ▾ 9d6c68d · 3d`. Clicking it opens the base picker.
 
 - The picker lists up to 200 branches, remote branches and tags, newest first, and filters them as
   you type. It reads the list again each time it opens and after Fetch.
@@ -290,7 +349,7 @@ base of the base and `HEAD`, or at the base itself. The panel keeps each project
 `shared("bw.diff.base")`, so every worktree of a repository shares them. Picking the default base in
 Merge base mode removes the project's entry.
 
-Three sections follow:
+Three sections follow according to the active scope:
 
 - Staged lists the index against `HEAD`, renames included.
 - Changes lists the worktree against the index, then untracked files.
@@ -303,9 +362,16 @@ its file count and its total `+N −M`, and a click folds or unfolds it. The pan
 sections are folded. A section lists at most 2,000 files and says how many more it left out.
 
 Clicking a file shows its patch below the lists. Each line has its old and new line numbers, and
-added and removed lines are tinted Green and Red. The patch arrives in pages under 4 MiB, and
-"Show more" loads the next page. A line too large for a page shows as "Line too large to show" with
-its size.
+added and removed lines are tinted Green and Red. Clicking any code line in the patch selects that
+anchor and opens a single retained comment bar below the patch (`Enter` or `Save` stores the draft;
+`Esc` cancels). Whenever a file's patch digest changes, anchors relocate within `±5` lines when the
+excerpt still matches uniquely, or mark `stale` otherwise. Clicking `Send N comments` (or
+`Queue N comments` while the agent is working) runs a preflight `bw diff patch` check across every
+commented file (including files not currently selected), holds delivery if any anchor is stale, and
+otherwise sends a structured `path:line (side)` Markdown review block via `bw send` or `bw queue add`.
+
+The patch arrives in pages under 4 MiB, and "Show more" loads the next page. A line too large for a
+page shows as "Line too large to show" with its size.
 
 "Open as tab" opens the patch as a middle tab named after the file, such as `notes.txt · diff`. That
 tab loads once, and again when you click its Refresh button. A Committed on branch tab keeps the
@@ -317,8 +383,8 @@ once a second and every 30 s without a change, and a worktree on another machine
 [Changes](architecture.md#changes) explains the watcher and the Git flags, and
 [Polling and costs](architecture.md#polling-and-costs) gives every panel's schedule.
 
-"Open in Changes" in a chat selects the Changes tab. When the chat's line names one file, the panel
-reads the list again and then selects that file.
+"Open in Changes" in a chat reveals the right inspector and selects the Changes tab. When the chat's
+line names one file, the panel reads the list again and then selects that file.
 
 Changes never stages, commits or pushes. Fetch is the only action that writes to the repository.
 
@@ -398,6 +464,26 @@ description and a `---` line, then what you typed. The chips clear once the mess
   choice, and the typed message stays.
 - When a text cannot be built, the chat names the issue and sends nothing.
 
+## Drafts
+
+The right inspector's Drafts panel (`bw-drafts`) inspects read-only skill and review artifacts in the
+active space's worktree via `bw drafts` on `space.machine` (polling only while `right` is visible on
+`Drafts`):
+
+- HTML pages (`docs/drafts/**/*.html`, `docs/plans/**/*.html`, `docs/superpowers/**/*.html`,
+  `.audit/**/*.html`) show an `Open in Browser` button that opens local `file://` URLs directly in
+  Bellwether Chrome, or stages remote HTML locally via `bw drafts stage --machine <m>` (`0700` dir,
+  `0600` file, capped at 32 staged files) before opening.
+- Decision trails (`decisions.tsv` and `.audit/*.tsv` from `show-me-your-work`) parse from the TSV
+  header row and render 6-column cards (`ts`, `phase` pill, `decision`, `why`, compact `evidence`
+  path, and `result` pill).
+- Plans and task lists (`docs/plans/*.md` and root `tasks.md`) show a `- [x]` / `- [ ]` completion
+  progress bar and checklist alongside Markdown prose.
+- Allow-listed `independent-review` `ledger.md` files (registered via
+  `bw drafts register-ledger --path <worktree> --ledger <abs_path>` or matched in `$TMPDIR/*/ledger.md`
+  referencing the canonical worktree) and Markdown notes render via `TextView.markdown` (capped at
+  512 KiB; sibling raw transcripts and paths outside the worktree are never exposed).
+
 ## Browser
 
 Claude and Codex agents started from "+" share one Google Chrome with you, the Bellwether Chrome. It
@@ -452,13 +538,10 @@ history and sign-ins.
 
 ### Chats and requests
 
-- A chat tab's terminal keeps its share of the tab's split while the chat is zoomed: about 15 columns
-  in a window under 1000 px wide. A prompt that wraps there still keeps one card. Codex scrolls a
-  long approval's options out of view at that width, so a Codex sub-agent's approval falls back to
-  "Answer in terminal". Herdr offers no command to size a pane.
-- A Claude approval box taller than that terminal can lose its header off the top while both dashed
-  rules stay on screen. Bellwether matches that box to its call by command, so its card sits under
-  its sub-agent. The card's detail can begin with a fragment of the cut header, such as "agent".
+- When a terminal pane itself is narrowed inside a multi-pane split on `panes`, a Claude approval box
+  taller than that terminal can lose its header off the top while both dashed rules stay on screen.
+  Bellwether matches that box to its call by command, so its card sits under its sub-agent. The
+  card's detail can begin with a fragment of the cut header, such as "agent".
 - `bw answer` refuses as `stale` when the command, the question (an Edit's target included) or the
   Always label differs in any whitespace inside a line.
 - A card pending while its machine's helper is replaced by one with this whitespace check comes back

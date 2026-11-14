@@ -157,14 +157,24 @@ export function composeMessage(texts, message) {
 }
 
 /**
- * The tab Attach adds to: the active space's active tab, when it holds a bw-chat pane.
+ * The tab Attach adds to: the active space's active tab, when it holds a bw-chat pane
+ * or a Claude/Codex agent terminal pane.
  * @param {any[]} spaces SpaceInfo[] @param {any[]} panes PaneInfo[]
  * @returns {string | null}
  */
 export function chatTabOf(spaces, panes) {
   const tab = spaces.find((s) => s.active)?.tabs?.find((/** @type {any} */ t) => t.active);
   if (!tab) return null;
-  return panes.some((p) => p.mod === "bw-chat" && p.tab === tab.id) ? tab.id : null;
+  const hasChat = panes.some(
+    (p) =>
+      p.tab === tab.id &&
+      (p.mod === "bw-chat" ||
+        (!p.mod &&
+          typeof p.terminal === "string" &&
+          p.terminal !== "" &&
+          (p.program?.key === "claude" || p.program?.key === "codex" || p.app === "codex" || p.app === "claude-code"))),
+  );
+  return hasChat ? tab.id : null;
 }
 
 /** "9.1 KB" @param {number} bytes */

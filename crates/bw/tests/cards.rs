@@ -1356,3 +1356,97 @@ fn rewrap_keeps_the_claude_card_with_a_spaced_question() {
         "{r}"
     );
 }
+
+#[test]
+fn queue_drain_gate3_holds_when_17th_running_child_has_pending_async_question() {
+    let x = Scratch::new();
+    let home = x.dir().join("codex-home");
+    let day = home.join("sessions/2026/11/07");
+    std::fs::create_dir_all(&day).unwrap();
+    std::fs::create_dir_all(home.join("thread-writer-locks")).unwrap();
+
+    let root_meta_line = read(
+        &sessions("codex-child-approval")
+            .join(format!("rollout-2026-11-07T02-24-17-{CODEX_ROOT}.jsonl")),
+    )
+    .lines()
+    .next()
+    .unwrap()
+    .to_string();
+    let root_name = format!("rollout-2026-11-07T02-24-17-{CODEX_ROOT}.jsonl");
+    let root_path = day.join(&root_name);
+    let mut root_text = format!(
+        "{root_meta_line}\n{}\n",
+        r#"{"timestamp":"2026-11-07T10:24:18.000Z","ordinal":1,"type":"response_item","payload":{"type":"message","id":"msg_u1","role":"user","content":[{"type":"input_text","text":"Spawn 17 workers."}]}}"#
+    );
+
+    let child_meta_line = read(
+        &sessions("codex-child-approval")
+            .join(format!("rollout-2026-11-07T02-24-53-{CODEX_CHILD}.jsonl")),
+    )
+    .lines()
+    .next()
+    .unwrap()
+    .to_string();
+
+    for i in 0..17usize {
+        let cid = format!("01a1b58a-29ac-7de0-b175-1000000000{i:02}");
+        let ts = format!("2026-11-07T10:24:{:02}.210Z", 20 + i);
+        let started_ms = 1_794_047_060_000i64 + (i as i64) * 1000;
+        let ord = 2 + i;
+        root_text.push_str(&format!(
+            r#"{{"timestamp":"{ts}","ordinal":{ord},"type":"event_msg","payload":{{"type":"item_completed","thread_id":"{CODEX_ROOT}","turn_id":"turn_root","started_at_ms":{started_ms},"completed_at_ms":{started_ms},"item":{{"type":"SubAgentActivity","id":"call_spawn_{i}","kind":"started","agent_thread_id":"{cid}","agent_path":"/root/worker_{i}"}}}}}}
+"#
+        ));
+        let mut body = child_meta_line
+            .replace(CODEX_CHILD, &cid)
+            .replace("2026-11-07T10:24:53.210Z", &ts)
+            .replace("2026-11-07T10:24:53.185Z", &ts);
+        body.push('\n');
+        if i == 16 {
+            body.push_str(&format!(
+                r#"{{"timestamp":"2026-11-07T10:24:58.000Z","ordinal":2,"type":"response_item","payload":{{"type":"function_call","status":"completed","id":"fc_q17","name":"request_user_input_async","arguments":"{{\"questions\":[{{\"title\":\"Which shard?\",\"options\":[\"a\",\"b\"]}}]}}","call_id":"call_q17"}}}}
+{{"timestamp":"2026-11-07T10:24:58.010Z","ordinal":3,"type":"event_msg","payload":{{"type":"item_completed","thread_id":"{cid}","turn_id":"turn_17","item":{{"type":"AgentMessage","id":"call_q17","content":[{{"type":"Text","text":"Which shard?\n- a\n- b"}}],"phase":"final_answer","delivery":"async","questions":[{{"title":"Which shard?","options":["a","b"]}}]}}}}}}
+{{"timestamp":"2026-11-07T10:24:58.020Z","ordinal":4,"type":"response_item","payload":{{"type":"function_call_output","id":"fco_q17","call_id":"call_q17","output":"{{\"accepted\":true}}"}}}}
+"#
+            ));
+        }
+        let fname = format!("rollout-2026-11-07T02-24-{:02}-{cid}.jsonl", 20 + i);
+        std::fs::write(day.join(fname), body).unwrap();
+    }
+    root_text.push_str(
+        r#"{"timestamp":"2026-11-07T10:25:00.000Z","ordinal":99,"type":"response_item","payload":{"type":"message","status":"completed","id":"msg_clean_root","role":"assistant","content":[{"type":"output_text","text":"Spawned workers."}]}}"#,
+    );
+    root_text.push('\n');
+    std::fs::write(&root_path, &root_text).unwrap();
+
+    let lock = home.join(format!("thread-writer-locks/{CODEX_ROOT}.lock"));
+    std::fs::write(&lock, "").unwrap();
+
+    let _codex = FakeCodex::start(&x.dir(), &home, &[root_path, lock]);
+    _codex.terminal(&x, &json!({"app": "codex", "state": "done"}));
+
+    // UI display pass (`bw cards`) caps at 16 children, while `bw queue drain` Gate 3 scans all 17+.
+    let ui_cards = x.cards("t7");
+    assert!(lines_of(&ui_cards, "request").is_empty(), "{ui_cards:#?}");
+
+    x.ok(&[
+        "queue",
+        "add",
+        "--terminal",
+        "t7",
+        "--kind",
+        "codex",
+        "--text",
+        "next task",
+    ]);
+    let drain = x.ok(&["queue", "drain", "--terminal", "t7"]);
+    assert_eq!(drain[0]["result"], "pending", "{drain:#?}");
+    assert_eq!(drain[0]["reason"], "pending_request", "{drain:#?}");
+    assert_eq!(drain[0]["remaining"], 1, "{drain:#?}");
+    assert!(
+        !x.hc_log().contains("send t7"),
+        "hc_log was: {}",
+        x.hc_log()
+    );
+}

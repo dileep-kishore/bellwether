@@ -328,6 +328,7 @@ function item(row, d, height) {
 
 /**
  * @typedef {object} ListHooks
+ * @property {string} [listId] virtual list id so stack-mode sessions keep independent GPUI scroll offsets
  * @property {number[]} sizes one height per row
  * @property {any} scroll the VirtualListScrollHandle
  * @property {(key: string, cx: any) => void} onClick
@@ -337,6 +338,7 @@ function item(row, d, height) {
 
 /** @param {Row[]} rows @param {Draw} d @param {ListHooks} h */
 export function timeline(rows, d, h) {
+  const listId = h.listId ?? "chat";
   return v_flex()
     .id("timeline")
     .relative()
@@ -345,7 +347,7 @@ export function timeline(rows, d, h) {
     .on_scroll_wheel(h.onWheel)
     .child(
       v_virtual_list(
-        "chat",
+        listId,
         rows.length,
         h.sizes,
         (i) => rows[i].id,
@@ -359,5 +361,5 @@ export function timeline(rows, d, h) {
         .track_scroll(h.scroll)
         .on_item_click(h.onClick),
     )
-    .child(Scrollbar.vertical("chat").absolute().inset_0());
+    .child(Scrollbar.vertical(listId).absolute().inset_0());
 }

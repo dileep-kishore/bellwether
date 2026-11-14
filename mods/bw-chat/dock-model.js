@@ -1,6 +1,5 @@
 // The request dock's cards from `bw cards` request lines, the `bw answer` arguments a click sends, and
 // question drafts. Pure and Herdr-free: the mod passes the lines, the guard and the feed's expectation.
-import { waitingText } from "./target.js";
 
 /** How long a resolved request stays in the dock after its `resolved_ms`. */
 export const RESOLVED_SHOW_MS = 10000;
@@ -60,6 +59,32 @@ export const RESOLVED_SHOW_MS = 10000;
  * @property {string} session an id or "none"
  * @property {string} path a log path or "none"
  */
+
+/**
+ * Builds an `Expect` from `bw cards` output lines (`cards` + optional `state` line), or `null` when
+ * the session cannot be verified safely.
+ * @param {Record<string, any> | null | undefined} cardsLine
+ * @param {Record<string, any> | null | undefined} stateLine
+ * @param {string} kind
+ * @returns {Expect | null}
+ */
+export function cardsExpect(cardsLine, stateLine, kind) {
+  if (kind !== "claude" && kind !== "codex") return null;
+  if (
+    cardsLine &&
+    typeof cardsLine.session === "string" &&
+    cardsLine.session !== "" &&
+    typeof cardsLine.path === "string" &&
+    cardsLine.path !== ""
+  ) {
+    return { kind, session: cardsLine.session, path: cardsLine.path };
+  }
+  if (stateLine?.state === "no_log") {
+    const session = typeof cardsLine?.session === "string" && cardsLine.session !== "" ? cardsLine.session : "none";
+    return { kind, session, path: "none" };
+  }
+  return null;
+}
 
 /** @param {Request} req @returns {Who[]} */
 const whoList = (req) => (Array.isArray(req.who) ? req.who : req.who ? [req.who] : []).filter((w) => w?.child);
@@ -135,7 +160,7 @@ export function reasonNote(reason, agentName) {
     case "other_view":
       return "Answer it in that sub-agent's own chat";
     case "ambiguous":
-      return waitingText("ambiguous", agentName);
+      return `${agentName}'s conversation cannot be read (ambiguous)`;
     default:
       return "Answer it in the terminal";
   }

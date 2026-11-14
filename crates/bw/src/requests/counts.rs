@@ -108,7 +108,7 @@ fn items_of(path: &Path, scope: FileScope) -> Vec<ConversationItem> {
 /// The calls this session's `PermissionRequest` events ask about that a log read still shows open, each once.
 /// A Claude event whose call is not in a log read (finished, or past the tail) counts for nothing; a Codex one
 /// counts its agent's open call with the same command.
-fn open_asks(
+pub(crate) fn open_asks(
     events: &[Event],
     agent: &str,
     session: &str,

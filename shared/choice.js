@@ -1,6 +1,6 @@
 // Which right-sidebar panel each space shows. `shared("bw.right.tab")` holds { [spaceId]: panelId }.
 
-/** @typedef {"changes" | "issues" | "browser"} PanelId */
+/** @typedef {"changes" | "issues" | "drafts" | "browser"} PanelId */
 /** @typedef {{ id: PanelId, label: string, phase: number }} Panel */
 /** @typedef {Record<string, PanelId>} Stored */
 
@@ -8,6 +8,7 @@
 export const PANELS = Object.freeze([
   { id: "changes", label: "Changes", phase: 5 },
   { id: "issues", label: "Issues", phase: 6 },
+  { id: "drafts", label: "Drafts", phase: 8 },
   { id: "browser", label: "Browser", phase: 4 },
 ]);
 

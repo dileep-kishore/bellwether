@@ -365,13 +365,97 @@ the window machine itself, and runs setup in process.
 When the other machine has no helper, setup prints a `no_helper` error. [Hooks](usage.md#hooks)
 shows the same steps from the chat's dock.
 
+## `bw pr`
+
+```sh
+bw pr status --repo <owner/repo> --branch <branch> [--head <oid>] [--refresh]
+```
+
+`bw pr …` runs on the window machine, using this Mac's `gh` session (`BW_GH_BIN`, default `gh`) with
+a 10 s timeout so spaces on other machines need no GitHub token of their own. Replies cache for 60 s
+under `~/.cache/bellwether/pr/<sha256>.json` (`0600` in `0700` folder) and bypass the TTL on
+`--refresh` or when `--head` differs from the cached `headRefOid`.
+
+- `status` prints one `pr` line: `{"type":"pr","repo","branch","pr":null|{number,title,url,state,isDraft,baseRefName,headRefOid,reviewDecision,mergeStateStatus,unresolvedThreads,passing,failing,pending},"cached":bool,"age_s":u64,"stale":bool}`.
+- When `gh` is missing, unauthenticated, or offline, `status` prints the cached entry with
+  `"stale":true` when one exists, or an `error` line (`no_gh`, `unauthenticated`, `offline`).
+
+## `bw queue`
+
+```sh
+bw queue list --terminal <t>
+bw queue add --terminal <t> --kind claude|codex [--session <id>] (--text <msg> | --text-stdin)
+bw queue edit --terminal <t> --id <id> (--text <msg> | --text-stdin)
+bw queue move --terminal <t> --id <id> --to <index>
+bw queue remove --terminal <t> --id <id>
+bw queue clear --terminal <t>
+bw queue resume --terminal <t>
+bw queue send --terminal <t> --id <id> --expect-kind claude|codex --expect-session <id|none> --expect-path <log|none>
+bw queue drain --terminal <t> [--on-stop <event_id>] [--force-next]
+```
+
+`bw queue …` runs on the space's machine so the chat mod and `hooks/bw-event` share one `0600` JSON
+file (`~/.cache/bellwether/queue/<core>/<terminal>.json`) and OS `FolderLock`
+(`queue/<core>/<terminal>.lock`).
+
+- `add` runs `bw locate --fresh` at enqueue time to bind `expect_session` to the live conversation
+  (allowing up to 20 items of 64 KiB each, and storing `expect_session: null` with
+  `unverified_startup: true` and `agent_pid` only while an agent process is starting without a
+  session log).
+- `send` acquires `FolderLock`, reserves `inflight_item_id`, runs `bw send`'s non-force `hc send`
+  guard, and pops `<id>` in a single atomic write (`already-sent` if a concurrent `Stop` drain
+  already delivered `<id>`).
+- When `bw event` records a root `Stop` hook payload and the terminal has unheld queued items, it
+  spawns a detached `bw queue drain --terminal <t> --on-stop <id>` child (`Stdio::null()`) and exits
+  0 immediately.
+- `drain` waits up to `BW_QUEUE_SETTLE_MAX_MS` (default 65 s) on `--on-stop` for sibling `Stop`
+  hooks to finish (`status != "working"`), then verifies five gates under `FolderLock` before
+  recording an in-flight delivery reservation and calling `bw send`'s non-force `hc send` path:
+  unheld queue (holding with `uncertain_delivery` if a prior drain crashed mid-send), `done`/`idle`
+  terminal, zero pending approvals or questions across root and running sub-agents, no turn-ending
+  interruption/error (`interrupted_or_error`) or non-heading prose `?` line (`assistant_question`),
+  and matching live session (`session_changed`, waiting as `awaiting_session_log` while a fresh
+  startup agent has not written its first transcript yet). `--force-next` bypasses the post-send
+  cooldown and Gate 4's prose/interruption hold for item 0 while keeping Gates 1, 2, 3, and 5
+  active.
+- `resume` re-binds queued items to the current live session, clears `held`, and runs a drain check.
+
+## `bw drafts`
+
+```sh
+bw drafts list --path <worktree>
+bw drafts read --path <worktree> --file <id>
+bw drafts register-ledger --path <worktree> --ledger <abs_ledger_path>
+bw drafts stage --name <slug.html> [--machine <m> --path <worktree> --file <id>]
+```
+
+`bw drafts …` inspects read-only drafts, plans, decision logs, and review ledgers for `<worktree>`:
+
+- `list` scans `<worktree>/docs/drafts`, `docs/plans`, `docs/superpowers`, `.audit`, and root
+  `decisions.tsv` and `tasks.md` (skipping symlinks escaping `<worktree>`, `node_modules`, and
+  `.git`, capped at 200 entries), plus allow-listed external `independent-review` `ledger.md` files
+  from `~/.local/state/bellwether/reviews/<sha256(worktree)>/*.json` and `$TMPDIR/*/ledger.md` or
+  `/private/tmp/*/ledger.md` referencing canonical `<worktree>`. Each line is a `draft` JSON object
+  with `kind` (`html`, `decisions`, `plan`, `ledger`, or `markdown`), `id`, `label`, `mtime_ms`,
+  and `size`.
+- `read` resolves `<worktree>` and `<id>`, permits only allow-listed worktree draft files or
+  allow-listed `ledger.md` entries (never sibling raw transcripts or arbitrary paths), caps reads at
+  512 KiB of UTF-8 text, and prints one `draft-read` JSON object.
+- `register-ledger` records a `0600` pointer JSON under
+  `~/.local/state/bellwether/reviews/<sha256(worktree)>/` for an `independent-review` `ledger.md`.
+- `stage` runs on the window machine (`on: null`), reads an HTML artifact up to 5 MiB from stdin, a
+  local worktree, or a remote helper (`--machine <m>`, transported as base64 `html_b64` under
+  `hc exec`'s 8 MB output cap), writes it into
+  `~/.cache/bellwether/drafts-stage/<sha256>/<slug.html>` (`0600` in `0700` dir, keeping the 32
+  newest staged files), and prints `draft-staged` with its `file://` `url`.
+
 ## `bw version`
 
 ```sh
-bw version   # {"protocol":7,"version":"0.7.0","build":"<commit>","target":"<target triple>"}
+bw version   # {"protocol":8,"version":"0.8.0","build":"<commit>","target":"<target triple>"}
 ```
 
-`shared/helper.js` needs version 0.7.0 and protocol 7. When another machine's helper is missing or
+`shared/helper.js` needs version 0.8.0 and protocol 8. When another machine's helper is missing or
 outdated, a mod runs this Mac's `bw machine install <machine>` and checks again.
 
 ## Commands and flags kept for tests and internal use

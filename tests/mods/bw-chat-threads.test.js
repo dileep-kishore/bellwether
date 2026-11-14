@@ -26,7 +26,7 @@ const CHILD_LINES = fixtureLines(["bw", "feed", "t8", "--session", CHILD]);
 
 /** @param {object[]} lines */
 const out = (lines) => ({ code: 0, stdout: `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`, stderr: "" });
-const VERSION = out([{ type: "version", protocol: 7, version: "0.7.0" }]);
+const VERSION = out([{ type: "version", protocol: 8, version: "0.8.0" }]);
 
 /** @param {Record<string, (args: string[], on: string | null) => unknown>} handlers by subcommand */
 function bw(handlers) {
