@@ -75,9 +75,12 @@ agent/         bw agent: the agent files on the space's machine and each new age
 browser/       bw browser: chrome.rs (up, down), tabs.rs, launch.rs (agent-args, status), forward.rs, arrange.rs, cdp.rs, http.rs, listen.rs, lock.rs, pages.rs
 chat/          bw feed, locate, send, picture, picture-read, tree: feed.rs, rows.rs, sentence.rs, tail.rs, locate.rs, cache.rs, dirs.rs, send.rs, picture.rs, tree.rs, args.rs, protocol.rs
 diff/          bw diff files, patch, refs, fetch and the watcher: files.rs, patch.rs, refs.rs, parse.rs, watch.rs
-events/        bw event: records one hook payload per file
+drafts/        bw drafts list, read (--stage), register-ledger: mod.rs
+events/        bw event: records one hook payload per file and spawns background Stop auto-drain
 linear/        bw linear: client.rs (one GraphQL request, key through curl's config on stdin), query.rs, cache.rs
 machine/       bw machine status, install, setup and bw hooks: install.rs, hooks.rs
+pr/            bw pr status: mod.rs (GitHub GraphQL PR status with 45 s TTL and HEAD-SHA cache)
+queue/         bw queue add, list, edit, move, remove, send, clear, drain, resume: mod.rs, store.rs, drain.rs
 requests/      bw cards, answer, counts: cards.rs, answer.rs, claims.rs, store.rs, matchers.rs, screen.rs, codex_approval.rs, codex_folder.rs, counts.rs
 ```
 
@@ -92,44 +95,48 @@ Each mod folder holds `mod.json`, `main.js`, a `.shared` list, its own files and
 when it draws icons. The files a `.shared` list names are copies of `shared/`.
 
 ```text
-bw-projects   left sidebar: machines, projects, worktrees and agents (rows.js, actions.js, run-git.js)
-bw-tabs       the tab bar of the active space, and the chat-tab split and ⌘J flip (model.js)
+bw-projects   left sidebar and 6 px left-edge peek drawer (`{peek: true}`): machines, projects, worktrees and agents (rows.js, actions.js, run-git.js)
+bw-tabs       floating capsule tab bar, 4-screen stack switches (`chat`, `panes`, `needs`, `overview`), `⌘J` flip, and legacy split-pane migration (model.js)
 bw-new        the tab bar's "+" overlay menu (entries.js)
 bw-menu       a project's overlay menu in bw-projects
 bw-add        the Add project overlay dialog
-bw-status     the bar under the active tab
-bw-pane       each pane's header
-bw-right      the right sidebar's strip of Changes, Issues and Browser
-bw-diff       the Changes panel (model.js, patch.js)
+bw-status     optional status bar mod (kept tested and synced; omitted from the frameless default layout)
+bw-pane       each terminal pane's header on the `panes` screen
+bw-right      the right sidebar's strip of Changes, Issues, Drafts and Browser
+bw-diff       the Changes panel: Uncommitted / Branch / PR scopes, inline line comments and batch review bar (model.js, patch.js, comments.js)
 bw-linear     the Issues panel (model.js)
+bw-drafts     the Drafts & Audit panel: HTML pages, decisions.tsv, plans/tasks and external review ledgers (model.js)
 bw-browser    the Browser panel (model.js)
-bw-chat       a chat pane beside an agent's terminal (feedstate.js, timeline.js, composer.js, dock.js,
-              dock-model.js, threads.js, threads-model.js, chips.js, focus-guard.js, target.js,
-              pictures.js, estimate.js, mdblocks.js)
+bw-needs      the `Needs you` (`⌘⇧N`) master-detail fleet request triage screen (model.js)
+bw-overview   the `Overview` (`⌘⇧O`) responsive fleet workspace grid screen (model.js)
+bw-chat       the stack-mounted 24-session LRU chat screen (and legacy per-pane fallback): sessions.js, context-strip.js,
+              feedstate.js, timeline.js, composer.js, dock.js, dock-model.js, threads.js, threads-model.js, chips.js,
+              focus-guard.js, target.js, pictures.js, estimate.js, mdblocks.js
 ```
 
-The layout names `bw-projects`, `bw-tabs`, `bw-pane`, `bw-status`, `bw-right`, `bw-diff`,
-`bw-linear` and `bw-browser`. `bw-new`, `bw-menu` and `bw-add` open as overlays, and `bw-tabs` splits
-a `bw-chat` pane into a chat tab. [Architecture: Mods](architecture.md#mods) says what each one
-shows.
+The layout names `bw-projects` (sidebar and `sidebar-peek` float), `bw-tabs`, `bw-pane`, `bw-chat`,
+`bw-needs`, `bw-overview`, `bw-right`, `bw-diff`, `bw-linear`, `bw-drafts` and `bw-browser`.
+`bw-new`, `bw-menu` and `bw-add` open as overlays. [Architecture: Mods](architecture.md#mods) says
+what each one shows.
 
 ### Shared JavaScript: `shared/`
 
 ```text
-chat-tabs.js         how a "+" tab becomes a terminal beside a bw-chat pane, ⌘J, when a chat counts as shown
-choice.js            which right-sidebar panel each space shows (shared("bw.right.tab"))
-diff-reveal.js       "Open in Changes" for one file (shared("bw.diff.reveal"))
-git-parse.js         parsers for the read-only Git calls in git.js
+chat-tabs.js         agent tab resolution, stack screen helpers (`bw.screen`, `bw.chat-agent`), `⌘J` flip, legacy split detection
+choice.js            which right-sidebar panel each space shows (`shared("bw.right.tab")`: `changes`, `issues`, `drafts`, `browser`)
+diff-reveal.js       "Open in Changes" for one file (`shared("bw.diff.reveal")`)
+git-parse.js         parsers for the read-only Git calls in git.js, including GitHub `owner/repo` remote parsing
 git.js               short read-only Git calls through exec, on the machine that holds the folder
 helper.js            runs bw on a space's machine; PROTOCOL and HELPER_VERSION
-linear-attach.js     issues attached to a chat's composer (shared("bw.chat.attach"))
-linear-links.js      which Linear project a repository links to (shared("bw.linear.links"))
-palette.js           every colour value
+linear-attach.js     issues attached to a chat's composer (`shared("bw.chat.attach")`)
+linear-links.js      which Linear project a repository links to (`shared("bw.linear.links")`)
+palette.js           every colour value (flattened Catppuccin Mocha steps)
+pr-model.js          GitHub PR state classification and `/babysit-pr` / `/merge-pr` skill routing
 projects-model.js    the project sidebar's tree; a mod that lists it must also list status
 refresh-driver.js    runs a refresh schedule inside one loop task
 refresh-schedule.js  when each Git refresh is due
 status.js            agent status ranking, as Herdr ranks it
-ui.js                status marks, pills, chips, monogram tiles, cards, buttons; its icons live in mods/bw-projects/icons/
+ui.js                status marks, pills, chips, neutral monogram tiles, cards, buttons; its icons live in mods/bw-projects/icons/
 ```
 
 Most files have a `*.test.js` beside them. The tests stay in `shared/` and are never copied.
@@ -186,9 +193,8 @@ refuses to run and says to run `bun install`. CI uses Bun 1.4.4.
 Biome reads `biome.jsonc`: 2-space indent, 120 columns, LF, double quotes, semicolons, trailing
 commas, the recommended lint rules, and import sorting off. It leaves out `docs`, `target`,
 `crates`, `tests/fixtures`, `node_modules`, every `*.svg`, `*.html` and `*.md` file,
-`tests/harness/api.json`, `types/herdr`, and the mod copies of `chat-tabs.js`, `git-parse.js`,
-`git.js`, `helper.js`, `projects-model.js`, `refresh-driver.js`, `refresh-schedule.js`, `status.js`
-and `ui.js`. `bunx biome check --write .` fixes most findings.
+`tests/harness/api.json`, `types/herdr`, and the mod copies of shared files. `bunx biome check --write .`
+fixes most findings.
 
 Biome checks no Markdown file. `bunx biome ci --error-on-warnings docs/development.md` prints
 `Checked 0 files`, then `No files were processed in the specified paths.` and lists
@@ -218,11 +224,13 @@ steps, in order:
    harness, mod, shared, theme, layout and verify-helper tests.
 9. `scripts/check.sh` checks the shared copies and every mod (see below).
 10. A loop runs `sh <script> --offline` for each `scripts/verify/*.sh` whose text contains
-    `--offline`: `agent-flags.sh`, `browser-probe.sh`, `browser.sh`, `git.sh`, `linear.sh`,
-    `projects.sh`, `requests.sh` and `sessions.sh`.
+    `--offline`: `agent-flags.sh`, `browser-probe.sh`, `browser.sh`, `drafts.sh`, `git.sh`,
+    `linear.sh`, `pr.sh`, `projects.sh`, `queue.sh`, `requests.sh` and `sessions.sh`.
 
 The loop matches the text `--offline` anywhere in a script, a comment included. A new verify script
-that mentions the flag must accept it. The offline runs of `sessions.sh` and `requests.sh` make
+that mentions the flag must accept it. `scripts/verify/ui-stage.sh` drives a live Herdr stage window
+and omits `--offline` so CI and headless runs skip it; run `sh scripts/verify/ui-stage.sh` directly on
+macOS to verify all 23 live Done Checks end to end. The offline runs of `sessions.sh` and `requests.sh` make
 temporary folders under `/private/tmp/claude-501`, which `tests/agent-files.test.js` creates during
 step 8. `sessions.sh`, `requests.sh` and `browser.sh` build the release `bw` even with `--offline`.
 
@@ -761,11 +769,12 @@ appearance.
 - `themes/bellwether.json` is the layout's own Herdr theme, written from the palette by
   `bun scripts/gen-theme.js` (`--check` fails when the two differ). The layout's root names it, so
   Herdr offers it only in this layout. Text selection in terminals is a quarter of Mauve over Base.
-- `shared/ui.js` draws the shared pieces: status marks, pills, chips, monogram tiles, cards and
-  buttons.
-- Motion follows state and uses Herdr's native animation only: a working agent's mark spins, a
-  blocked one breathes (opacity 0.65 to 1), a done check fades in, menus, dialogs and request cards
-  fade and slide in once, and hover fills fade. An idle window does not move.
+- `shared/ui.js` draws the shared pieces: status marks, pills, chips, neutral monogram tiles, cards
+  and buttons.
+- Motion follows state and uses Herdr's native animation only: a working agent's mark spins, the
+  top-bar `Needs you` count pill breathes (opacity 0.65 to 1; blocked marks elsewhere stay still), a
+  done check fades in, menus, dialogs and request cards fade and slide in once, and hover fills fade.
+  An idle window does not move.
 - `bun scripts/verify/contrast.js` lists every colour pair the mods draw and checks WCAG AA: 4.5:1
   for text, 3:1 for status marks and meaningful icons. `tests/theme.test.js` runs it with the rest
   of the tests, and checks that the theme file equals what `gen-theme.js` writes.
@@ -786,7 +795,7 @@ The values live in these files:
 - `crates/bw/Cargo.toml` `version`, which `bw version` reports.
 - `crates/bw/src/version.rs` `PROTOCOL`.
 - `shared/helper.js` `PROTOCOL` and `HELPER_VERSION`, copied into `bw-browser`, `bw-chat`,
-  `bw-diff`, `bw-linear`, `bw-new` and `bw-projects`.
+  `bw-diff`, `bw-drafts`, `bw-linear`, `bw-needs`, `bw-new`, `bw-overview` and `bw-projects`.
 - `Cargo.lock`, which records the `bw` version. Run `cargo build -p bw` once without `--locked`,
   since `scripts/test.sh` runs cargo with `--locked`.
 - The tests and fixtures that pin them: `crates/bw/tests/version.rs`, `crates/bw/tests/install.rs`,

@@ -1,17 +1,22 @@
 # Bellwether
 
 Bellwether is a layout and a set of mods for the [Herdr app](https://herdr.dev) that turn Herdr into
-a workbench for coding agents. It adds five things to the window:
+a workbench for coding agents. It adds six things to the window:
 
 - The left sidebar lists each machine's Git projects, every worktree with its ahead, behind and
-  `+N −M` counts, and the agents running in each worktree with a live status mark.
-- A Claude or Codex agent started from "+" opens as a chat tab. The chat draws the agent's session
-  log as bubbles, Markdown and one-line tool summaries, and `⌘J` flips to the real terminal.
-- Approvals and questions from the agent and its sub-agents appear as request cards that you answer
-  in the chat.
-- The right sidebar's Changes panel shows the worktree's Git diff against `origin/main` or a ref you
-  pick, and its Issues panel shows the Linear project linked to the repository.
-- The right sidebar's Browser panel shows a separate Google Chrome that you and the agents share.
+  `+N −M` counts, and the agents running in each worktree with a live status mark; when hidden with
+  `⌘B`, a 6 px left-edge trigger reveals a floating sidebar peek drawer.
+- A Claude or Codex agent started from "+" opens on the frameless four-screen work stack (`chat`,
+  `panes`, `needs`, `overview`). The chat screen draws the agent's session log as bubbles, Markdown
+  and one-line tool summaries, queues follow-up prompts while the agent works with a 5-gate `Stop`
+  auto-drain, shows live GitHub PR checks and review status with `/babysit-pr` and `/merge-pr` skill
+  buttons, and flips cleanly to full-width terminals on `⌘J`.
+- Approvals and questions from the agent and its sub-agents appear both in the chat request dock and
+  on the fleet-wide `Needs you` (`⌘⇧N`) triage screen, beside the `Overview` (`⌘⇧O`) fleet grid.
+- The right sidebar (`⌘⌥B`, hidden by default for half-tile width) switches between `Changes`
+  (`Uncommitted / Branch / PR` diffs with inline line-review comments), `Issues` (the Linear project
+  linked to the repository), `Drafts` (HTML artifacts, `decisions.tsv`, plans, and external review
+  ledgers), and `Browser` (a separate Google Chrome that you and the agents share).
 
 A Rust helper, `bw`, reads session logs, screens and Git on whichever machine a space lives on. The
 mods draw the window and call `bw` for the work.
@@ -35,7 +40,7 @@ mods draw the window and call `bw` for the work.
   [Bun](https://bun.sh), `jq` and `rsync` are installed too.
 - Claude Code or Codex runs on each machine where you start agents.
 - The Browser panel needs Google Chrome, and each machine whose agents use it needs Node with `npx`.
-- The Issues panel needs a Linear personal API key.
+- The Issues panel needs a Linear personal API key, and PR status chips use a logged-in `gh` CLI.
 
 Spaces can also live on other machines that `hc` reaches: an Apple silicon Mac, or Linux on x86_64
 or aarch64.
@@ -68,20 +73,21 @@ other machines.
 
 1. Open a space in a Git folder, or click "Add project" in the sidebar and pick a folder. The
    project, its worktrees and their counts appear in the sidebar.
-2. Click "+" in the tab bar and choose New chat → Claude or Codex. The agent starts in a new tab,
-   and the chat opens beside its terminal.
-3. Type in the composer and press Enter. Press `⌘J` to flip between the chat and the terminal.
-4. When the agent asks for approval, answer the card above the composer, or choose Answer in
-   terminal.
-5. Use the right sidebar's strip to switch between Changes, Issues and Browser. `cmd-alt-b` hides and
-   shows the right sidebar.
+2. Click "+" in the tab bar and choose New chat → Claude or Codex. The agent starts in a new tab
+   and opens on the full-width `chat` screen.
+3. Type in the composer and press Enter (while the agent works, Enter queues the prompt for safe
+   `Stop` delivery and `⇧⌘Enter` sends immediately). Press `⌘J` to flip between `chat` and `panes`.
+4. When any agent asks for approval or input, answer in the chat dock or open `Needs you` (`⌘⇧N`).
+   Press `⌘⇧O` for the `Overview` workspace grid.
+5. Press `⌘⌥B` (or click the top-right inspector button or "Open in Changes") to reveal the right
+   sidebar and switch between `Changes`, `Issues`, `Drafts`, and `Browser`.
 6. In Issues, click the header to link the repository to a Linear project. Attach to chat puts an
    issue on the chat's composer.
 
 The first chat on a machine without Bellwether's hooks shows a notice in the request dock. Review
 changes shows the edit to the Claude and Codex hook files, and Apply makes it. The hooks let a card
-name the sub-agent that asked. [Hooks](docs/usage.md#hooks) explains the notice and the Codex trust
-step.
+name the sub-agent that asked and trigger queued prompt auto-drain on `Stop`. [Hooks](docs/usage.md#hooks)
+explains the notice and the Codex trust step.
 
 ## The bw helper
 
@@ -100,14 +106,14 @@ A Linux machine gets the build that `scripts/build-dist.sh` writes, which needs 
 
 ## Known limits
 
-- A chat tab's terminal keeps about 15 columns while the chat is zoomed in a window under 1000 px
-  wide. At that width a Codex sub-agent's approval card offers only Answer in terminal.
 - Claude started on another machine by an `hc` core that SSH started cannot read that machine's
   login Keychain, so it runs logged out. Start that machine's core from its own login session.
 - An agent's browser tools need Node and `npx` on its machine, and a machine that `hc` reaches
   through `via` gets no browser. Arrange works on macOS only.
 - The Linear key lives in one Mac's Keychain. Run `scripts/linear-key.sh` on each Mac that shows the
   window.
+- PR status chips read `gh` on the machine where the repository lives; unauthenticated or offline
+  machines keep the chat clean without blocking other features.
 - A diff opened as a tab does not refresh by itself. Its Refresh button reads it again.
 
 [docs/usage.md](docs/usage.md#known-limits) lists every known limit.
