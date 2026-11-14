@@ -635,6 +635,11 @@ export default class Changes extends View {
     this.commentInput.set_value(existing?.body ?? "");
     this.commentInput.focus();
     this.note = null;
+    cx?.timer?.after?.(30, (/** @type {any} */ tcx) => {
+      if (!this.alive || !this.editingComment) return;
+      this.commentInput.focus();
+      tcx?.notify?.();
+    });
     cx.notify();
   }
 
@@ -937,6 +942,11 @@ export default class Changes extends View {
     if (this.picker.open) {
       this.filter.focus();
       this.wantRefs();
+      cx?.timer?.after?.(30, (/** @type {any} */ tcx) => {
+        if (!this.alive || !this.picker.open) return;
+        this.filter.focus();
+        tcx?.notify?.();
+      });
     }
     cx.notify();
   }

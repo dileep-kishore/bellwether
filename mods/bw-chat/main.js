@@ -362,6 +362,10 @@ export default class Chat extends View {
       }
     });
 
+    /** @type {SessionState | null} */
+    this.pendingFocusSession = null;
+    this.focusPoke = createPoke();
+
     cx.spawn(async (/** @type {any} */ cx) => {
       while (this.alive) {
         if ((await nextCommand()) !== "focus") continue;
@@ -376,6 +380,16 @@ export default class Chat extends View {
         cx?.notify?.();
       }
     });
+
+    cx.spawn(async () => {
+      while (this.alive) {
+        await this.focusPoke.wait();
+        if (!this.alive) return;
+        const s = this.pendingFocusSession;
+        this.pendingFocusSession = null;
+        if (s && s === this.session) this.focusSession(s);
+      }
+    });
   }
 
   /** @param {SessionState} s */
@@ -384,9 +398,16 @@ export default class Chat extends View {
     else s.composer?.focus?.();
   }
 
+  /** @param {SessionState} s */
+  scheduleFocus(s) {
+    this.pendingFocusSession = s;
+    this.focusPoke.poke();
+  }
+
   close() {
     this.alive = false;
     this.poke?.poke();
+    this.focusPoke?.poke();
   }
 
   /** @param {SessionState} s @returns {FeedState} */
@@ -1677,13 +1698,13 @@ export default class Chat extends View {
       this.focusedForCmd = null;
       this.sessionSwitched = false;
       if (prev !== s) {
-        this.focusSession(s);
+        this.scheduleFocus(s);
         focusedNow = true;
       }
     } else if (this.sessionSwitched) {
       this.sessionSwitched = false;
       if (this.shown) {
-        this.focusSession(s);
+        this.scheduleFocus(s);
         focusedNow = true;
       }
     }
@@ -1698,7 +1719,7 @@ export default class Chat extends View {
         fFocus?.terminal !== null &&
         fFocus?.terminal !== undefined
       ) {
-        this.focusSession(s);
+        this.scheduleFocus(s);
       }
     }
     const focusedTerm =
@@ -2014,6 +2035,11 @@ export default class Chat extends View {
             this.editingQueue = { terminal: s.terminal, id: item.id };
             this.editInput.set_value(item.text);
             this.editInput.focus();
+            cx?.timer?.after?.(30, (/** @type {any} */ tcx) => {
+              if (!this.alive || !this.editingQueue) return;
+              this.editInput.focus();
+              tcx?.notify?.();
+            });
             cx.notify();
           },
           onQueueEditSave: (id, cx) => this.saveQueueEdit(s, id, cx),

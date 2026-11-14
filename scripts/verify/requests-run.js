@@ -242,7 +242,7 @@ async function hooksIn(home, args) {
 function withOurs(v, kind) {
   const out = structuredClone(v);
   out.hooks ??= {};
-  for (const event of ["PermissionRequest", "PreToolUse", "SubagentStart", "SubagentStop"]) {
+  for (const event of ["PermissionRequest", "PreToolUse", "SubagentStart", "SubagentStop", "Stop"]) {
     const hook = {
       type: "command",
       command: `: bellwether-hook=1; sh "$HOME/.local/share/bellwether/hooks/bw-event" ${kind}`,
@@ -311,7 +311,7 @@ async function hooksSetupScratch() {
   }
   pass(
     "hooks-setup-scratch",
-    "bw hooks apply appends Bellwether's four groups after every group in both fixtures, apply twice changes nothing, check says untrusted until config.toml holds Codex's hashes (PermissionRequest's equals the recorded one), remove gives back the original bytes",
+    "bw hooks apply appends Bellwether's five groups after every group in both fixtures, apply twice changes nothing, check says untrusted until config.toml holds Codex's hashes (PermissionRequest's equals the recorded one), remove gives back the original bytes",
   );
 }
 

@@ -160,6 +160,9 @@ export default class Needs extends View {
     this.cardFocus = cx.focus_handle();
     this.pendingFocus = false;
     this.wantCardFocus = false;
+    /** @type {"card" | "root" | null} */
+    this.focusTarget = null;
+    this.focusPoke = createPoke();
     /** @type {string | null} */
     this.selectedId = null;
     /** @type {string | null} */
@@ -238,12 +241,24 @@ export default class Needs extends View {
       }
     });
 
+    cx.spawn(async () => {
+      for (;;) {
+        await this.focusPoke.wait();
+        if (!this.alive) return;
+        const target = this.focusTarget;
+        this.focusTarget = null;
+        if (target === "card") this.cardFocus.focus();
+        else if (target === "root") this.rootFocus.focus();
+      }
+    });
+
     cx.spawn((/** @type {any} */ cx) => this.pollLoop(cx));
   }
 
   close() {
     this.alive = false;
     this.poke.poke();
+    this.focusPoke.poke();
     this.other?.release?.();
   }
 
@@ -954,7 +969,8 @@ export default class Needs extends View {
     const activeQ = st ? activeQuestionOf(st.requests) : null;
     if (activeQ && st && this.wantCardFocus && this.shown) {
       this.wantCardFocus = false;
-      this.cardFocus.focus();
+      this.focusTarget = "card";
+      this.focusPoke.poke();
     }
 
     const header = h_flex()
@@ -1352,11 +1368,12 @@ export default class Needs extends View {
       const activeQ = selState ? activeQuestionOf(selState.requests) : null;
       if (activeQ) {
         this.wantCardFocus = false;
-        this.cardFocus.focus();
+        this.focusTarget = "card";
       } else {
         this.wantCardFocus = Boolean(model.selected?.isAgent && model.selected.agentBlocked && !selState?.cardsLoaded);
-        this.rootFocus.focus();
+        this.focusTarget = "root";
       }
+      this.focusPoke.poke();
     }
 
     if (shouldPoke) this.poke.poke();

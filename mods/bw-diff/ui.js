@@ -43,13 +43,13 @@ export const MOTION = Object.freeze({
   hover: 120,
 });
 
-/** Secondary text on a selected fill (#333546) or hovered raised fill (#272738). */
+/** Secondary text on a selected or hovered raised fill (Subtext 0). */
 export const mutedOnSelected = /** @type {Color} */ (MUTED_ON_SELECTED);
 
-/** A raised fill (#272738) under the pointer: the 7% hover tint composited, so it lightens rather than replaces. */
+/** A raised fill under the pointer: the 7% hover tint composited, so it lightens rather than replaces. */
 export const raisedHover = /** @type {Color} */ (mix(MOCHA.text, ROLES.raised, 0.07));
 
-/** A selected fill (#333546) under the pointer, the 7% hover tint composited. */
+/** A selected fill under the pointer, the 7% hover tint composited. */
 export const selectedHover = /** @type {Color} */ (mix(MOCHA.text, ROLES.selected, 0.07));
 
 /** @param {unknown} status @returns {status is Status} */
