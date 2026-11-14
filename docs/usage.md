@@ -274,10 +274,10 @@ a two-column triage view across all open spaces:
 - The left 300 px column groups spaces and agents into `Needs you`, `Ready to land`, `Working` and
   `Idle`.
 - The right detail column renders `answerable` approval and question cards with inline `1` to `9`
-  digit shortcuts and `Other…` input (honoring the 3 s terminal focus guard and invoking `bw answer`
-  on `space.machine`). When a terminal reports `blocked` without a session card (for example `sudo`
-  or an interactive shell prompt), `bw-needs` renders `Waiting in terminal` and `Open terminal` with
-  zero fabricated answer buttons.
+  digit shortcuts, `y` / `a` / `n` approval keys, and `Other…` input (honoring the 3 s terminal focus
+  guard and invoking `bw answer` on `space.machine`). When a terminal reports `blocked` without a
+  session card (for example `sudo` or an interactive shell prompt), `bw-needs` renders `Waiting in
+  terminal` and `Open terminal` with zero fabricated answer buttons.
 - Clicking `Open chat` or double-clicking a row pins `bw.chat-agent` to that terminal so multi-agent
   tabs open the exact agent's conversation. PR rows also surface `Open PR`, `Babysit PR`, and
   `Merge PR`.
