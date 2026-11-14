@@ -340,7 +340,7 @@ export function buildNeedsModel(input) {
         agentBlocked,
         answerableCount: answerableReqs.length,
         subagents,
-        pr: openPr,
+        pr: prAttn || ready ? openPr : null,
         headOid,
         prAttention: prAttn,
         mergeReady: ready,

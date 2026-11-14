@@ -1276,7 +1276,12 @@ describe("scopes, line comments, and preflight (Task 10)", () => {
         const file = args[args.indexOf("--file") + 1];
         return out([file === "notes.txt" ? notesPatch : freshPatch]);
       },
-      "cards --terminal": [{ type: "cards", session: "sess-42", path: "/tmp/claude-sess-42.jsonl" }],
+      "cards --terminal": (/** @type {string[]} */ args) => {
+        if (args.length !== 3 || args[1] !== "--terminal") {
+          return out([{ type: "error", code: "usage", message: `unknown option ${args[3] ?? ""}` }]);
+        }
+        return out([{ type: "cards", session: "sess-42", path: "/tmp/claude-sess-42.jsonl" }]);
+      },
       "send --terminal": (/** @type {string[]} */ args, /** @type {string | null} */ on) => {
         sent.push({ args, on });
         return out([{ type: "send", result: "sent" }]);
@@ -1494,5 +1499,134 @@ describe("scopes, line comments, and preflight (Task 10)", () => {
     ]);
     expect(byId(m.el, "diff-review-bar")).toBe(null);
     expect(textOf(byId(m.el, "diff-note"))).toBe("Queued 1 comment");
+  });
+
+  test("committed comment preflight refreshes HEAD on same base ref and fails closed if diff files fails", async () => {
+    const HEAD_OLD = FILES[0].head;
+    const HEAD_NEW = "ffffffffffffffffffffffffffffffffffffffff";
+    let currentHead = HEAD_OLD;
+    let failFiles = false;
+    /** @type {string[][]} */
+    const patchCalls = [];
+    /** @type {any[]} */
+    const sent = [];
+
+    const answers = {
+      "diff files": () => {
+        if (failFiles) return out([{ type: "error", code: "git", message: "git rev-parse failed" }]);
+        return out(FILES.map((l) => (l.type === "diff-place" ? { ...l, head: currentHead } : l)));
+      },
+      "diff patch": (/** @type {string[]} */ args) => {
+        patchCalls.push(args);
+        const toSha = args[args.indexOf("--to") + 1];
+        if (toSha === HEAD_OLD) {
+          return out([
+            {
+              type: "diff-patch",
+              page: 0,
+              pages: 1,
+              bytes: 40,
+              digest: "cccc1111cccc1111",
+              text: ["diff --git a/feature.txt b/feature.txt", "@@ -0,0 +1,2 @@", "+seed", "+target line", ""].join(
+                "\n",
+              ),
+              cut: [],
+            },
+          ]);
+        }
+        return out([
+          {
+            type: "diff-patch",
+            page: 0,
+            pages: 1,
+            bytes: 96,
+            digest: "cccc9999cccc9999",
+            text: [
+              "diff --git a/feature.txt b/feature.txt",
+              "@@ -0,0 +1,10 @@",
+              "+p1",
+              "+p2",
+              "+p3",
+              "+p4",
+              "+p5",
+              "+p6",
+              "+p7",
+              "+p8",
+              "+seed",
+              "+target line",
+              "",
+            ].join("\n"),
+            cut: [],
+          },
+        ]);
+      },
+      "cards --terminal": (/** @type {string[]} */ args) => {
+        if (args.length !== 3 || args[1] !== "--terminal") {
+          return out([{ type: "error", code: "usage", message: "unknown option" }]);
+        }
+        return out([{ type: "cards", session: "sess-7", path: "/tmp/claude-7.jsonl" }]);
+      },
+      "send --terminal": (/** @type {string[]} */ args) => {
+        sent.push(args);
+        return out([{ type: "send", result: "sent" }]);
+      },
+    };
+
+    const liveWorld = world(null, TOP);
+    liveWorld.panes = [
+      {
+        pane: "p1",
+        terminal: "t1",
+        tab: "tb1",
+        title: "claude",
+        app: "claude-code",
+        program: { key: "claude" },
+        cwd: TOP,
+        branch: "feat",
+        status: "done",
+        focused: true,
+      },
+    ];
+    liveWorld.agents = [{ pane: "p1", terminal: "t1", status: "done" }];
+
+    const m = await mount("bw-diff", { live: { ...liveWorld, exec: bw(answers) } });
+    showInLayout("changes");
+    m.render();
+    await m.cx.flush();
+    m.render();
+
+    await m.click("diff-scope-branch");
+    await m.click("diff-file-committed-feature.txt");
+    await m.cx.flush();
+    m.render();
+
+    const view = /** @type {any} */ (m.view);
+    await fire(byId(m.el, "diff-patch-rows"), "on_item_click", "cccc1111cccc1111:add:null:2", m.cx);
+    m.render();
+    view.commentInput.set_value("Guard committed target line");
+    m.render();
+    await m.click("diff-comment-save");
+
+    // 1. Freshdiff files fails during preflight -> fails closed without falling back to stale HEAD_OLD.
+    failFiles = true;
+    patchCalls.length = 0;
+    await m.click("diff-comments-send");
+    await m.cx.flush();
+    m.render();
+    expect(patchCalls).toHaveLength(0);
+    expect(sent).toHaveLength(0);
+    expect(textOf(byId(m.el, "diff-note"))).toContain("git rev-parse failed");
+
+    // 2. HEAD advances on the same base ref before UI refresh -> preflight queries fresh range (HEAD_NEW) and catches >5-line drift.
+    failFiles = false;
+    currentHead = HEAD_NEW;
+    await m.click("diff-comments-send");
+    await m.cx.flush();
+    m.render();
+    expect(patchCalls).toHaveLength(1);
+    expect(patchCalls[0][patchCalls[0].indexOf("--to") + 1]).toBe(HEAD_NEW);
+    expect(sent).toHaveLength(0);
+    expect(textOf(byId(m.el, "diff-note"))).toContain("Stale diff anchor (feature.txt:2)");
+    expect(view.worktreeComments()[0].stale).toBe(true);
   });
 });

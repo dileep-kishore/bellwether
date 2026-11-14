@@ -1,10 +1,12 @@
 // Tests for `mods/bw-overview/`: cross-space fleet cards, neutral monograms, PR badges,
 // responsive column counts, and pinned one-click jumps to `chat` and `panes`.
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { HELPER_SCRIPTS } from "../../shared/helper.js";
 import { findLayout } from "../../shared/ui.js";
 import { byId, findAll, fire, textOf } from "../harness/kit-stub.js";
 import { mount } from "../harness/mount.js";
+
+afterEach(() => setSystemTime());
 
 /** @param {object[]} lines */
 const out = (lines) => ({ code: 0, stdout: `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`, stderr: "" });
@@ -221,5 +223,42 @@ describe("bw-overview fleet grid", () => {
     expect(m.log.run).toContainEqual(["space.select", { id: "sp-2" }]);
     expect(m.log.run).toContainEqual(["layout.select", { stack: "screen", child: "panes" }]);
     expect(m.log.run).toContainEqual(["pane.focus", { terminal: "macmini/t9" }]);
+  });
+
+  test("focuses rootFocus on focus command and stops polling when bw.screen leaves overview without render", async () => {
+    const T0 = 1794032000000;
+    setSystemTime(new Date(T0));
+    /** @type {((c: string) => void) | null} */
+    let wakeCmd = null;
+    const d = {
+      ...makeOverviewLive(),
+      nextCommand: () =>
+        new Promise((resolve) => {
+          wakeCmd = resolve;
+        }),
+    };
+
+    const m = await mount("bw-overview", { live: d });
+    await m.cx.flush();
+    m.render();
+
+    const view = /** @type {any} */ (m.view);
+    expect(byId(m.el, "bw-overview").attrs.track_focus).toBe(view.rootFocus);
+    expect(view.rootFocus.is_focused()).toBe(false);
+
+    wakeCmd?.("focus");
+    await m.cx.flush();
+    expect(view.rootFocus.is_focused()).toBe(true);
+
+    // Leave overview by flipping bw.screen to "chat" WITHOUT calling m.render().
+    const execBefore = m.log.exec.length;
+    d.shared["bw.screen"] = "chat";
+    findLayout(d.layout, "screen").active = "chat";
+    for (let i = 0; i < 3; i++) {
+      setSystemTime(new Date(T0 + (i + 1) * 45_000));
+      for (const s of m.cx.sleeps.splice(0)) s.wake();
+      await m.cx.flush();
+    }
+    expect(m.log.exec).toHaveLength(execBefore);
   });
 });

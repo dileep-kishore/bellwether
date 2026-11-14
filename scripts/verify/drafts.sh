@@ -66,6 +66,8 @@ fi
 printf 'SECRET=1\n' > "$wt/.env"
 printf 'OUTSIDE=1\n' > "$root/outside.md"
 ln -s "$root/outside.md" "$wt/docs/drafts/escape.md"
+ln -s "../../.env" "$wt/docs/plans/local-plan.md"
+ln -s "../../.env" "$wt/docs/drafts/secret.html"
 
 canon_wt=$(cd "$wt" && pwd -P)
 cat > "$ext_run/ledger.md" <<EOF
@@ -102,7 +104,14 @@ REG_JSON="$reg_json" LIST_OUT="$LIST_OUT" bun -e '
   if (byId.get("docs/plans/2026-11-13-sample-plan.md")?.kind !== "plan") throw new Error("missing plan.md");
   if (byId.get("decisions.tsv")?.kind !== "decisions") throw new Error("missing decisions.tsv");
   if (byId.get(".audit/run.tsv")?.kind !== "decisions") throw new Error("missing .audit/run.tsv");
-  if (byId.has("docs/drafts/escape.md") || byId.has(".env")) throw new Error("leaked disallowed file");
+  if (
+    byId.has("docs/drafts/escape.md") ||
+    byId.has("docs/plans/local-plan.md") ||
+    byId.has("docs/drafts/secret.html") ||
+    byId.has(".env")
+  ) {
+    throw new Error("leaked disallowed file");
+  }
   const ledgers = rows.filter((r) => r.kind === "ledger");
   if (ledgers.length < 2) throw new Error("expected both $TMPDIR and registered ledgers, got " + ledgers.length);
   if (!byId.has(reg.id)) throw new Error("missing registered ledger id");
@@ -134,11 +143,13 @@ DEC_READ="$DEC_READ" LED_READ="$LED_READ" bun -e '
 '
 echo "PASS drafts-read-6col-decisions-and-external-ledger"
 
-# 3. Strictly reject sibling raw transcripts, symlink escapes, traversal, and .env.
+# 3. Strictly reject sibling raw transcripts, symlink escapes, internal non-allowlisted symlinks, traversal, and .env.
 for bad_target in \
   "$ext_run/report-sol.txt" \
   "$ext_run/transcript.jsonl" \
   "docs/drafts/escape.md" \
+  "docs/plans/local-plan.md" \
+  "docs/drafts/secret.html" \
   "../outside.md" \
   ".env"
 do
@@ -147,6 +158,10 @@ do
     exit 1
   fi
 done
+if err_out=$(bwd read --path "$wt" --file "docs/drafts/secret.html" --stage 2>/dev/null); then
+  echo "FAIL expected --stage rejection for docs/drafts/secret.html, got: $err_out" >&2
+  exit 1
+fi
 if bwd register-ledger --path "$wt" --ledger "$ext_run/report-sol.txt" >/dev/null 2>&1; then
   echo "FAIL expected register-ledger rejection for report-sol.txt" >&2
   exit 1

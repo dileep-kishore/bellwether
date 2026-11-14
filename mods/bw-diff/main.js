@@ -707,42 +707,47 @@ export default class Changes extends View {
    * @param {string} top
    * @param {FilesView | null} viewSnapshot
    * @param {DraftComment} sample
+   * @param {Map<string, Promise<FilesView | { error: string }>>} [freshViews]
    * @returns {Promise<import("./comments.js").PreflightPatchResult>}
    */
-  async preflightFetchTarget(machine, top, viewSnapshot, sample) {
+  async preflightFetchTarget(machine, top, viewSnapshot, sample, freshViews = new Map()) {
     let oldPath = sample.oldPath;
     let untracked = sample.untracked;
-    let from = sample.from;
-    let to = sample.to;
+    /** @type {string | null} */
+    let from = null;
+    /** @type {string | null} */
+    let to = null;
 
-    if (viewSnapshot) {
+    if (sample.section === "committed") {
+      const baseKey = JSON.stringify([sample.base ?? null, sample.mode]);
+      let pending = freshViews.get(baseKey);
+      if (!pending) {
+        pending = (async () => {
+          const fArgs = filesArgs(top, { ref: sample.base, mode: sample.mode }, null);
+          const fAns = await this.helper.call(machine, fArgs);
+          if (fAns.ok === false) return { error: fAns.message };
+          const freshView = viewFiles(fAns.lines);
+          if (!freshView?.base.from || !freshView.place.head) {
+            return { error: "Could not resolve current commit range" };
+          }
+          return freshView;
+        })();
+        freshViews.set(baseKey, pending);
+      }
+      const resolved = await pending;
+      if ("error" in resolved) {
+        return { ok: false, error: resolved.error };
+      }
+      from = resolved.base.from;
+      to = resolved.place.head;
+      const freshRow = resolved.sections.committed.find((r) => r.path === sample.path);
+      oldPath = freshRow ? freshRow.oldPath : null;
+      untracked = freshRow ? freshRow.untracked : false;
+    } else if (viewSnapshot) {
       const liveRow = viewSnapshot.sections[sample.section].find((r) => r.path === sample.path);
       if (liveRow) {
         oldPath = liveRow.oldPath;
         untracked = liveRow.untracked;
-      }
-    }
-
-    if (sample.section === "committed") {
-      const sameBase =
-        viewSnapshot &&
-        (sample.base ?? null) === (viewSnapshot.base.ref ?? null) &&
-        sample.mode === viewSnapshot.base.mode &&
-        Boolean(viewSnapshot.base.from) &&
-        Boolean(viewSnapshot.place.head);
-      if (sameBase && viewSnapshot) {
-        from = viewSnapshot.base.from;
-        to = viewSnapshot.place.head;
-      } else {
-        const fArgs = filesArgs(top, { ref: sample.base, mode: sample.mode }, null);
-        const fAns = await this.helper.call(machine, fArgs);
-        if (fAns.ok) {
-          const freshView = viewFiles(fAns.lines);
-          if (freshView?.base.from && freshView.place.head) {
-            from = freshView.base.from;
-            to = freshView.place.head;
-          }
-        }
       }
     }
 
@@ -797,8 +802,10 @@ export default class Changes extends View {
     this.act(
       "diff-send-comments",
       async () => {
+        /** @type {Map<string, Promise<FilesView | { error: string }>>} */
+        const freshViews = new Map();
         const preflight = await preflightVerifyComments(comments, (sample) =>
-          this.preflightFetchTarget(machine, top, viewSnapshot, sample),
+          this.preflightFetchTarget(machine, top, viewSnapshot, sample, freshViews),
         );
         this.setWorktreeComments(wtKey, preflight.next);
         if (preflight.ok === false) {
@@ -808,13 +815,7 @@ export default class Changes extends View {
           return "Open a Claude or Codex tab in this space to send review comments.";
         }
 
-        const cardsRes = await this.helper.call(target.machine, [
-          "cards",
-          "--terminal",
-          target.local,
-          "--kind",
-          target.kind,
-        ]);
+        const cardsRes = await this.helper.call(target.machine, ["cards", "--terminal", target.local]);
         if (cardsRes.ok === false) {
           return `Could not verify agent session: ${cardsRes.message}`;
         }

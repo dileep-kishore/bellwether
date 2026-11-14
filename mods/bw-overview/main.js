@@ -2,7 +2,7 @@
 // machine tags, branch + PR badges, and live agent rows with one-click pinned jump to `chat` or `panes`.
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { agents, exec, home, layout, panes, run, setShared, shared, spaces } from "herdr";
+import { agents, exec, home, layout, nextCommand, panes, run, setShared, shared, spaces } from "herdr";
 import { CHAT_AGENT, PR_SUMMARY, SCREEN_KEY, TAB_VIEW, pinTabAgent, writeTabView } from "./chat-tabs.js";
 import { headOid, remoteOrigin } from "./git.js";
 import { createHelper, parseLines } from "./helper.js";
@@ -35,6 +35,8 @@ export default class Overview extends View {
     this.alive = true;
     this.shown = false;
     this.width = 960;
+    this.rootFocus = cx.focus_handle();
+    this.focusPoke = createPoke();
     /** @type {string | null} */
     this.hoveredId = null;
     /** @type {string[]} */
@@ -58,21 +60,47 @@ export default class Overview extends View {
       },
     });
 
+    cx.spawn(async (/** @type {any} */ cx) => {
+      for (;;) {
+        if ((await nextCommand()) !== "focus") continue;
+        this.focusPoke.poke();
+        cx.notify();
+      }
+    });
+
+    cx.spawn(async () => {
+      for (;;) {
+        await this.focusPoke.wait();
+        if (!this.alive) return;
+        this.rootFocus.focus();
+      }
+    });
+
     cx.spawn((/** @type {any} */ cx) => this.pollLoop(cx));
   }
 
   close() {
     this.alive = false;
     this.poke.poke();
+    this.focusPoke.poke();
+  }
+
+  /** @returns {boolean} */
+  refreshShown() {
+    const s = shared(SCREEN_KEY);
+    if (typeof s === "string" && s !== "overview") {
+      this.shown = false;
+    }
+    return this.shown;
   }
 
   /** @param {any} cx */
   async pollLoop(cx) {
     while (this.alive) {
       const started = Date.now();
-      if (this.shown) {
+      if (this.refreshShown()) {
         for (const sp of this.prSpaces) {
-          if (!this.alive || !this.shown) break;
+          if (!this.alive || !this.refreshShown()) break;
           await this.maybeReadSpacePr(sp, Date.now(), cx);
         }
       }
@@ -382,6 +410,7 @@ export default class Overview extends View {
       .id("bw-overview")
       .size_full()
       .bg(t.surface)
+      .track_focus(this.rootFocus)
       .overflow_y_scrollbar()
       .on_size_change((/** @type {{ width?: number }} */ sz, /** @type {any} */ cx) => {
         const w = Math.round(Number(sz?.width) || 0);

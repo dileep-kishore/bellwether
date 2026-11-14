@@ -429,7 +429,177 @@ describe("bw-needs inline triage", () => {
     ]);
   });
 
-  test("stays quiet on bw cards and bw counts while screen is chat", async () => {
+  test("answers approval cards via y/a/n and 1-3 keys on #bw-needs-list behind the 3 s guard", async () => {
+    setSystemTime(new Date(T0));
+    const approvalReq = {
+      type: "request",
+      id: "req-ap1",
+      kind: "approval",
+      state: "pending",
+      answerable: true,
+      reason: null,
+      who: null,
+      tool: "Bash",
+      command: "cargo test --workspace",
+      detail: "",
+      actions: [
+        { id: "approve", label: "Approve" },
+        { id: "always", label: "Always allow" },
+        { id: "deny", label: "Deny" },
+      ],
+      question: null,
+      at_ms: T0 - 500,
+      resolved_ms: null,
+    };
+
+    const d = makeNeedsLive({
+      exec: bwExec({
+        cards: (args) => {
+          const term = args[args.indexOf("--terminal") + 1];
+          if (term === "t5") {
+            return out([
+              {
+                type: "cards",
+                terminal: "t5",
+                agent: "codex",
+                session: SESSION_B,
+                path: PATH_B,
+                status: "blocked",
+                hooks: "ok",
+                screen: "read",
+              },
+              approvalReq,
+            ]);
+          }
+          return out([]);
+        },
+        counts: () => out([]),
+        pr: () => out([{ type: "pr", pr: null, cached: true, age_s: 1, stale: false }]),
+        answer: () => out([{ type: "answer", result: "answered", state: "answered", message: "" }]),
+      }),
+    });
+
+    const m = await mount("bw-needs", { live: d });
+    await m.cx.flush();
+    m.render();
+
+    // During the 3 s focus guard, y / a / n / 1-3 on #bw-needs-list do not fire bw answer.
+    const list = byId(m.el, "bw-needs-list");
+    await fire(list, "on_key_down", { key: "y", keystroke: "y", modifiers: NO_MODS }, m.cx);
+    await fire(list, "on_key_down", { key: "1", keystroke: "1", modifiers: NO_MODS }, m.cx);
+    await m.cx.flush();
+    expect(bwCalls(m, "answer")).toHaveLength(0);
+
+    // Advance past 3 s guard.
+    setSystemTime(new Date(T0 + 3200));
+    m.cx.sleeps.at(-1)?.wake();
+    await m.cx.flush();
+    m.render();
+
+    // Pressing `a` on #bw-needs-list answers the approval card with `--action always`.
+    await fire(byId(m.el, "bw-needs-list"), "on_key_down", { key: "a", keystroke: "a", modifiers: NO_MODS }, m.cx);
+    await m.cx.flush();
+    const ans = bwCalls(m, "answer");
+    expect(ans).toHaveLength(1);
+    expect(ans[0][2]?.on).toBe("macmini");
+    expect(ans[0][1].slice(3)).toEqual([
+      "answer",
+      "--terminal",
+      "t5",
+      "--request",
+      "req-ap1",
+      "--expect-kind",
+      "codex",
+      "--expect-session",
+      SESSION_B,
+      "--expect-path",
+      PATH_B,
+      "--action",
+      "always",
+    ]);
+  });
+
+  test("hides PR card and Merge PR on non-owner rows and busy owner rows in a ready-PR space", async () => {
+    setSystemTime(new Date(T0 + 5000));
+    const base = makeNeedsLive();
+    base.panes.push({
+      pane: "p-ready-sibling",
+      tab: "tab-ready",
+      terminal: "t3",
+      cwd: "/Users/local/web-ui",
+      branch: "feat/ready",
+      status: "done",
+      program: { key: "codex", name: "Codex" },
+    });
+    base.agents.push({ address: "t3", space: "sp-ready", status: "done" });
+    base.exec = bwExec({
+      cards: (args) => {
+        const term = args[args.indexOf("--terminal") + 1];
+        return out([
+          {
+            type: "cards",
+            terminal: term,
+            agent: term === "t3" ? "codex" : "claude",
+            session: `sess-${term}`,
+            path: `/Users/local/.claude/sess-${term}.jsonl`,
+            status: "done",
+            hooks: "ok",
+            screen: "unread",
+          },
+        ]);
+      },
+      counts: () => out([]),
+      pr: () =>
+        out([
+          {
+            type: "pr",
+            pr: {
+              number: 42,
+              title: "Polish cockpit layout",
+              url: "https://github.com/acme/bellwether/pull/42",
+              state: "OPEN",
+              isDraft: false,
+              baseRefName: "main",
+              headRefOid: "deadbeef1234567890abcdef1234567890abcdef",
+              reviewDecision: "APPROVED",
+              mergeStateStatus: "CLEAN",
+              unresolvedThreads: 0,
+              passing: 5,
+              failing: 0,
+              pending: 0,
+            },
+            cached: true,
+            age_s: 1,
+            stale: false,
+          },
+        ]),
+    });
+
+    const m = await mount("bw-needs", { live: base });
+    await m.cx.flush();
+    m.render();
+
+    // Owner ready row (`t2`) shows PR card and Merge PR.
+    await m.click("needs-row-term:t2");
+    expect(byId(m.el, "needs-pr-card")).not.toBeNull();
+    expect(byId(m.el, "needs-pr-merge")).not.toBeNull();
+
+    // Non-owner sibling row (`t3`) in the same space hides PR card and Merge PR.
+    await m.click("needs-row-term:t3");
+    expect(byId(m.el, "needs-pr-card")).toBeNull();
+    expect(byId(m.el, "needs-pr-merge")).toBeNull();
+
+    // When owner (`t2`) becomes working, it leaves Ready to land and also hides PR card and Merge PR.
+    base.panes.find((/** @type {any} */ p) => p.terminal === "t2").status = "working";
+    base.agents.find((/** @type {any} */ a) => a.address === "t2").status = "working";
+    m.render();
+    await m.click("needs-row-term:t2");
+    expect(byId(m.el, "needs-pr-card")).toBeNull();
+    expect(byId(m.el, "needs-pr-merge")).toBeNull();
+  });
+
+  test("stays quiet on bw cards and bw counts while screen is chat, including after leaving needs without render", async () => {
+    setSystemTime(new Date(T0));
     const d = makeNeedsLive({
       screenActive: "chat",
       shared: { "bw.screen": "chat" },
@@ -443,5 +613,26 @@ describe("bw-needs inline triage", () => {
     await m.cx.flush();
     expect(bwCalls(m, "cards")).toHaveLength(0);
     expect(bwCalls(m, "counts")).toHaveLength(0);
+
+    // Show needs, run one visible poll pass, then flip bw.screen back to "chat" WITHOUT calling m.render().
+    d.shared["bw.screen"] = "needs";
+    findLayout(d.layout, "screen").active = "needs";
+    m.render();
+    m.cx.sleeps.at(-1)?.wake();
+    await m.cx.flush();
+    const cardsOnNeeds = bwCalls(m, "cards").length;
+    const countsOnNeeds = bwCalls(m, "counts").length;
+    expect(cardsOnNeeds).toBeGreaterThan(0);
+
+    d.shared["bw.screen"] = "chat";
+    findLayout(d.layout, "screen").active = "chat";
+    // Intentionally omit m.render() to simulate a hidden stack child whose render() does not run.
+    for (let i = 0; i < 3; i++) {
+      setSystemTime(new Date(T0 + (i + 1) * 5000));
+      for (const s of m.cx.sleeps.splice(0)) s.wake();
+      await m.cx.flush();
+    }
+    expect(bwCalls(m, "cards")).toHaveLength(cardsOnNeeds);
+    expect(bwCalls(m, "counts")).toHaveLength(countsOnNeeds);
   });
 });

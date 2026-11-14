@@ -275,7 +275,10 @@ describe("bw-tabs screen routing and shortcuts", () => {
     await m.cx.flush();
     m.render();
     expect(fake.shared["bw.screen"]).toBe("overview");
-    expect(m.log.run.slice(3)).toEqual([["layout.select", { stack: "screen", child: "overview" }]]);
+    expect(m.log.run.slice(3)).toEqual([
+      ["layout.select", { stack: "screen", child: "overview" }],
+      ["bw-overview.focus"],
+    ]);
 
     // Clicking a tab while overview is active selects the tab and exits overview back to its screen.
     const setScreen = (/** @type {any} */ n, /** @type {string} */ active) => {

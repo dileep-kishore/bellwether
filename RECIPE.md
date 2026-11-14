@@ -104,10 +104,10 @@ Tabs and screens: clicking a tab selects it and switches `screen` between `chat`
 according to `bw.tab-view` and whether the tab is a chat tab (`bw.chat-tabs` or running Claude/Codex).
 `⌘J` flips the active tab between `chat` and `panes`; `⌘⇧'` (`bw-tabs.terminal-peek`) opens Herdr's
 native floating terminal peek; `⌘⇧N` toggles `needs`; `⌘⇧O` toggles `overview`. Every screen
-transition hands keyboard focus to the destination (`pane.focus`, `bw-chat.focus`, or
-`bw-needs.focus`) and updates the 3 s `TERMINAL_FOCUS` cooldown so keystrokes meant for a terminal
-never trigger an approval button. Pre-upgrade split `bw-chat` panes are cleaned up automatically when
-`adopt()` sees them, leaving the live terminal pane intact.
+transition hands keyboard focus to the destination (`pane.focus`, `bw-chat.focus`,
+`bw-needs.focus`, or `bw-overview.focus`) and updates the 3 s `TERMINAL_FOCUS` cooldown so keystrokes
+meant for a terminal never trigger an approval button. Pre-upgrade split `bw-chat` panes are cleaned up
+automatically when `adopt()` sees them, leaving the live terminal pane intact.
 
 Chats, PR strip, and queue: Enter sends directly when the agent is idle or done, and queues into
 `bw queue` while the agent is working or blocked (`⇧⌘Enter` forces an immediate send). On a `Stop`
@@ -115,7 +115,7 @@ hook event (and `bw-chat`'s 2 s fallback poll when hooks are absent), `bw queue 
 safety gates under a per-terminal `FolderLock` (cooldown/inflight, screen emptiness, zero pending
 cards across all running sub-agents, clean assistant turn with no prose question, and live session
 binding) before delivering the head item; any blocker holds the queue cleanly with a visible reason.
-`bw pr status` polls cached GitHub GraphQL metadata (`45 s` TTL + `HEAD` SHA invalidation); clicking
+`bw pr status` polls cached GitHub GraphQL metadata (`60 s` TTL + `HEAD` SHA invalidation); clicking
 `Babysit PR` or `Merge PR` sends or queues `/babysit-pr <number>` or `/merge-pr <number>` to the
 space's agent and never invokes `gh pr merge` directly.
 

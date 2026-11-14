@@ -667,8 +667,9 @@ mini (Apple M4 Pro) and `macbook`.
 
 | Mod | Calls | While shown | While hidden | Reads at once on | CPU per call |
 |---|---|---|---|---|---|
-| `bw-chat` | `bw feed --pictures --tree --cards`, `bw queue list`, `bw pr status` | `bw feed` every 2 s (`bw.screen === "chat"`), `bw pr status` cached 45 s | `bw feed` every 10 s when `bw.screen !== "chat"` | the chat coming into view, a send, an answer, a queue edit | medians 3.7 to 11.2 ms; 19 ms at most |
-| `bw-needs` | `bw cards`, `bw counts`, `bw pr status` | every 2 s for blocked terminals, 10 s for counts, 45 s for PRs | none | showing `needs`, a blocked status transition, an answer | reads screens only for blocked terminals |
+| `bw-chat` | `bw feed --pictures --tree --cards`, `bw queue list`, `bw pr status` | `bw feed` every 2 s (`bw.screen === "chat"`), `bw pr status` every 30 s (cached 60 s) | `bw feed` every 10 s and `bw pr status` every 60 s when `bw.screen !== "chat"` | the chat coming into view, a send, an answer, a queue edit | medians 3.7 to 11.2 ms; 19 ms at most |
+| `bw-needs` | `bw cards`, `bw counts`, `bw pr status` | `bw cards` every 2 s (selected blocked) or 4 s (other blocked), `bw counts` every 10 s, `bw pr status` every 10 s (cached 60 s) | `bw pr status` every 30 s (cached 60 s); zero `bw cards` or `bw counts` | showing `needs`, a blocked status transition, an answer | reads screens only for blocked terminals while shown |
+| `bw-overview` | `bw pr status` | every 15 s (cached 60 s) | none | showing `overview`, a space or branch change | one `git rev-parse HEAD` plus cached `gh` lookup |
 | `bw-diff`, local worktree | `bw diff files` | on a `watchFolder` event, at most once a second; every 30 s without one; every 60 s when the watch is rejected | none | showing the panel, a scope or base change, a reveal | 156 ms on 40,610 files; 92 ms on 5,406 |
 | `bw-diff`, remote worktree | `bw diff files --watch --since <token>` | every 1.5 s | none | showing the panel, a scope or base change, a reveal | about 10 ms unchanged (12.3 ms at most); a full read after an edit |
 | `bw-drafts` | `bw drafts list`, `bw drafts read` on `space.machine` | local: on a `watchFolder` event (at most once a second) and every 30 s; remote: every 10 s | none | showing `drafts`, selecting a file, Refresh | bounded scan (`<= 200` files) |
@@ -679,6 +680,6 @@ mini (Apple M4 Pro) and `macbook`.
 | `bw-new` | `bw browser agent-args` on this Mac | once per Claude or Codex click, up to 20 s | none | a click | starts Chrome when it is stopped |
 | `bw-tabs` | no helper call | one timer for a pending chat's expiry (30 s), at least 1 s | the same | a change in Herdr's live data | none |
 
-`bw-overview`, `bw-status`, `bw-pane`, `bw-right`, `bw-menu` and `bw-add` do not poll. A remote
+`bw-status`, `bw-pane`, `bw-right`, `bw-menu` and `bw-add` do not poll. A remote
 Changes panel keeps one `bw diff watch` process per worktree on the space's machine while it is shown
 and for 60 s after; the watcher used under 10 ms of CPU in its first seconds.

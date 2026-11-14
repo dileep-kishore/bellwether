@@ -130,6 +130,16 @@ function activeQuestionOf(requests) {
   return pending.at(-1) ?? null;
 }
 
+/** @param {Request[]} requests @returns {Request | null} */
+function activeShortcutRequestOf(requests) {
+  const q = activeQuestionOf(requests);
+  if (q) return q;
+  const pending = (requests ?? []).filter(
+    (r) => r.state === "pending" && r.answerable && (r.kind === "approval" || r.kind === "prompt"),
+  );
+  return pending.at(-1) ?? null;
+}
+
 /** @param {PrSummary} pr @param {string | null} headOid @returns {{ text: string, tone: import("./ui.js").PillTone }} */
 function prBadgeInfo(pr, headOid) {
   if ((pr.failing ?? 0) > 0) return { text: "CI failing", tone: "failed" };
@@ -283,13 +293,22 @@ export default class Needs extends View {
     this.other.set_value(want);
   }
 
+  /** @returns {boolean} */
+  refreshShown() {
+    const s = shared(SCREEN_KEY);
+    if (typeof s === "string" && s !== "needs") {
+      this.shown = false;
+    }
+    return this.shown;
+  }
+
   /** @param {any} cx */
   async pollLoop(cx) {
     while (this.alive) {
       const started = Date.now();
       const snap = this.snapshot;
 
-      if (this.shown) {
+      if (this.refreshShown()) {
         if (snap.selectedAgent) {
           const st = this.termStates.get(snap.selectedAgent.terminal);
           const interval = snap.selectedAgent.blocked ? CARDS_SELECTED_MS : COUNTS_POLL_MS;
@@ -298,7 +317,7 @@ export default class Needs extends View {
           }
         }
         for (const b of snap.blockedAgents) {
-          if (!this.alive || !this.shown) break;
+          if (!this.alive || !this.refreshShown()) break;
           if (snap.selectedAgent?.terminal === b.terminal) continue;
           const st = this.termStates.get(b.terminal);
           if (st && (!st.cardsLoaded || Date.now() - st.cardsCheckedAt >= CARDS_BLOCKED_MS)) {
@@ -306,7 +325,7 @@ export default class Needs extends View {
           }
         }
         for (const [machine, terms] of snap.machineTerminals) {
-          if (!this.alive || !this.shown) break;
+          if (!this.alive || !this.refreshShown()) break;
           const last = this.countsCheckedAt.get(machine) ?? 0;
           if (Date.now() - last >= COUNTS_POLL_MS) {
             await this.readMachineCounts(machine, terms, cx);
@@ -316,6 +335,7 @@ export default class Needs extends View {
 
       for (const sp of snap.prSpaces) {
         if (!this.alive) break;
+        this.refreshShown();
         await this.maybeReadSpacePr(sp, Date.now(), cx);
       }
 
@@ -325,7 +345,8 @@ export default class Needs extends View {
         this.guardWakeAt = null;
         cx.notify();
       }
-      const baseMs = this.shown
+      const shownNow = this.refreshShown();
+      const baseMs = shownNow
         ? snap.selectedAgent?.blocked || snap.blockedAgents.length > 0
           ? CARDS_SELECTED_MS
           : COUNTS_POLL_MS
@@ -592,6 +613,30 @@ export default class Needs extends View {
     cx.notify();
   }
 
+  /** @param {NeedsRow} row @param {TerminalState | null} st @param {number} now @returns {Card[]} */
+  cardsForRow(row, st, now) {
+    if (!st) return [];
+    const guarded = isGuarded(st.guard, now);
+    const expect = row.kind ? cardsExpect(st.cards, st.stateLine, row.kind) : null;
+    return dockCards(st.requests, {
+      now,
+      guarded,
+      sending: st.sendingIds,
+      agentName: row.agentLabel,
+      expect,
+    }).map((c) => ({
+      ...c,
+      buttons: c.buttons.map((b) =>
+        b.id === "terminal"
+          ? b
+          : {
+              ...b,
+              enabled: b.enabled && !st.wentOut.has(c.id) && (b.id !== "submit" || complete(this.draftOf(st, c))),
+            },
+      ),
+    }));
+  }
+
   /** @param {NeedsRow} row @param {Card} card @param {any} e @param {any} cx */
   cardKey(row, card, e, cx) {
     if (NO_KEYS_WITH.some((m) => e?.modifiers?.[m])) return;
@@ -599,8 +644,31 @@ export default class Needs extends View {
     const st = this.termStates.get(row.terminal);
     const req = st?.requests.find((r) => r.id === card.id);
     if (!st || !req) return;
-    const key = String(e?.key ?? "");
-    if (/^[1-9]$/.test(key)) {
+    const rawKey = String(e?.key ?? e?.keystroke?.key ?? "");
+    const key = rawKey.toLowerCase();
+    if (req.kind === "approval") {
+      if (e?.modifiers?.shift) return;
+      /** @type {import("./dock-model.js").Button | null} */
+      let targetBtn = null;
+      if (key === "y") {
+        targetBtn = card.buttons.find((b) => b.id === "approve") ?? null;
+      } else if (key === "a") {
+        targetBtn = card.buttons.find((b) => b.id === "always") ?? null;
+      } else if (key === "n") {
+        targetBtn = card.buttons.find((b) => b.id === "deny") ?? null;
+      } else if (/^[1-9]$/.test(key)) {
+        const actionButtons = card.buttons.filter((b) => b.id !== "terminal");
+        targetBtn = actionButtons[Number(key) - 1] ?? null;
+      }
+      if (targetBtn) {
+        cx.stop_propagation?.();
+        if (targetBtn.enabled) {
+          this.clickCard(row, card, targetBtn.id, cx);
+        }
+      }
+      return;
+    }
+    if (/^[1-9]$/.test(key) && !e?.modifiers?.shift) {
       if (req.kind === "prompt") {
         cx.stop_propagation?.();
         this.clickCard(row, card, `option-${key}`, cx);
@@ -625,10 +693,10 @@ export default class Needs extends View {
   /** @param {any} e @param {any} cx */
   listKey(e, cx) {
     if (NO_KEYS_WITH.some((m) => e?.modifiers?.[m])) return;
-    const key = String(e?.key ?? "");
+    const key = String(e?.key ?? e?.keystroke?.key ?? "").toLowerCase();
     const rows = this.lastRows;
     const sel = this.lastSelected;
-    if ((key === "down" || key === "arrowdown" || key === "j") && rows.length > 0) {
+    if ((key === "down" || key === "arrowdown" || (key === "j" && !e?.modifiers?.shift)) && rows.length > 0) {
       const idx = sel ? rows.findIndex((r) => r.id === sel.id) : -1;
       const next = rows[Math.min(rows.length - 1, idx + 1)] ?? rows[0];
       if (next && next.id !== this.selectedId) {
@@ -639,7 +707,7 @@ export default class Needs extends View {
       }
       return;
     }
-    if ((key === "up" || key === "arrowup" || key === "k") && rows.length > 0) {
+    if ((key === "up" || key === "arrowup" || (key === "k" && !e?.modifiers?.shift)) && rows.length > 0) {
       const idx = sel ? rows.findIndex((r) => r.id === sel.id) : 0;
       const prev = rows[Math.max(0, idx - 1)] ?? rows[0];
       if (prev && prev.id !== this.selectedId) {
@@ -650,19 +718,11 @@ export default class Needs extends View {
       }
       return;
     }
-    if (sel?.terminal && (/^[1-9]$/.test(key) || key === "enter")) {
-      const st = this.termStates.get(sel.terminal);
-      const active = st
-        ? (activeQuestionOf(st.requests) ?? st.requests.find((r) => r.state === "pending" && r.kind === "prompt"))
-        : null;
+    if (sel?.terminal && (/^[1-9]$/.test(key) || key === "enter" || key === "y" || key === "a" || key === "n")) {
+      const st = this.termStates.get(sel.terminal) ?? null;
+      const active = st ? activeShortcutRequestOf(st.requests) : null;
       if (st && active) {
-        const cards = dockCards(st.requests, {
-          now: Date.now(),
-          guarded: isGuarded(st.guard, Date.now()),
-          sending: st.sendingIds,
-          agentName: sel.agentLabel,
-          expect: sel.kind ? cardsExpect(st.cards, st.stateLine, sel.kind) : null,
-        });
+        const cards = this.cardsForRow(sel, st, Date.now());
         const card = cards.find((c) => c.id === active.id);
         if (card) this.cardKey(sel, card, e, cx);
       }
@@ -796,13 +856,15 @@ export default class Needs extends View {
           else this.openTerminal(row);
           return;
         }
+        const st = row.terminal ? this.termStates.get(row.terminal) : null;
         if (this.selectedId !== row.id) {
           this.selectedId = row.id;
-          const st = row.terminal ? this.termStates.get(row.terminal) : null;
           if (st) this.syncOther(st);
           this.poke.poke();
           cx.notify();
         }
+        this.focusTarget = st && activeQuestionOf(st.requests) ? "card" : "root";
+        this.focusPoke.poke();
       })
       .when(!selected, (el) => el.child(hoverFill(t, `needs-hover-${row.id}`, hovered, 8)))
       .when(selected, (el) => el.child(div().w(2).h(22).flex_none().rounded(1).bg(t.accent)))
@@ -833,7 +895,7 @@ export default class Needs extends View {
     const pr = row.pr;
     if (!pr) return null;
     const badge = prBadgeInfo(pr, row.headOid);
-    const mergeReady = isMergeReady(pr, row.headOid);
+    const mergeReady = Boolean(row.mergeReady);
     const canSkill = Boolean(row.isAgent && !st?.skillBusy);
     const countsLine = `${pr.passing} passing · ${pr.failing} failing · ${pr.pending} pending · ${pr.unresolvedThreads} unresolved thread${pr.unresolvedThreads === 1 ? "" : "s"} · ${reviewLabel(pr.reviewDecision)}`;
     return v_flex()
@@ -942,26 +1004,7 @@ export default class Needs extends View {
     const st = row.terminal ? (this.termStates.get(row.terminal) ?? null) : null;
     const guarded = st ? isGuarded(st.guard, now) : true;
     if (st) st.drawnGuarded = guarded;
-    const expect = st && row.kind ? cardsExpect(st.cards, st.stateLine, row.kind) : null;
-    const cards = st
-      ? dockCards(st.requests, {
-          now,
-          guarded,
-          sending: st.sendingIds,
-          agentName: row.agentLabel,
-          expect,
-        }).map((c) => ({
-          ...c,
-          buttons: c.buttons.map((b) =>
-            b.id === "terminal"
-              ? b
-              : {
-                  ...b,
-                  enabled: b.enabled && !st.wentOut.has(c.id) && (b.id !== "submit" || complete(this.draftOf(st, c))),
-                },
-          ),
-        }))
-      : [];
+    const cards = this.cardsForRow(row, st, now);
 
     if (st) {
       for (const id of st.cardsShown) if (!cards.some((c) => c.id === id)) st.cardsShown.delete(id);

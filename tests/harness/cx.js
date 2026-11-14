@@ -1,6 +1,6 @@
 // A fake gpui `cx` for the headless harness: spawned bodies wait for flush(), sleeps park until
 // a test wakes them, and timers are recorded for mount's tickTimer.
-import { activity, inPhase, refuse, touch, violations } from "./herdr-stub.js";
+import { activity, inPhase, phase, refuse, touch, violations } from "./herdr-stub.js";
 
 /**
  * @typedef {{ cancel(): void, is_done(): boolean, cancelled: boolean, done: boolean }} Task
@@ -73,7 +73,15 @@ export function makeCx() {
       },
     },
     focus_handle() {
-      return { focus() {}, is_focused: () => false };
+      let focused = false;
+      return {
+        focus() {
+          if (phase() === "render") refuse("FocusHandle.focus() inside render() causes re-entrant borrow in GPUI");
+          touch();
+          focused = true;
+        },
+        is_focused: () => focused,
+      };
     },
     stop_propagation() {
       cx.stopped++;

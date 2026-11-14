@@ -445,6 +445,21 @@ fn walk_worktree_dir(
     }
 }
 
+fn canonical_worktree_rel(canon_wt: &Path, canon_file: &Path) -> Option<String> {
+    let stripped = canon_file.strip_prefix(canon_wt).ok()?;
+    let mut parts = Vec::new();
+    for comp in stripped.components() {
+        let std::path::Component::Normal(os) = comp else {
+            return None;
+        };
+        parts.push(os.to_str()?);
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    Some(parts.join("/"))
+}
+
 fn try_push_worktree_file(
     canon_wt: &Path,
     path: &Path,
@@ -458,7 +473,10 @@ fn try_push_worktree_file(
     let Ok(canon_file) = fs::canonicalize(path) else {
         return;
     };
-    if !canon_file.starts_with(canon_wt) {
+    let Some(canon_rel) = canonical_worktree_rel(canon_wt, &canon_file) else {
+        return;
+    };
+    if classify_worktree_rel(&canon_rel) != Some(kind) {
         return;
     }
     let Ok(meta) = fs::metadata(&canon_file) else {
@@ -705,10 +723,18 @@ pub fn read_entry(worktree: &Path, file_id: &str, for_stage: bool) -> Result<Val
         let canon_file = fs::canonicalize(&joined).map_err(|_| {
             DraftError::runtime("not_found", format!("draft {file_id:?} does not exist"))
         })?;
-        if !canon_file.starts_with(&canon_wt) {
+        let Some(canon_rel) = canonical_worktree_rel(&canon_wt, &canon_file) else {
             return Err(DraftError::runtime(
                 "not_allowed",
                 format!("file {file_id:?} escapes worktree {}", canon_wt.display()),
+            ));
+        };
+        if classify_worktree_rel(&canon_rel) != Some(kind) {
+            return Err(DraftError::runtime(
+                "not_allowed",
+                format!(
+                    "symlink target {canon_rel:?} for {file_id:?} is outside allow-listed {kind} paths"
+                ),
             ));
         }
         let meta = fs::metadata(&canon_file).map_err(|e| {
@@ -1162,29 +1188,40 @@ mod tests {
             let wt = root.join("wt");
             let secret = root.join("outside-secret.md");
             fs::create_dir_all(wt.join("docs/drafts")).unwrap();
+            fs::create_dir_all(wt.join("docs/plans")).unwrap();
             fs::write(&secret, "top secret").unwrap();
             fs::write(wt.join(".env"), "API_KEY=secret").unwrap();
+            fs::write(wt.join("tasks.md"), "- [x] task\n").unwrap();
             symlink(&secret, wt.join("docs/drafts/escape.md")).unwrap();
+            symlink("../../.env", wt.join("docs/plans/local-plan.md")).unwrap();
+            symlink("../../.env", wt.join("docs/drafts/secret.html")).unwrap();
+            symlink("../../tasks.md", wt.join("docs/drafts/not-html.html")).unwrap();
 
             let entries = list_entries(&wt).unwrap();
-            assert!(entries.is_empty());
+            let ids: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
+            assert_eq!(ids, vec!["tasks.md"]);
 
-            assert_eq!(
-                read_entry(&wt, "docs/drafts/escape.md", false)
-                    .unwrap_err()
-                    .code,
-                "not_allowed"
-            );
-            assert_eq!(
-                read_entry(&wt, "../outside-secret.md", false)
-                    .unwrap_err()
-                    .code,
-                "not_allowed"
-            );
-            assert_eq!(
-                read_entry(&wt, ".env", false).unwrap_err().code,
-                "not_allowed"
-            );
+            for blocked in [
+                "docs/drafts/escape.md",
+                "docs/plans/local-plan.md",
+                "docs/drafts/secret.html",
+                "docs/drafts/not-html.html",
+                "../outside-secret.md",
+                ".env",
+            ] {
+                assert_eq!(
+                    read_entry(&wt, blocked, false).unwrap_err().code,
+                    "not_allowed",
+                    "expected not_allowed for {blocked}"
+                );
+            }
+            for blocked_stage in ["docs/drafts/secret.html", "docs/drafts/not-html.html"] {
+                assert_eq!(
+                    read_entry(&wt, blocked_stage, true).unwrap_err().code,
+                    "not_allowed",
+                    "expected stage not_allowed for {blocked_stage}"
+                );
+            }
         });
     }
 

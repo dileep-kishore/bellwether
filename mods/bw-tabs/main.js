@@ -129,6 +129,8 @@ export default class Tabs extends View {
       run("bw-chat.focus");
     } else if (screen === "needs") {
       run("bw-needs.focus");
+    } else if (screen === "overview") {
+      run("bw-overview.focus");
     }
   }
 

@@ -73,6 +73,19 @@ trap 'exit 1' HUP INT TERM
 caffeinate -u -w "$$" >/dev/null 2>&1 </dev/null &
 sleep 0.6
 
+is_screen_locked() {
+  osascript -l JavaScript -e 'function run() {
+    ObjC.import("CoreGraphics");
+    const list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly | $.kCGWindowListExcludeDesktopElements, $.kCGNullWindowID)));
+    return list.some((w) => w.kCGWindowOwnerName === "loginwindow" && w.kCGWindowLayer >= 1000) ? "1" : "0";
+  }'
+}
+
+if [ "$(is_screen_locked)" = "1" ]; then
+  echo "FAIL screen-locked: macOS loginwindow screen lock is active; unlock the display before running ui-stage.sh" >&2
+  exit 1
+fi
+
 [ -e "$D" ] && sh "$STAGE" down >/dev/null 2>&1 || true
 [ -e "$W" ] && { scratch_rm "$W" || rm -rf "$W"; }
 scratch_make "$W"
@@ -580,10 +593,15 @@ export CODEX_HOME="$W/codex-home"
 export BW_STATE_DIR="$W/bw-state"
 sub=\${2:-}
 case \$sub in -*) sub="" ;; esac
-printf '%s %s %s\n' "\$(perl -MTime::HiRes=time -e 'printf "%.3f", time')" "\${1:-}" "\$sub" >> "$D/helper-calls.log"
+now_ts=\$(perl -MTime::HiRes=time -e 'printf "%.3f", time')
+printf '%s %s %s\n' "\$now_ts" "\${1:-}" "\$sub" >> "$D/helper-calls.log"
+if [ "\${1:-}" = "diff" ] && [ "\${2:-}" = "patch" ]; then
+  printf '%s %s\n' "\$now_ts" "\$*" >> "$D/diff-patch-calls.log"
+fi
 exec "$D/bin/bw" "\$@"
 LOG
 chmod +x "$D/bin/bw-log"
+: > "$D/diff-patch-calls.log"
 
 # Merge Bellwether keyboard shortcuts into the stage app home only.
 bun "$src/scripts/keys-merge.js" --apply --home "$D/app" >/dev/null
@@ -747,14 +765,6 @@ fi
 sh "$STAGE" do herdr-app do bw-tabs.chat-flip >/dev/null
 sleep 1.0
 
-is_screen_locked() {
-  osascript -l JavaScript -e 'function run() {
-    ObjC.import("CoreGraphics");
-    const list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly | $.kCGWindowListExcludeDesktopElements, $.kCGNullWindowID)));
-    return list.some((w) => w.kCGWindowOwnerName === "loginwindow" && w.kCGWindowLayer >= 1000) ? "1" : "0";
-  }'
-}
-
 before_peek_w=$(sh "$STAGE" do herdr-app status | jq -r '.floats["sidebar-peek"].bounds[2] // 0')
 
 # Hide sidebar (⌘B) and verify 6 px left-edge floating peek on both chat and panes.
@@ -765,8 +775,6 @@ sleep 0.7
 sh "$STAGE" do herdr-app shot "$W/chat-sidebar-hidden.png" >/dev/null
 hidden_left=$(bun "$W/pixels.js" dominant "$W/chat-sidebar-hidden.png" 934 24 75 180 280 | jq -r .hex)
 chat_peek_bounds=$(sh "$STAGE" do herdr-app status | jq -c '.floats["sidebar-peek"].bounds // [0,0,0,0]')
-chat_peek_w=$(printf '%s' "$chat_peek_bounds" | jq -r '.[2] | floor')
-chat_peek_h=$(printf '%s' "$chat_peek_bounds" | jq -r '.[3] | floor')
 
 peek_edge_x=$((bw_x + 14))
 peek_hover_x=$((bw_x + 40))
@@ -780,18 +788,14 @@ cliclick "m:$park_x,$park_y"
 sh "$STAGE" do herdr-app do bw-tabs.chat-flip >/dev/null
 sleep 0.8
 panes_peek_bounds=$(sh "$STAGE" do herdr-app status | jq -c '.floats["sidebar-peek"].bounds // [0,0,0,0]')
-panes_peek_w=$(printf '%s' "$panes_peek_bounds" | jq -r '.[2] | floor')
-panes_peek_h=$(printf '%s' "$panes_peek_bounds" | jq -r '.[3] | floor')
 cliclick "m:$peek_edge_x,$peek_hover_y" "m:$peek_hover_x,$peek_hover_y"
 sleep 0.8
 sh "$STAGE" do herdr-app shot "$SHOTS/peek-panes-934.png" >/dev/null
 peek_panes_left=$(bun "$W/pixels.js" dominant "$SHOTS/peek-panes-934.png" 934 24 75 180 280 | jq -r .hex)
 
 locked_now=$(is_screen_locked)
-if [ "$hidden_left" = "#1e1e2e" ] && [ "$peek_chat_left" = "#181825" ] && [ "$peek_panes_left" = "#181825" ]; then
+if [ "$locked_now" = "0" ] && [ "$hidden_left" = "#1e1e2e" ] && [ "$peek_chat_left" = "#181825" ] && [ "$peek_panes_left" = "#181825" ]; then
   pass "dc1-floating-peek" "⌘B hid sidebar ($hidden_left) and pointer hover revealed Mantle drawer ($peek_chat_left / $peek_panes_left) on chat and panes"
-elif [ "$locked_now" = "1" ] && [ "$before_peek_w" = "0" ] && [ "$hidden_left" = "#1e1e2e" ] && [ "$chat_peek_w" = "8" ] && [ "$panes_peek_w" = "8" ] && [ "$chat_peek_h" -gt 100 ] && [ "$panes_peek_h" -gt 100 ]; then
-  pass "dc1-floating-peek" "⌘B hid sidebar ($hidden_left) and mounted 6 px left-edge sidebar-peek float ($chat_peek_bounds / $panes_peek_bounds) on chat and panes (macOS loginwindow lock blocks synthetic pointer hover)"
 else
   bad "dc1-floating-peek" "locked=$locked_now before_w=$before_peek_w hidden=$hidden_left peek_chat=$peek_chat_left($chat_peek_bounds) peek_panes=$peek_panes_left($panes_peek_bounds)"
 fi
@@ -807,28 +811,20 @@ shot "$W/chat-before-open-changes.png"
 if oic=$(bun "$W/pixels.js" find-color "$W/chat-before-open-changes.png" 934 "#cba6f7" 20 380 120 560 760 1 2>/dev/null); then
   cx=$((bw_x + $(printf '%s' "$oic" | jq -r .logicalX)))
   cy=$((bw_y + $(printf '%s' "$oic" | jq -r .logicalY)))
+  sp1_id=$(printf '%s' "$s1_json" | jq -r '.space')
+  t_oic=$(perl -MTime::HiRes=time -e 'printf "%.3f", time')
   raise_stage
   cliclick "c:$cx,$cy"
-  sleep 1.2
+  sleep 1.4
   shot "$SHOTS/open-in-changes-934.png"
   right_after=$(bun "$W/pixels.js" dominant "$SHOTS/open-in-changes-934.png" 934 720 120 920 320 | jq -r .hex)
-  if [ "$right_after" = "#1e1e2e" ] && [ "$(is_screen_locked)" = "1" ]; then
-    # macOS loginwindow screen lock discards synthetic CGEvent clicks; replay clickRow's exact reveal commands.
-    sp1_id=$(printf '%s' "$s1_json" | jq -r '.space')
-    tmp_sh="$W/shared-next.json"
-    jq --arg sp "$sp1_id" --arg f "$REPO1/src/shell.js" --argjson at "$(date +%s)000" \
-      '."bw.right.tab" = ((."bw.right.tab" // {}) + {($sp): "changes"}) | ."bw.diff.reveal" = ((."bw.diff.reveal" // {}) + {($sp): {file: $f, at: $at}})' \
-      "$D/app/shared.json" > "$tmp_sh" && mv "$tmp_sh" "$D/app/shared.json"
-    sh "$STAGE" do herdr-app do layout.show '{"id":"right"}' >/dev/null
-    sh "$STAGE" do herdr-app do layout.select '{"stack":"right-body","child":"changes"}' >/dev/null
-    sleep 1.5
-    shot "$SHOTS/open-in-changes-934.png"
-    right_after=$(bun "$W/pixels.js" dominant "$SHOTS/open-in-changes-934.png" 934 720 120 920 320 | jq -r .hex)
-  fi
-  if [ "$right_after" != "#1e1e2e" ] || jq -e '."bw.right.tab" != null' "$D/app/shared.json" >/dev/null 2>&1; then
-    pass "dc1-open-in-changes" "verified Mauve Open in Changes link at ($cx,$cy) and revealed right inspector on Changes ($right_after)"
+  locked_oic=$(is_screen_locked)
+  if [ "$locked_oic" = "0" ] && [ "$right_after" != "#1e1e2e" ] &&
+     jq -e --arg sp "$sp1_id" '."bw.right.tab"[$sp] == "changes"' "$D/app/shared.json" >/dev/null 2>&1 &&
+     awk -v t0="$t_oic" -v p="$REPO1" '$1 >= t0 && index($0, "--path " p " --section changes --file src/shell.js") > 0 { ok=1 } END { exit(ok ? 0 : 1) }' "$D/diff-patch-calls.log"; then
+    pass "dc1-open-in-changes" "clicked Mauve Open in Changes link at ($cx,$cy), revealed right inspector ($right_after), and loaded src/shell.js patch in Changes"
   else
-    bad "dc1-open-in-changes" "right column stayed Base after Open in Changes ($cx,$cy)"
+    bad "dc1-open-in-changes" "locked=$locked_oic right_after=$right_after at ($cx,$cy) or missing bw.right.tab/src/shell.js patch load for $sp1_id"
   fi
 else
   bad "dc1-open-in-changes" "could not locate Mauve Open in Changes link in chat timeline"
@@ -975,8 +971,23 @@ sleep 6.5
 c_end=$(perl -MTime::HiRes=time -e 'printf "%.3f", time')
 chat_feeds=$(awk -v a="$c_start" -v b="$c_end" '$2 == "feed" && $1 >= a && $1 <= b { c++ } END { print c + 0 }' "$D/helper-calls.log")
 
+sh "$STAGE" do herdr-app do bw-tabs.chat-flip >/dev/null
+sleep 0.5
+before_ov_t1=$(sh "$STAGE" do hc read "$t_codex" --lines 40)
+before_ov_t2=$(sh "$STAGE" do hc read "$t_claude" --lines 40)
 sh "$STAGE" do herdr-app do bw-tabs.overview-toggle >/dev/null
 sleep 0.6
+raise_stage
+cliclick t:1
+sleep 0.5
+after_ov_t1=$(sh "$STAGE" do hc read "$t_codex" --lines 40)
+after_ov_t2=$(sh "$STAGE" do hc read "$t_claude" --lines 40)
+if [ "$before_ov_t1" = "$after_ov_t1" ] && [ "$before_ov_t2" = "$after_ov_t2" ]; then
+  pass "dc3-overview-key-isolation" "pressing key 1 on overview after panes -> overview sent nothing to hidden terminals ($t_codex, $t_claude)"
+else
+  bad "dc3-overview-key-isolation" "hidden terminal screen changed after pressing 1 on overview"
+fi
+
 h_start=$(perl -MTime::HiRes=time -e 'printf "%.3f", time')
 sleep 6.5
 h_end=$(perl -MTime::HiRes=time -e 'printf "%.3f", time')

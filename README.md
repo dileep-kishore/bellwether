@@ -112,8 +112,8 @@ A Linux machine gets the build that `scripts/build-dist.sh` writes, which needs 
   through `via` gets no browser. Arrange works on macOS only.
 - The Linear key lives in one Mac's Keychain. Run `scripts/linear-key.sh` on each Mac that shows the
   window.
-- PR status chips read `gh` on the machine where the repository lives; unauthenticated or offline
-  machines keep the chat clean without blocking other features.
+- PR status chips run `gh` on the Mac showing the window; if `gh` is missing, signed out, or offline
+  there, PR badges stay hidden or show cached state without blocking chats or remote spaces.
 - A diff opened as a tab does not refresh by itself. Its Refresh button reads it again.
 
 [docs/usage.md](docs/usage.md#known-limits) lists every known limit.

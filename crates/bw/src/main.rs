@@ -21,7 +21,7 @@ const USAGE: &str = "usage: bw version | bw machine status <machine> | bw machin
     | bw cards|answer|counts <options> | bw hooks <options> | bw event --agent claude|codex \
     | bw browser <command> <options> | bw agent <command> <options> \
     | bw diff files|patch|refs|fetch <options> | bw linear projects|issues|issue|search <options> \
-    | bw pr status <options> | bw queue list|add|edit|move|remove|clear|resume|drain <options> \
+    | bw pr status <options> | bw queue list|add|edit|move|remove|clear|resume|send|drain <options> \
     | bw drafts list|read|register-ledger|stage <options>";
 
 fn main() -> ExitCode {
